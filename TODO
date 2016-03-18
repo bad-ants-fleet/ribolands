@@ -1,0 +1,46 @@
+
+""" * * * * * * TODO * * * * * *
+  *) find a proper name!
+      -> ribolands
+      -> rnadeponia
+      -> acidtrips
+      -> rnaworld
+      -> ribodrome
+      ...
+      -> vrna.pylands
+
+  *) make a python module out of this 
+
+      ViennaRNA
+      -> import RNA as vrna
+
+      Python Libraries
+      -> vrna.landscapes
+      -> vrna.landscapes.syscalls
+      -> vrna.landscapes.walks
+
+      -> vrna.landscapes.development
+
+      Scripts/Tests:
+      -> BarMap.py
+      -> DrTransformer.py
+      -> interkin.py
+
+      (-> spatch.py)
+
+  *) catch import errors if RNA, RNAsubopt, barriers and treekin don't exist
+
+  *) make barriers work in its own temporary directory 
+    and *then* rename the standard file names (rates.out)
+
+  *) use function wrappers (?) to specify a common set of model details
+  *) think of naming I/O files (*.bar, *.spt, *.spt.gz, *.tkn, *.rts, *.ps, *.pdf ...)
+  *) write documentation (sphinx)
+  *) write test files
+
+  *) compare spatch-hack with interkin 
+  *) make an spatch decorator function for sys_suboptimals
+
+  *) make a common preamble for every lib-file
+"""
+

@@ -2,7 +2,7 @@
 import re
 import sys
 
-def read_vienna_stdin():
+def parse_vienna_stdin():
   """ Read STDIN in fasta format
   Read a Sequence and its Name in Fasta Format. Only one Input-Sequence is
   allowed at a time. The Characters must be A, C, G, U, &

@@ -9,9 +9,12 @@ with open('README.md') as f:
 with open('LICENSE') as f:
     license = f.read()
 
+# Dynamically figure out the version
+version = __import__('rnaworld').__version__
+
 setup(
     name='rnaworld',
-    version='0.0.1',
+    version=version,
     description='RNA folding kinetics using ViennaRNA programs',
     long_description=readme,
     author='Stefan Badelt',
@@ -19,9 +22,7 @@ setup(
     #url='http://www.tbi.univie.ac.at/~stef/rnaworld/',
     license=license,
     #packages=find_packages(exclude=('tests', 'docs'))
-    packages=['rnaworld']
-
-    #scripts=['scripts/spatch.py'] #, 'scripts/barmap.py', 'scripts/drtransformer.py']
+    packages=['rnaworld', 'rnaworld.spatch'],
 )
 
 #   install_requires=['matplotlib','numpy','pandas'],
