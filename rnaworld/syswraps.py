@@ -111,7 +111,7 @@ def sys_treekin(name, seq, bfile, rfile,
             "ERROR: process terminated with return code", proc.returncode
         print >> sys.stderr, \
             ' '.join(treecall), '<', bfile, '2>', efile, '>', tfile
-        sys.exit('over and out')
+        raise RuntimeError
 
   '''
   # This should be caught by the proc.returncode before ...
@@ -224,7 +224,7 @@ def sys_barriers(name, seq, sfile,
       print >> sys.stderr, \
           "ERROR: process terminated with return code", process.returncode
       print >> sys.stderr, 'Error:', ' '.join(barcall), '2>', efile, '>', bfile
-      raise SystemExit
+      raise RuntimeError
 
   if rates :
     if k0 != 1.0:
@@ -298,7 +298,7 @@ def sys_suboptimals(name, seq,
         "ERROR: process terminated with return code", Psubopt.returncode
       print >> sys.stderr, 'Error:', \
           'echo', '"'+seq+'"', '|', ' '.join(sptcall), '>', sfile
-      raise SystemExit
+      raise RuntimeError
   return sfile
 
 def sys_subopt_range(seq,

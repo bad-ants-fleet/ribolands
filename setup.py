@@ -25,7 +25,8 @@ setup(
     packages=['rnaworld'],
     scripts=['scripts/pylands_spatch.py',
       'scripts/cofold_kinetics.py', 
-      'scripts/BarMap.py']
+      'scripts/BarMap.py',
+      'scripts/DrTransformer.py']
 )
 
 #   install_requires=['matplotlib','numpy','pandas'],

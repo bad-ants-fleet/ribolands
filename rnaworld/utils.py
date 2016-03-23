@@ -39,7 +39,7 @@ def parse_vienna_stdin():
     if re.match('>', line):
       if name != 'NoName' :
         print >> sys.stderr, 'Only single-sequence fasta format supported!'
-        raise SystemExit
+        raise ValueError
       else : 
         name = line.strip().split()[0][1:]
     else:
@@ -48,7 +48,7 @@ def parse_vienna_stdin():
   if m :
     print >> sys.stderr, \
       "Does not look like RNA:", m.string[m.span()[0]], "in", seq
-    raise SystemExit
+    raise ValueError
   return (name, seq)
 
 # make sure that you use args in order to name every column correctly
@@ -61,7 +61,7 @@ def parse_barfile(bfile, seq=''):
       if e == 0 : 
         if seq and seq != line.strip() :
           print >> sys.stderr, 'Wrong sequence', seq, ' vs. ', line
-          raise SystemExit
+          raise ValueError
       else :
         output.append(line.strip().split())
         #[idx, lmin, en, father, bar] = line.strip().split()[0:5]
