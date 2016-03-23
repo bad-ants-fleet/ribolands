@@ -22,7 +22,10 @@ setup(
     #url='http://www.tbi.univie.ac.at/~stef/rnaworld/',
     license=license,
     #packages=find_packages(exclude=('tests', 'docs'))
-    packages=['rnaworld', 'rnaworld.spatch'],
+    packages=['rnaworld'],
+    scripts=['scripts/pylands_spatch.py',
+      'scripts/cofold_kinetics.py', 
+      'scripts/BarMap.py']
 )
 
 #   install_requires=['matplotlib','numpy','pandas'],

@@ -1,10 +1,27 @@
 #!/usr/bin/env python
-#
-# Written by Stefan Badelt <stef@tbi.univie.ac.at>
-#
-# systemcalls of RNAsubopt, barriers and treekin
-# tested only under linux
-#
+
+"""
+  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
+  University of Vienna, Department of Theoretical Chemistry
+
+  -*- Style -*- 
+  Use double quotes or '#' for comments, such that single quotes are available
+  for uncommenting large parts during testing
+
+  *) do not exceed 80 characters per line
+  *) indents: 2x whitespace, no tab characters!
+
+  -*- VIM config -*- 
+  set textwidth=80
+  set ts=2 et sw=2 sts=2
+
+  -*- Content -*-
+  *) systemcalls of RNAsubopt, barriers and treekin 
+  *) tested under linux
+
+  -*- TODO -*-
+  *) encapsulate syswraps into tmp-directory (bec of barriers)
+"""
 
 import os
 import re
@@ -24,12 +41,43 @@ def sys_treekin(name, seq, bfile, rfile,
   ti = 1.02,
   t8 = 1e10,
   force=False):
-  """
-  Do the treekin simulation and print the results after each simulation as
-  finished to stdout.
+  """ **Perform a system-call of the program ``treekin``.**
 
-  :return: None
+  The print the results into a file and return the respective filename. This
+  wrapper will produce two output files from ``STDIN`` and ``STDERR``,
+  respectively. 
+
+  .. note:: This wrapper is written for ``treekin v0.4``. 
+
+  :param name: Name of the sequence used to name the output file
+  :param seq: Nucleic acid sequence 
+  :param bfile: input filename for ``treekin`` as produced by ``barriers``
+  :param rfile: input filename for ``treekin`` to specify a rate-matrix as \
+      produced by ``barriers``
+  :type name: string
+  :type seq: string
+  :type bfile: string
+  :type rfile: string
+
+  :param p0: A list to specify an initial occupancy vector 
+  :type p0: list
+
+  :return: The name of the file containing ``treekin`` results. 
+  :rtype: string
   """
+
+  if which(treekin) is None :
+    print >> sys.stderr, treekin, "is not executable"
+    print """ 
+    You need to install *treekin*, which you can download from the 
+    ViennaRNA package homepage: http://www.tbi.univie.ac.at/RNA/Treekin/
+    
+    If you have installed the program, make sure that the path you specified 
+    is executable.
+    """
+    raise SystemExit
+
+
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
   # http://www.regular-expressions.info/floatingpoint.html
 
@@ -105,6 +153,17 @@ def sys_barriers(name, seq, sfile,
     force=False,
     verb=False):
   """ single barriers run, produce missing files """
+
+  if which(barriers) is None :
+    print >> sys.stderr, barriers, "is not executable"
+    print """ 
+    You need to install *barriers*, which you can download from the 
+    ViennaRNA package homepage: http://www.tbi.univie.ac.at/RNA/Barriers/
+    
+    If you have installed the program, make sure that the path you specified 
+    is executable.
+    """
+    raise SystemExit
 
   if not sfile or not os.path.exists(sfile) : 
     sfile = sys_suboptimals(name, seq, 
@@ -196,6 +255,17 @@ def sys_suboptimals(name, seq,
     force=False):
   """ Call RNAsubopt """
 
+  if which(RNAsubopt) is None :
+    print >> sys.stderr, RNAsubopt, "is not executable"
+    print """ 
+    You need to install *RNAsubopt*, which is part of the ViennaRNA
+    package, download: http://www.tbi.univie.ac.at/RNA 
+    
+    If you have installed the program, make sure that the path you specified 
+    is executable.
+    """
+    raise SystemExit
+
   if ener is None :
     ener, nos = sys_subopt_range(seq, verb=verb, 
         RNAsubopt=RNAsubopt, noLP=noLP, circ=circ, temp=temp)
@@ -240,6 +310,18 @@ def sys_subopt_range(seq,
     maxe=30.0,
     nos=5100000):
   """ Compute energy range for given number of structures """
+
+  if which(RNAsubopt) is None :
+    print >> sys.stderr, RNAsubopt, "is not executable"
+    print """ 
+    You need to install *RNAsubopt*, which is part of the ViennaRNA
+    package, download: http://www.tbi.univie.ac.at/RNA 
+    
+    If you have installed the program, make sure that the path you specified 
+    is executable.
+    """
+    raise SystemExit
+
 
   num, nump = 0, 0
   e = maxe if nos is 0 else 2.
@@ -306,4 +388,24 @@ def subopt_reaches_minh(fname, minh):
           return 1
   return 0
 
+def which(program):
+  """
+    Snatched from:
+    http://stackoverflow.com/questions/377017/test-if-executable-exists-in-python
+  """
+  def is_exe(fpath):
+    return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+  fpath, fname = os.path.split(program)
+  if fpath:
+    if is_exe(program):
+      return program
+  else:
+    for path in os.environ["PATH"].split(os.pathsep):
+      path = path.strip('"')
+      exe_file = os.path.join(path, program)
+      if is_exe(exe_file):
+        return exe_file
+
+  return None
 

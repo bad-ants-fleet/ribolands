@@ -16,7 +16,6 @@ import string
 import math
 import RNA
 
-
 def make_pair_table(ss, base=0):
   """ 
     Return a secondary struture in form of pair table:

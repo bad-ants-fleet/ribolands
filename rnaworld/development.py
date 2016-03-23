@@ -1,19 +1,19 @@
 #!/usr/bin/env python
 
-__version__ = "0.1"
-__author__  = "Stefan Badelt"
-__email__   = "stef@tbi.univie.ac.at"
-
 """
-  Style: If you use strings as comments, like here, use double quotes, such
-  that single quotes are available for uncommenting large parts during testing
+  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
+  University of Vienna, Department of Theoretical Chemistry
+
+  -*- Style -*- 
+  Use double quotes or '#' for comments, such that single quotes are available
+  for uncommenting large parts during testing
 
   *) do not exceed 80 characters per line
   *) indents: 2x whitespace, no tab characters!
 
-  vim-config settings:
+  -*- VIM config -*- 
   set textwidth=80
-  set tabstops ...
+  set ts=2 et sw=2 sts=2
 """
 
 import re
@@ -24,38 +24,111 @@ import collections as c
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-""" * * * * * * TODO * * * * * *
-  *) make a python module out of this 
 
-      ViennaRNA
-      -> import RNA as vrna
 
-      Python Libraries
-      -> vrna.landscapes
-      -> vrna.landscapes.syscalls
-      -> vrna.landscapes.walks
+""" Thinktank for a new and better interface:
 
-      -> vrna.landscapes.development
+  ******** Example *********
+  
+  context = pyrna_environment(tempC=37.0, NaCL=1.0, theo=False, ...)
+  model   = pyrna_energy_model(params='turner', dangle=2, noGU=False, tetraloop=True)
+  
+  romeo = pyrna_nucleic_acid(seq, circ=False, environment=context, emodel=model)
+  
+  romeo.set_environment.tempC(37.0)
+  romeo.set_environment.kT(0.61)
+  romeo.set_energy_model.params('turner1999')
+  
+  [ss, en] = romeo.mfe(tempC=15, circ=True) # Sets the variable for this run only
+  # alternative: pyrna_mfe(romeo, tempC=15, circ=True)
+  efe = romeo.efe
+  pfc = romeo.pfc
+  ffile = romeo.sys_fold
+  
+  romeo.energy_model.noLP(True)
+  romeo.energy_model.k0(2e5)
+  sfile = romeo.sys_suboptimals(fname=romeo, ener=None, maxn=5000, maxe=30.00)
+  [bfile, rfile, ... ] = romeo.sys_barriers(minh=1, maxn=50, rates=True, k0=1)
+  tfile = romeo.sys_treekin(t0=1e-6, ti=1.02, t8=1e6)
+  
+  what about two sequences?
+  context = romeo.get_environment()
+  model = romeo.get_energy_model()
+  julia = pyrna_nucleic_acid(seq, context=context, model=model)
+  
+  
+  couple = romeo + julia # only works if context is the same (?)
+  
+  cut_point = couple.get_cut_points
+  couple.mfe(cut_point=-1)
+  copule.sys_suboptimals
+  
+  onemore += felix # will be prohibited, unless using NUPACK
 
-      Scripts/Tests:
-      -> BarMap.py
-      -> DrTransformer.py
-      -> spatch.py
-      -> interkin.py
+  ******** Structure *********
 
-  *) on import:
-        -> catch errors if RNA, RNAsubopt, barriers and treekin don't exist,
-          warn otherwise
-  *) make barriers work in its own temporary directory 
-    and *then* rename the standard file names (rates.out)
-    alternative: warn that the user must not make parallel computations
+  Initialize parent objects:
+    * vrna_environment # temp, circ
+    * energy_model # 
+    * model_options(subopt, barriers, treekin)
+  
+  Initialize RNA object and inherit from parents, if they are set:
+    * pyrna_nucleic_acid(seq, env=env, emod=emod)
+  
+  Call functions with obligatory one-time parameters
 
-  *) use function wrappers (?) to specify a common set of model details
-  *) think of naming I/O files (*.bar, *.spt, *.spt.gz, *.tkn, *.rts, *.ps, *.pdf ...)
-  *) compare spatch-hack with interkin 
-  *) write test files
-  *) sphinx documentation
 """
+
+""" under construction """
+class pyrna_context:
+  """ Set model details to standard vrna details """
+  temperature = 37.0
+  theophylline = None
+  tetracycline = None
+  ions = None
+
+# inhertiance: children have access to parent methods
+class pyrna_molecule: 
+  """ Define basic properties of the molecule. 
+    This is the partent class
+  
+  """
+  def __init__(self, sequence):
+    self.sequence = sequence
+    circ = False
+    print "Creating an RNA object"
+
+  def energy_model(self):
+    parameter_file = 'turner1999'
+    dangles = 2 # [0: none, 1: ?, 2: some, 3: mathews]
+    GUclosing = True
+    tetraloopen = True
+
+
+class pyrna_options:
+  def __init__(self):
+    pass
+
+  def general(self):
+    noLP = False
+
+  def suboptimals(self):
+    subopt_energy = None
+    maxspt_energy = 30.0
+    subopt_structs= 5000
+
+  def barriers(self):
+    rates=True
+    bsize=False
+    saddle=False
+    minh = 0.01
+    maxn = 100
+
+  def kinetics(self):
+    t0 = 1e-6
+    ti = 1.02
+    t8 = 1e10
+
 
 """ Under Testing """
 
@@ -84,177 +157,6 @@ def model_details(force=False, tmp=27, **kwars):
 
 
 """ Main public functions """
-
-'''
-def cofold_barriers(_name, species,
-    spatch=['|', '~/WORK/Python/spatch.py'],
-    ener = None,
-    bionly=False, #DEBUGGING
-    barriers='barriers',
-    minh=0.001,
-    maxn=50,
-    k0=1.0,
-    temp=37.0,
-    moves='single-base-pair',
-    gzip=True,
-    rates=True,
-    bsize=False,
-    saddle=False,
-    force=False,
-    verb=False):
-  """ Simulate inter-molecular folding
-  Compute folding kinetics 
-    returns the biggest connected component and a list of nodes
-    TODO: 
-      *) @homo-dimers: RNAsubopt-barriers does not correct for two-fold symmetry!
-  """
-  
-  import networkx as nx
-
-  noLP=False # MUST BE FALSE!
-  #minh=0.5  # MUST BE < 1 (?)
-  circ=False # MUST BE FALSE!
-  mfile=''
-
-  RG = nx.MultiDiGraph()
-  sortednodes = c.OrderedDict()
-  hypercount  = [0]
-
-  for spe, seq in species :
-    name = _name + "_" + spe
-
-    if '&' in name :
-      name = name.translate(string.maketrans("&", "_"))
-
-      """ additional true dimer only run """
-      if not bionly :
-        spatch.append('-d')
-
-        if ener is None : sys.exit('specify energy range!')
-        sfile = sys_suboptimals(name, seq, 
-            ener=ener, opts=spatch, verb=verb, force=force)
-        [sfile, bfile, efile, rfile, psfile] = sys_barriers(name, seq, sfile, 
-            barriers=barriers, minh=minh, maxn=maxn, k0=k0, temp=temp, 
-            verb=verb, force=force)
-
-        # this function modifies sortednodes and hypercount... not nice!
-        add_edges(RG, bfile, rfile, 'uni', spe, seq, sortednodes, hypercount)
-
-        args.s_patch.pop()
-
-      [bfile, efile, rfile, ps] = bm.barriers(seq, args)
-      if bionly :
-        add_edges(RG, bfile, rfile, 'bionly', spe, seq, sortednodes, hypercount)
-      else :
-        add_edges(RG, bfile, rfile, 'bi', spe, seq, sortednodes, hypercount)
-    else :
-      if not bionly :
-        [bfile, efile, rfile, ps] = bm.barriers(seq, args)
-        add_edges(RG, bfile, rfile, 'uni', spe, seq, sortednodes, hypercount)
-    args.name = name
-
-    print "connected components", 
-    print [len(comp) for comp in 
-        sorted(nx.strongly_connected_components(RG), key=len, reverse=True)]
-
-  for e, comp in enumerate(
-      sorted(nx.strongly_connected_components(RG), key=len, reverse=True)) :
-    #print comp
-    if e == 0 : continue
-    print "Discarding connected component!", len(comp), comp
-    for i in comp: sortednodes[i] = 0
-
-  return max(nx.strongly_connected_component_subgraphs(RG), key=len), sortednodes
-
-
-def add_edges(RG, bfile, rfile, mode, spe, seq, snodes, hcount):
-  """ Add the transition edges, no symmetry correction! """
-  RM = []
-  lmins = [] #map(lambda(x): (spe, x[1]), nal.parse_barfile(bfile, seq=seq))
-  for line in nal.parse_barfile(bfile, seq=seq):
-    lmins.append((spe, line[1]))
-    if (spe, line[1]) not in snodes :
-      snodes[(spe,line[1])] = 0
-  with open(rfile) as rates :
-    for line in rates :
-      """ Can we correct rates for two-fold rotational symmetry ? """
-      RM.append((map(float, line.strip().split())))
-  pDF = pd.DataFrame(RM, columns=lmins, index=lmins)
-
-  if mode == 'uni' :
-    for col in pDF : 
-      for row in pDF :
-        if row == col : continue
-        if pDF[col][row] == 0. : continue
-        if pDF[row][col] == 0. :
-          print "backward rate missing!!!"
-        #The forward rate row => col is in RM[col][row]
-        #print "Adding:", row, col, pDF[col][row]
-        RG.add_weighted_edges_from([(row, col, pDF[col][row])])
-        snodes[row]=1
-        snodes[col]=1
-  elif mode == 'bi' or mode == 'bionly' :
-    #fakemin
-    for col in pDF : 
-      for row in pDF :
-        if row == col : continue
-        if pDF[col][row] == 0. : continue
-        #The forward rate row => col is in RM[col][row]
-        cplR = get_complexes(row)
-        cplC = get_complexes(col)
-        # good enough to identify pairwise interactions:
-        if len(cplR) == len(cplC) : 
-          """ WARNING: adding unimolecular rate from cofold tree """
-          if mode == 'bi' : continue
-          if len(cplR) == 1 :
-            """ Dimer to Dimer """
-            RG.add_weighted_edges_from([(row, col, pDF[col][row])])
-            snodes[row]=1
-            snodes[col]=1
-          elif len(cplR) == 2 :
-            """ 2xMon to 2xMon """
-            if cplR[0] != cplC[0] and cplR[1] != cplC[1] : 
-              """ this fucks up simulations, skip it! """
-              continue
-            if cplR[0] != cplC[0] :
-              #print "adding", cplR[0], cplC[0]
-              edict = RG.get_edge_data(cplR[0], cplC[0])
-              if edict :
-                if edict[0]['weight'] < pDF[col][row] :
-                  edict[0]['weight'] = pDF[col][row]
-              else :
-                RG.add_weighted_edges_from([(cplR[0], cplC[0], pDF[col][row])])
-              snodes[cplR[0]]=1
-              snodes[cplC[0]]=1
-            if cplR[1] != cplC[1] :
-              #print "adding", cplR[1], cplC[1], pDF[col][row], row, col 
-              edict = RG.get_edge_data(cplR[1], cplC[1])
-              if edict :
-                if edict[0]['weight'] < pDF[col][row] :
-                  edict[0]['weight'] = pDF[col][row]
-              else :
-                RG.add_weighted_edges_from([(cplR[1], cplC[1], pDF[col][row])])
-              snodes[cplR[1]]=1
-              snodes[cplC[1]]=1
-          else :
-            sys.exit('no support for compexes of size > 2')
-        else :
-          hcount[0] += 1
-          hnode = ('HYPER', str(hcount[0]))
-          for tup in cplR+cplC :
-            if not RG.has_node(tup):
-              #print tup, "recovered!"
-              snodes[tup]=1
-          #print "Adding:", row, col, pDF[col][row]
-          for tup in cplR :
-            RG.add_weighted_edges_from([(tup, hnode, pDF[col][row])])
-          for tup in cplC :
-            RG.add_weighted_edges_from([(hnode, tup, pDF[col][row])])
-  else :
-    print """ specify valid modus (uni/bi) """
-  
-  return
-'''
 
 def plot_simulation(name, seq, tfile, 
     title='',
@@ -367,6 +269,9 @@ def barriersCG(mfile, efile, verb=False):
 """ A little example for main """
 
 def main():
+  import rnaworld.syswraps as rns
+  import rnaworld.utils as rnu
+
   """ xxx """
   parser = argparse.ArgumentParser()
   parser.add_argument("-p","--path", 
@@ -394,28 +299,28 @@ def main():
   circ=False
   noLP=True
   force=True
-  spatch=['|', '~/WORK/Python/spatch.py', '--theo']
+  spatch=['|', 'pylands_spatch.py', '--theo']
 
   verb=True
 
   #ener, nos = sys_subopt_range(seq, nos=1000000, maxe=20, verb=verb)
-  sfile = sys_suboptimals(name, seq, 
+  sfile = rns.sys_suboptimals(name, seq, 
       ener=18, 
       noLP=noLP,
       opts=spatch,
       verb=verb, 
       force=force)
 
-  [sfile, bfile, efile, rfile, psfile] = sys_barriers(name, seq, sfile, 
+  [sfile, bfile, efile, rfile, psfile] = rns.sys_barriers(name, seq, sfile, 
       minh=2.0, maxn=20, rates=True, verb=verb, noLP=noLP, force=force)
-  tfile = sys_treekin(name, seq, bfile, rfile, 
+  tfile = rns.sys_treekin(name, seq, bfile, rfile, 
       p0=['2=1'], t0=1e-6, ti=1.02, t8=1e10, verb=verb, force=force)
   pfile = plot_simulation(name, seq, tfile, 
       ylim=(0,1), xlim=(1e-2, 1e10), lines=[], force=force)
 
   # BCG = barriersCG(mfile, efile)
-  RM = parse_ratefile(rfile)
-  BT = parse_barfile(bfile, seq=seq)
+  RM = rnu.parse_ratefile(rfile)
+  BT = rnu.parse_barfile(bfile, seq=seq)
 
   print RM, BT
   print sfile, bfile, efile, rfile, psfile, tfile, pfile
