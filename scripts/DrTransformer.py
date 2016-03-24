@@ -135,7 +135,45 @@ def graph_pruning(CG, sorted_nodes, cutoff, saddles, fullseq) :
 
   return deleted_nodes, still_reachables
 
-def talk_to_DrForna(CG, seq, sorted_nodes, tfile, _time, _cutoff) :
+def expand_graph(CG, seq, ss, _cutoff = 0.01, verb=False):
+  """ Expand the graph ...
+
+  """
+  for ni, data in CG.nodes_iter(data=True):
+    en  = data['energy']
+    occ = data['occupancy']
+    if occ < _cutoff : continue
+
+    ss = ni[0:len(seq)]
+
+    opened = open_breathing_helices(seq, ss)
+    for onbr in opened :
+      nbr = fold_exterior_loop(seq, onbr)
+      future = '.' * (ni-nbr)
+      nbr += future
+      if ni == nbr or CG.has_edge(ni, nbr):
+        continue
+
+      if CG.has_node(nbr):
+        add_transition_edges(CG, saddles, fullseq, ni, nbr)
+      elif add_transition_edges(CG, saddles, fullseq, ni, nbr) :
+        enbr = round(RNA.energy_of_structure(fullseq, nbr, 0), 2)
+        CG.node[nbr]['energy'] = enbr
+        CG.node[nbr]['occupancy'] = 0.0
+        CG.node[nbr]['identity'] = _id
+        _id += 1
+
+  return 
+
+def open_breathing_helices(seq, ss):
+
+  return []
+
+def fold_exterior_loop(seq, onbr):
+
+  return onbr
+
+def talk_to_DrForna(CG, seq, sorted_nodes, tfile, _time, _cutoff, repl=None) :
   """ TODO: this should not return time, it should just talk! """
   # http://www.regular-expressions.info/floatingpoint.html
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
@@ -146,19 +184,31 @@ def talk_to_DrForna(CG, seq, sorted_nodes, tfile, _time, _cutoff) :
     print "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
         _time, 1.0, ss[:len(seq)], CG.node[ss]['energy'])
   else :
+    prevcourse = []
     with open(tfile) as tkn :
-      for line in tkn :
+      # this is nasty, but used to check if we're at the last line
+      tknlines = tkn.readlines()
+      for line in tknlines:
         if reg_flt.match(line) :
           course = map(float, line.strip().split())
           time = course[0]
+
           for e, occu in enumerate(course[1:]) :
+            # is it above visibility threshold?
             if occu > _cutoff :
+              # can we actually skip the point?
+              if repl and prevcourse and prevcourse[e+1] > 0 and line is not tknlines[-2]:
+                y1 = min(prevcourse[e+1], course[e+1])
+                y2 = max(prevcourse[e+1], course[e+1])
+                dy = math.log(y2) - math.log(y1)
+                if dy < repl : continue
               ss = sorted_nodes[e][0]
               print "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
                   _time + time, occu, ss[:len(seq)], CG.node[ss]['energy'])
 
-  return time + _time
+          prevcourse = course
 
+  return time + _time
 
 def get_drtrafo_args():
   """ A collection of arguments that are used by DrTransformer """
@@ -192,6 +242,7 @@ def get_drtrafo_args():
 
   parser.add_argument("--treekin", default='treekin', action = 'store',
       help="Specify path to your *treekin* executable")
+  parser.add_argument("--repl", type=float, default=None)
   parser.add_argument("--p0", nargs='+', default=['1=1'])
   parser.add_argument("--k0", type=float, default=2e5)
   parser.add_argument("--t0", type=float, default=0.0)
@@ -207,7 +258,6 @@ def get_drtrafo_args():
       help="Divide x-axis into lin and log at transcription stop")
 
   return parser.parse_args()
-
 
 def main():
   """ DrTransformer - cotranscriptional folding """
@@ -236,7 +286,10 @@ def main():
   RNA.cvar.noLonelyPairs = 1
   RNA.cvar.temperature = args.temperature
 
-  if args.stop == 0 : args.stop = len(fullseq)+1
+  if args.stop == 0 : 
+    args.stop = len(fullseq)+1
+  else :
+    fullseq = fullseq[0:args.stop-1]
 
   _id = 0
   _total_time = 0
@@ -269,6 +322,7 @@ def main():
       print >> sys.stderr, ss, "[secondary structure could not be connected]"
 
     # Expand Graph
+    # expand_graph(CG, seq, ss, verb=args.verbose)
 
     # Report before simulation (?)
 
@@ -293,11 +347,12 @@ def main():
     except RuntimeError:
       tfile = nal.sys_treekin(_fname, seq, bfile, rfile, 
           treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
-          useplusI=False, force=True, verb=False)
+          useplusI=False, force=True, verb=True)
 
     # Get Results
     update_occupancy(CG, nlist, tfile)
-    _total_time = talk_to_DrForna(CG, seq, nlist, tfile, _total_time, args.plot_cutoff)
+    _total_time = talk_to_DrForna(CG, seq, nlist, tfile, _total_time,
+        args.plot_cutoff, repl=args.repl)
     
     # Prune
     dn,sr = graph_pruning(CG, nlist, args.cutoff, saddles, fullseq)
