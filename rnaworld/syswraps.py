@@ -1,27 +1,25 @@
 #!/usr/bin/env python
 
-"""
-  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
-  University of Vienna, Department of Theoretical Chemistry
-
-  -*- Style -*- 
-  Use double quotes or '#' for comments, such that single quotes are available
-  for uncommenting large parts during testing
-
-  *) do not exceed 80 characters per line
-  *) indents: 2x whitespace, no tab characters!
-
-  -*- VIM config -*- 
-  set textwidth=80
-  set ts=2 et sw=2 sts=2
-
-  -*- Content -*-
-  *) systemcalls of RNAsubopt, barriers and treekin 
-  *) tested under linux
-
-  -*- TODO -*-
-  *) encapsulate syswraps into tmp-directory (bec of barriers)
-"""
+#  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
+#  University of Vienna, Department of Theoretical Chemistry
+#
+#  -*- Style -*- 
+#  Use double quotes or '#' for comments, such that single quotes are available
+#  for uncommenting large parts during testing
+#
+#  *) do not exceed 80 characters per line
+#  *) indents: 2x whitespace, no tab characters!
+#
+#  -*- VIM config -*- 
+#  set textwidth=80
+#  set ts=2 et sw=2 sts=2
+#
+#  -*- Content -*-
+#  *) systemcalls of RNAsubopt, barriers and treekin 
+#  *) tested under linux
+#
+#  -*- TODO -*-
+#  *) encapsulate syswraps into tmp-directory (bec of barriers)
 
 import os
 import re
@@ -30,7 +28,11 @@ import gzip
 import math
 import subprocess as sub
 
-""" start of public functions """
+
+# **************** #
+# public functions #
+# ................ #
+
 def sys_treekin(name, seq, bfile, rfile,
   treekin = 'treekin',
   verb = False,
@@ -43,7 +45,7 @@ def sys_treekin(name, seq, bfile, rfile,
   force=False):
   """ **Perform a system-call of the program ``treekin``.**
 
-  The print the results into a file and return the respective filename. This
+  Printing the results into a file and return the respective filename. This
   wrapper will produce two output files from ``STDIN`` and ``STDERR``,
   respectively. 
 
@@ -67,7 +69,7 @@ def sys_treekin(name, seq, bfile, rfile,
   """
 
   if which(treekin) is None :
-    print >> sys.stderr, treekin, "is not executable"
+    print treekin, "is not executable"
     print """ 
     You need to install *treekin*, which you can download from the 
     ViennaRNA package homepage: http://www.tbi.univie.ac.at/RNA/Treekin/
@@ -75,7 +77,7 @@ def sys_treekin(name, seq, bfile, rfile,
     If you have installed the program, make sure that the path you specified 
     is executable.
     """
-    raise SystemExit
+    raise ValueError('Could not find executable')
 
 
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
@@ -152,10 +154,37 @@ def sys_barriers(name, seq, sfile,
     mfile='',
     force=False,
     verb=False):
-  """ single barriers run, produce missing files """
+  """ **Perform a system-call of the program ``barriers``.**
+
+  The print the results into a file and return the respective filename. This
+  wrapper will produce two output files from ``STDIN`` and ``STDERR``,
+  respectively. 
+
+  .. note:: This wrapper is written for ``barriers v1.6``, previous implementations \
+      do not have the ``--mapstruc`` option.
+
+  :param name: Name of the sequence used to name the output file.
+  :param seq: Nucleic acid sequence.
+  :param sfile: Input filename for ``barriers`` as produced by ``RNAsubopt``.
+  :param force: Overwrite existing files with the same name.
+  :param verb: Print the current system-call to ``stderr``.
+  :param k0: Adjust the prefactor for the Metropolis rule when calculating rates.
+  :param temp: Specify temperature in Celsius.
+  :type name: string
+  :type seq: string
+  :type sfile: string
+  :type temp: float
+  :type k0: float
+  :type force: bool
+  :type verb: bool
+
+  :return: A list of produced files containing ``barriers`` results. \
+      [sfile, bfile, rfile, efile, pfile]
+  :rtype: list
+  """
 
   if which(barriers) is None :
-    print >> sys.stderr, barriers, "is not executable"
+    print barriers, "is not executable"
     print """ 
     You need to install *barriers*, which you can download from the 
     ViennaRNA package homepage: http://www.tbi.univie.ac.at/RNA/Barriers/
@@ -163,7 +192,7 @@ def sys_barriers(name, seq, sfile,
     If you have installed the program, make sure that the path you specified 
     is executable.
     """
-    raise SystemExit
+    raise ValueError('Could not find executable')
 
   if not sfile or not os.path.exists(sfile) : 
     sfile = sys_suboptimals(name, seq, 
@@ -253,10 +282,40 @@ def sys_suboptimals(name, seq,
     sort=['|', 'sort', '-T', '/tmp', '-k3r', '-k2n'],
     gzip=True,
     force=False):
-  """ Call RNAsubopt """
+  """ **Perform a system-call of the program ``RNAsubopt``.**
+
+  The print the results into a file and return the filename. This wrapper will
+  produce two output files from ``STDIN`` and ``STDERR``, respectively. 
+
+  :param name: Name of the sequence used to name the output file.
+  :param seq: Nucleic acid sequence.
+  :param RNAsubopt: path to executable
+  :param ener: Specify energy range
+  :param temp: Specify temperature in Celsius.
+  :param verb: Print the current system-call to ``stderr``.
+  :param noLP: exclude lonely-base-pairs in suboptimal structures
+  :param circ: compute density of states
+  :param opts: more options for ``RNAsubopt``
+
+  :param force: Overwrite existing files with the same name.
+
+  :type name: string
+  :type seq: string
+  :type RNAsubopt: string
+  :type ener: float
+  :type temp: float
+  :type noLP: bool
+  :type circ: bool
+  :type opts: list
+  :type force: bool
+  :type verb: bool
+
+  :return: Fliename of the file containing ``RNAsubopt`` results
+  :rtype: string
+  """
 
   if which(RNAsubopt) is None :
-    print >> sys.stderr, RNAsubopt, "is not executable"
+    print RNAsubopt, "is not executable"
     print """ 
     You need to install *RNAsubopt*, which is part of the ViennaRNA
     package, download: http://www.tbi.univie.ac.at/RNA 
@@ -264,7 +323,7 @@ def sys_suboptimals(name, seq,
     If you have installed the program, make sure that the path you specified 
     is executable.
     """
-    raise SystemExit
+    raise ValueError('Could not find executable')
 
   if ener is None :
     ener, nos = sys_subopt_range(seq, verb=verb, 
@@ -303,16 +362,33 @@ def sys_suboptimals(name, seq,
 
 def sys_subopt_range(seq,
     RNAsubopt='RNAsubopt',
+    nos=5100000,
+    maxe=30.0,
     temp=37.0,
-    verb=False,
     noLP=False,
     circ=False,
-    maxe=30.0,
-    nos=5100000):
-  """ Compute energy range for given number of structures """
+    verb=False):
+  """ Compute an energy range that computes a given number of structures.
+  
+  .. note:: If your RAM is big enough, ``barriers`` can be compiled to read \
+    billions of structures, however computations with more than 10.000.000 \
+    structures may take a looong time.
+
+  :param seq: nucleic acid sequence
+  :param RNAsubopt: path to executable
+  :param nos: number of structures
+  :param maxe: an upper bound of the energy range
+  :param temp: temperature in Celsius
+  :param noLP: exclude lonely-base-pairs in suboptimal structures
+  :param circ: compute density of states
+  :param verb: print verbose output to ``stderr``
+  
+  :return: (energy-range, number-of-structures)
+  :rtype: tuple
+  """
 
   if which(RNAsubopt) is None :
-    print >> sys.stderr, RNAsubopt, "is not executable"
+    print RNAsubopt, "is not executable"
     print """ 
     You need to install *RNAsubopt*, which is part of the ViennaRNA
     package, download: http://www.tbi.univie.ac.at/RNA 
@@ -320,7 +396,7 @@ def sys_subopt_range(seq,
     If you have installed the program, make sure that the path you specified 
     is executable.
     """
-    raise SystemExit
+    raise ValueError('Could not find executable')
 
 
   num, nump = 0, 0
@@ -375,7 +451,18 @@ def sys_subopt_range(seq,
 
 """ start of internal functions """
 def subopt_reaches_minh(fname, minh):
-  """ buggy barriers """
+  """ Internal function to report on whether the energy-range of suboptimal
+  structures exceeds the ``--minh`` options for ``barriers``. If this is not
+  the case, the ``--minh`` option can cause segmentation faults.
+
+  :param fname: Filename of **gzipped and sorted** RNAsubopt result 
+  :param minh: The ``barriers --minh`` value
+
+  :type fname: string
+  :type minh: float
+
+  :return: True or False
+  """
   with gzip.open(fname, 'r') as f:
     for i, l in enumerate(f):
       if i == 0:
@@ -385,13 +472,17 @@ def subopt_reaches_minh(fname, minh):
       else:
         sen = l.strip().split()[1] 
         if float(sen) - float(mfe) > minh :
-          return 1
-  return 0
+          return True
+  return False
 
 def which(program):
-  """
-    Snatched from:
-    http://stackoverflow.com/questions/377017/test-if-executable-exists-in-python
+  """ Emulates the unix ``which`` command. Snatched from:
+    `http://stackoverflow.com/questions/377017/test-if-executable-exists-in-python`
+
+    :param program: executable
+    :type program: string
+
+    :returns: path-to-executable or None
   """
   def is_exe(fpath):
     return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
