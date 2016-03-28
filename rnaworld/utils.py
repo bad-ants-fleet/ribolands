@@ -25,6 +25,34 @@
 import re
 import sys
 
+def make_pair_table(ss, base=0):
+  """ 
+    Return a secondary struture in form of pair table:
+     base=0: ((..)). => [5,4,-1,-1,1,0,-1]
+      i.e. start counting from 0, unpaired = -1
+     base=1: ((..)). => [7,6,5,0,0,2,1,0]
+      i.e. start counting from 1, unpaired = 0, pt[0]=len(ss)
+
+    TODO: raise error for unbalanced brackets
+  """
+  stack=[];
+
+  if base is 0:
+    pt=[-1] * len(ss);
+  else :
+    base = 1
+    pt = [0] * (len(ss) + base);
+    pt[0] = len(ss);
+
+  for i, char in enumerate(ss, base):
+    if (char == '('):
+      stack.append(i);
+    elif (char == ')'):
+      j=stack.pop();
+      pt[i]=j
+      pt[j]=i
+  return pt
+
 def parse_vienna_stdin():
   """ Read STDIN in fasta format
   Read a Sequence and its Name in Fasta Format. Only one Input-Sequence is
