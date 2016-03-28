@@ -1,7 +1,6 @@
 # for doc examples see:
 # http://thomas-cokelaer.info/tutorials/sphinx/docstring_python.html#template.MainClass1
 
-
 """ * * * * * * TODO * * * * * *
   *) find a proper name!
       -> ribolands
@@ -27,9 +26,8 @@
       Scripts/Tests:
       -> BarMap.py
       -> DrTransformer.py
-      -> interkin.py
-
-      (-> spatch.py)
+      -> cofold_barriers.py
+      -> pylands_spatch.py
 
   *) catch import errors if RNA, RNAsubopt, barriers and treekin don't exist
 

@@ -318,11 +318,11 @@ def unimolecular_basins(RG, ispe, iseq, args, ns):
     if '&' in args.name :
       """ check true dimers """
       args.name = args.name.translate(string.maketrans("&", "_"))
-      args.s_patch.append('-d')
+      args.spatch.append('-d')
       [bfile, efile, rfile, ps] = bm.barriers(seq, args)
       Gd, probs, detbal = add_basins(RG, bfile, spe, seq, ns, 0)
       print "Detailed balance != 0 ? ", detbal
-      args.s_patch.pop()
+      args.spatch.pop()
       G.append((Gd))
     else :
       [bfile, efile, rfile, ps] = bm.barriers(seq, args)
@@ -352,10 +352,10 @@ def interkin_equilibrium(species, args):
       args.name = args.name.translate(string.maketrans("&", "_"))
 
       ''' Do an additional run first: 'true-dimers-only' '''
-      args.s_patch.append('-d')
+      args.spatch.append('-d')
       [bfile, efile, rfile, ps] = bm.barriers(seq, args)
       patchdata  = nal.parse_barfile(bfile, seq=seq)
-      args.s_patch.pop()
+      args.spatch.pop()
     [bfile, efile, rfile, ps] = bm.barriers(seq, args)
     bardata = nal.parse_barfile(bfile, seq=seq)
     args.name = name
@@ -508,15 +508,15 @@ def cofold_barriers(_name, species,
 
       if bionly is False :
         _fname = name + "_truedimers"
-        spatch.append('-d')
+        s_opts.append('-d')
         sfile = nal.sys_suboptimals(_fname, seq, 
-            ener=myener, opts=spatch, verb=verb, force=force)
+            ener=myener, opts=s_opts, verb=verb, force=force)
         [sfile, bfile, efile, rfile, psfile] = nal.sys_barriers(_fname, seq, sfile, 
             barriers=barriers, minh=minh, maxn=maxn, k0=k0, temp=temp, 
             verb=verb, force=force)
         # this function modifies sortednodes and hypercount... not nice!
         add_edges(RG, bfile, rfile, 'uni', spe, seq, sortednodes, hypercount)
-        spatch.pop()
+        s_opts.pop()
 
       _fname = name
       sfile = nal.sys_suboptimals(_fname, seq, 
@@ -789,7 +789,7 @@ def main():
           args.s_ener, args.s_maxn)
 
   """ Dirty way to use RNAsubopt symmetry correction as commandline interface """
-  s_options = ['|', args.s_patch]
+  s_options = ['|', args.spatch]
   if args.symmetry : s_options.append('-s') 
 
   """ Choose the set of species for further analysis """

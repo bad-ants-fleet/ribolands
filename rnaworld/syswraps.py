@@ -409,3 +409,7 @@ def which(program):
 
   return None
 
+def main():
+  pass
+
+

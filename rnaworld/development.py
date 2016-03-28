@@ -24,6 +24,17 @@ import collections as c
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+# call: 
+#   odes = ode_system(CG, [options, sorting, ...]) 
+#   jaco = jacobian(odes)
+#   solver = sys_sundials(ode, jac=jaco, kwargs)
+#   python_solver(ode, jac=jaco, kwargs, plot=True)
+
+
+def ode_solver(GraphX, 
+    variables=None, var_vert=None, vert_var=None, verb=True):
+
+  return 
 
 
 """ Thinktank for a new and better interface:
