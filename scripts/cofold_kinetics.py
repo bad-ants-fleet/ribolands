@@ -687,6 +687,7 @@ def get_complexes((spe, ss)) :
 
   return sorted(complexes, key=lambda x:x[0])
 
+
 def get_interkin_args():
   """ A collection of arguments that are used by **interkin.py** """
   parser = argparse.ArgumentParser()

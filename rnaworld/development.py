@@ -1,21 +1,5 @@
 #!/usr/bin/env python
 
-"""
-  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
-  University of Vienna, Department of Theoretical Chemistry
-
-  -*- Style -*- 
-  Use double quotes or '#' for comments, such that single quotes are available
-  for uncommenting large parts during testing
-
-  *) do not exceed 80 characters per line
-  *) indents: 2x whitespace, no tab characters!
-
-  -*- VIM config -*- 
-  set textwidth=80
-  set ts=2 et sw=2 sts=2
-"""
-
 import re
 import sys
 import os

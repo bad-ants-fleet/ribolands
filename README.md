@@ -4,7 +4,7 @@ Full documentation should at some point be available at: [http://www.tbi.univie.
 
 #### Build the documentation ####
 
-sphinx-build -b html doc ~/your/html/sourcedir/
+sphinx-build -b html docs ~/your/html/sourcedir/
 
 ##### Installation #####
 
