@@ -135,10 +135,11 @@ def graph_pruning(CG, sorted_nodes, cutoff, saddles, fullseq) :
 
   return deleted_nodes, still_reachables
 
-def expand_graph(CG, seq, ss, _cutoff = 0.01, verb=False):
+def expand_graph(CG, seq, ss, saddles, _cutoff = 0.01, verb=False):
   """ Expand the graph ...
 
   """
+  fullseq = CG.graph['sequence']
   for ni, data in CG.nodes_iter(data=True):
     en  = data['energy']
     occ = data['occupancy']
@@ -149,29 +150,143 @@ def expand_graph(CG, seq, ss, _cutoff = 0.01, verb=False):
     opened = open_breathing_helices(seq, ss)
     for onbr in opened :
       nbr = fold_exterior_loop(seq, onbr)
-      future = '.' * (ni-nbr)
+      future = '.' * (len(ni) - len(nbr))
       nbr += future
       if ni == nbr or CG.has_edge(ni, nbr):
         continue
 
       if CG.has_node(nbr):
+        print """ node exists """
         add_transition_edges(CG, saddles, fullseq, ni, nbr)
       elif add_transition_edges(CG, saddles, fullseq, ni, nbr) :
+        print """ interesting! """
         enbr = round(RNA.energy_of_structure(fullseq, nbr, 0), 2)
         CG.node[nbr]['energy'] = enbr
         CG.node[nbr]['occupancy'] = 0.0
-        CG.node[nbr]['identity'] = _id
-        _id += 1
+        CG.node[nbr]['identity'] = CG.graph['seqid']
+        CG.graph['seqid'] += 1
 
   return 
 
-def open_breathing_helices(seq, ss):
+def open_breathing_helices(seq, ss, free=3):
+  """ """
+  nbrs = set()
+  pt = nal.make_pair_table(ss, base=0)
 
-  return []
+  # mutable secondary structure 
+  nbr = list(ss)
 
-def fold_exterior_loop(seq, onbr):
+  print "S", ss
 
-  return onbr
+  rec_fill_nbrs(nbrs, ss, nbr, pt, free)
+
+  nbrs.add(''.join(nbr))
+  print "R", nbrs
+
+  return nbrs
+
+def rec_fill_nbrs(nbrs, ss, mb, pt, free):
+  """ 
+    TODO: Multiloops
+  """
+
+
+  skip = 0 # fast forward in case we have deleted stuff
+  for i, j in enumerate(pt) :
+    if j == -1 : continue
+    if i < skip: continue
+    #print i, j
+
+    nb = list(ss)
+    [o,l] = [0,0]
+    [p,q] = [i,j]
+
+    while p < q and (l == 0 or o < free):
+      #print "pq:", p, q
+      if pt[p] != q or p != pt[q] :
+        print """ this is a multiloop """
+        # i,j = 1, len(pt)
+        # rec_fill_nbrs(nbrs, sm, pt, free-o)
+        # add = 0
+        break
+      else :
+        # remove the base-pairs
+        pt[p] = pt[q] = -1
+        nb[p] = nb[q] = '.'
+        mb[p] = mb[q] = '.'
+        o += 2 # one base-pair deleted, two bases freed
+
+      l = 0 # reset interior-loop size
+      while (p < q and pt[p+1] == -1):
+        p += 1
+        l += 1
+      p += 1
+      while (p < q and pt[q-1] == -1):
+        q -= 1
+        l += 1
+      q -= 1
+      o += l
+
+    #print "N", ''.join(sm), o
+    nbrs.add(''.join(nb))
+    skip = j+1
+
+  return 
+
+def fold_exterior_loop(seq, con, fast=0):
+  """ """
+
+  if fast :
+    print "fast method not implemented"
+    ss = con
+
+    """
+    sub exterior_fold {
+      my ($seq, $str, $bonus) = @_;
+      my $spacer = 3; # insert 3 x 'N' 
+      my $ext;
+    
+      my @pt = make_pair_table($str);
+    
+      # Shrink the RNA sequence
+      for (my $i=0; $i<@pt; ++$i) { 
+        if ($pt[$i] > $i) {
+          $i = $pt[$i];
+          $ext .= 'N' x $spacer;
+          next;
+        } 
+        $ext .= substr($seq, $i, 1);
+      }
+    
+      my ($cstr,$cfe);
+      if ($bonus) {
+        ($cstr,$cfe) = vrna_aptamer_fold($ext, $bonus);
+      } else {
+        ($cstr,$cfe) = RNA::fold($ext);
+      }
+    
+      # Replace Characters in structure
+      my $c=0;
+      for (my $i=0; $i<@pt; ++$i) { 
+        if ($pt[$i] > $i) {
+          $i = $pt[$i];
+          $c += $spacer;
+          next;
+        } 
+        substr($str, $i, 1) = substr($cstr, $c, 1);
+        $c++;
+      }
+      return $str;
+    }
+    """
+  else :
+    # Force copy of string for ViennaRNA swig interface bug
+    tmp = (con + '.')[:-1]
+    RNA.cvar.fold_constrained = 1
+    ss, mfe = RNA.fold(seq, tmp)
+    RNA.cvar.fold_constrained = 0
+
+  return ss
 
 def talk_to_DrForna(CG, seq, sorted_nodes, tfile, _time, _cutoff, repl=None) :
   """ TODO: this should not return time, it should just talk! """
@@ -203,8 +318,8 @@ def talk_to_DrForna(CG, seq, sorted_nodes, tfile, _time, _cutoff, repl=None) :
                 dy = math.log(y2) - math.log(y1)
                 if dy < repl : continue
               ss = sorted_nodes[e][0]
-              print "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
-                  _time + time, occu, ss[:len(seq)], CG.node[ss]['energy'])
+              #print "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
+              #    _time + time, occu, ss[:len(seq)], CG.node[ss]['energy'])
 
           prevcourse = course
 
@@ -270,15 +385,9 @@ def main():
   _last_only  = 0, # Print only the last simulation
   _output     = 'DrForna', 'BarMap'
   _replot     = 0.01, # logarithmically reduce plot size
-  
+  _total_time = 0
+
   (name, fullseq) = nal.parse_vienna_stdin()
-
-  # initialize a directed conformation graph
-  CG = nx.DiGraph()
-
-  saddles = c.defaultdict()
-
-  # init_simulation_map
 
   print "id time conc struct energy"
   print >> sys.stderr, "T: i,j,pop,struct,energy"
@@ -291,10 +400,15 @@ def main():
   else :
     fullseq = fullseq[0:args.stop-1]
 
-  _id = 0
-  _total_time = 0
+  # initialize a directed conformation graph
+  CG = nx.DiGraph(
+      sequence=fullseq, 
+      seqlen=0,
+      seqid=0)
+  saddles = c.defaultdict()
 
   for l in range(args.start, args.stop) :
+    CG.graph['seqlen']=l
     seq = fullseq[0:l]
 
     # Add MFE
@@ -308,21 +422,21 @@ def main():
     else :
       en = round(RNA.energy_of_structure(fullseq, ss, 0), 2)
       if nx.number_of_nodes(CG) == 0 :
-        CG.add_node(ss, energy=en, occupancy=1.0, identity=_id)
-        _id += 1
+        CG.add_node(ss, energy=en, occupancy=1.0, identity=CG.graph['seqid'])
+        CG.graph['seqid'] += 1
       else :
         for ni in nx.nodes(CG) :
           if add_transition_edges(CG, saddles, fullseq, ni, ss) :
             CG.node[ss]['energy'] = en
             CG.node[ss]['occupancy'] = 0.0
-            CG.node[ss]['identity'] = _id
-            _id += 1
+            CG.node[ss]['identity'] = CG.graph['seqid']
+            CG.graph['seqid'] += 1
 
     if not CG.has_node(ss) :
       print >> sys.stderr, ss, "[secondary structure could not be connected]"
 
     # Expand Graph
-    # expand_graph(CG, seq, ss, verb=args.verbose)
+    expand_graph(CG, seq, ss, saddles, verb=args.verbose)
 
     # Report before simulation (?)
 
