@@ -501,6 +501,53 @@ def which(program):
   return None
 
 def main():
-  pass
+  import rnaworld.utils as rnu
+  
+  # Quick set test model params """
+  name, seq = rnu.parse_vienna_stdin()
+  print name, seq
 
+  #param='RNA'
+  #dangle='some'
+  s_nos = 1e6
+  s_maxe = 20
+  s_ener = None
+  s_patch=[] #['|', 'pylands_spatch.py', '--theo']
+
+  b_minh=2.0
+  b_maxn=20
+
+  temp=37.0
+  circ=False
+  noLP=True
+  verb=True
+  force=True
+
+  if s_ener is None :
+    s_ener, s_nos = sys_subopt_range(seq, nos=s_nos, maxe=s_maxe, verb=verb)
+  sfile = sys_suboptimals(name, seq, 
+      ener=s_ener, 
+      noLP=noLP,
+      opts=s_patch,
+      verb=verb, 
+      force=force)
+
+  [sfile, bfile, efile, rfile, psfile] = sys_barriers(name, seq, sfile, 
+      minh=b_minh, maxn=b_maxn, rates=True, verb=verb, noLP=noLP, force=force)
+  tfile = sys_treekin(name, seq, bfile, rfile, 
+      p0=['2=1'], t0=1e-6, ti=1.02, t8=1e10, verb=verb, force=force)
+  pfile = rnu.plot_simulation(name, seq, tfile, 
+      ylim=(0,1), xlim=(1e-2, 1e10), lines=[], force=force)
+
+  # BCG = barriersCG(mfile, efile)
+  RM = rnu.parse_ratefile(rfile)
+  BT = rnu.parse_barfile(bfile, seq=seq)
+
+  print RM, BT
+  print sfile, bfile, efile, rfile, psfile, tfile, pfile
+
+  return
+
+if __name__ == '__main__':
+  main()
 

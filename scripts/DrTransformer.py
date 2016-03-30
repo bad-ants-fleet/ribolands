@@ -18,15 +18,11 @@ import collections as c
 import rnaworld as nal
 import RNA
 
-def add_transition_edges(CG, saddles, fullseq, s1, s2, ts=None) :
+def add_transition_edges(CG, saddles, fullseq, s1, s2, ts=None, 
+    maxdG=10.00, _k0 = 2e5, _fpath = 10, _RT = 0.61632077549999997):
   """ compute the transition rates between two structures: s1 <-> s2, 
     where s2 is always the new, energetically better structure.
   """
-  _RT    = 0.61632077549999997 # unit?
-  _maxS  = 10.00  # kcal/mol
-  _k0    = 2e5    # sec^-1
-  _fpath = 10
-
   saddleE = None
   if (s1, s2) in saddles :
     saddleE = saddles[(s1,s2)]
@@ -42,7 +38,7 @@ def add_transition_edges(CG, saddles, fullseq, s1, s2, ts=None) :
 
   saddles[(s1,s2)] = saddleE
 
-  valid = (ts is not None or saddleE <= _maxS)
+  valid = (ts is not None or saddleE-CG.node[s1]['energy'] <= maxdG)
 
   if valid :
     e1 = CG.node[s1]['energy']
@@ -63,19 +59,21 @@ def add_transition_edges(CG, saddles, fullseq, s1, s2, ts=None) :
 
   return valid
 
-def dump_conformation_graph(CG, seq, name) :
+def dump_conformation_graph(CG, seq, name, verb=False) :
   """ Make a barriers + rates output from the current conformation graph """
   bfile = name+'.bar'
   rfile = name+'.rts'
   p0 = []
 
-  sorted_nodes = sorted(CG.nodes(data=True), key=lambda x: x[1]['energy'], reverse=False)
+  sorted_nodes = sorted(CG.nodes(data=True), 
+      key=lambda x: x[1]['energy'], reverse=False)
   with open(bfile, 'w') as bar, open(rfile, 'w') as rts :
     bar.write("     {}\n".format(seq))
     for e, (ni, data) in enumerate(sorted_nodes) :
       bar.write("{:4d} {} {:6.2f}\n".format(e+1, ni[:len(seq)], data['energy']))
-      print >> sys.stderr, "{:4d} {} {:6.2f} {:6.4f}".format(
-          e+1, ni[:len(seq)], data['energy'], data['occupancy'])
+      if verb :
+        print "{:4d} {} {:6.2f} {:6.4f}".format(
+            e+1, ni[:len(seq)], data['energy'], data['occupancy'])
       if data['occupancy'] > 0 :
         p0.append("{}={}".format(e+1,data['occupancy']))
       rates = []
@@ -89,7 +87,7 @@ def dump_conformation_graph(CG, seq, name) :
 
   return [bfile, rfile, p0, sorted_nodes]
 
-def update_occupancy(CG, sorted_nodes, tfile) :
+def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
   """
     Update the occupancy in the Graph and the total simulation time
   """
@@ -101,12 +99,12 @@ def update_occupancy(CG, sorted_nodes, tfile) :
   if not reg_flt.match(lastlines[0]):
     sys.exit('over and out')
   else :
-    #time = float(lastlines[0].split()[0])
-    #iterations = int(lastlines[-1].split()[-1])
+    time = float(lastlines[0].split()[0])
+    iterations = int(lastlines[-1].split()[-1])
     for e, occu in enumerate(lastlines[0].split()[1:]) :
       ss = sorted_nodes[e][0]
       CG.node[ss]['occupancy'] = float(occu)
-  return
+  return time, iterations
 
 def graph_pruning(CG, sorted_nodes, cutoff, saddles, fullseq) :
   """ Delete nodes or report them as still reachable """
@@ -116,7 +114,8 @@ def graph_pruning(CG, sorted_nodes, cutoff, saddles, fullseq) :
   for ni, data in reversed(sorted_nodes) :
     #print ni, data
     if data['occupancy'] < cutoff :
-      nbrs = sorted(CG.successors(ni), key=lambda x: CG.node[x]['energy'], reverse=False)
+      nbrs = sorted(CG.successors(ni), 
+          key=lambda x: CG.node[x]['energy'], reverse=False)
       best, been = nbrs[0], CG.node[nbrs[0]]['energy']
 
       if been > data['energy'] :
@@ -135,38 +134,79 @@ def graph_pruning(CG, sorted_nodes, cutoff, saddles, fullseq) :
 
   return deleted_nodes, still_reachables
 
-def expand_graph(CG, seq, ss, saddles, _cutoff = 0.01, verb=False):
+def expand_graph(CG, seq, saddles, 
+    maxdG = None, 
+    _cutoff = 0.01, 
+    mfe_only=False,
+    verb=False):
   """ Expand the graph ...
 
+  :return: Number of new nodes
+
   """
-  fullseq = CG.graph['sequence']
-  for ni, data in CG.nodes_iter(data=True):
-    en  = data['energy']
-    occ = data['occupancy']
-    if occ < _cutoff : continue
+  csid = CG.graph['seqid']
+  fseq = CG.graph['full_sequence']
+  tlen = CG.graph['transcript_length']
 
-    ss = ni[0:len(seq)]
+  # Add MFE
+  ss, mfe = RNA.fold(seq)
+  future = '.' * (len(fseq)-tlen)
+  ss = ss + future
+  #print >> sys.stderr, "{}\n{} {:6.2f}".format(seq, ss, mfe)
 
-    opened = open_breathing_helices(seq, ss)
-    for onbr in opened :
-      nbr = fold_exterior_loop(seq, onbr)
-      future = '.' * (len(ni) - len(nbr))
-      nbr += future
-      if ni == nbr or CG.has_edge(ni, nbr):
-        continue
+  if CG.has_node(ss) :
+    en = CG.node[ss]['energy']
+  else :
+    en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
+    if nx.number_of_nodes(CG) == 0 :
+      CG.add_node(ss, energy=en, occupancy=1.0, identity=CG.graph['seqid'])
+      CG.graph['seqid'] += 1
+    else :
+      for ni in CG.nodes() :
+        if CG.has_node(ss):
+          #print """ node exists """
+          add_transition_edges(CG, saddles, fseq, ni, ss, maxdG=maxdG)
+        elif add_transition_edges(CG, saddles, fseq, ni, ss, maxdG=maxdG) :
+          CG.node[ss]['energy'] = en
+          CG.node[ss]['occupancy'] = 0.0
+          CG.node[ss]['identity'] = CG.graph['seqid']
+          CG.graph['seqid'] += 1
 
-      if CG.has_node(nbr):
-        print """ node exists """
-        add_transition_edges(CG, saddles, fullseq, ni, nbr)
-      elif add_transition_edges(CG, saddles, fullseq, ni, nbr) :
-        print """ interesting! """
-        enbr = round(RNA.energy_of_structure(fullseq, nbr, 0), 2)
-        CG.node[nbr]['energy'] = enbr
-        CG.node[nbr]['occupancy'] = 0.0
-        CG.node[nbr]['identity'] = CG.graph['seqid']
-        CG.graph['seqid'] += 1
+  if not CG.has_node(ss) :
+    print "# WARNING: ", ss, "[mfe secondary structure could not be connected]"
 
-  return 
+  if mfe_only is True :
+    pass
+  else :
+    for ni, data in CG.nodes_iter(data=True):
+      en  = data['energy']
+      occ = data['occupancy']
+      if occ < _cutoff : continue
+
+      ss = ni[0:len(seq)]
+
+      opened = open_breathing_helices(seq, ss)
+      for onbr in opened :
+        nbr = fold_exterior_loop(seq, onbr)
+        future = '.' * (len(ni) - len(nbr))
+        nbr += future
+
+        if ni == nbr or CG.has_edge(ni, nbr):
+          continue
+
+        if CG.has_node(nbr):
+          """ node exists """
+          add_transition_edges(CG, saddles, fseq, ni, nbr, maxdG=maxdG)
+        elif add_transition_edges(CG, saddles, fseq, ni, nbr, maxdG=maxdG) :
+          """ node does not exist """
+          enbr = round(RNA.energy_of_structure(fseq, nbr, 0), 2)
+          CG.node[nbr]['energy'] = enbr
+          CG.node[nbr]['occupancy'] = 0.0
+          CG.node[nbr]['identity'] = CG.graph['seqid']
+          CG.graph['seqid'] += 1
+        else :
+          print "# WARNING: Could not add transition edge!"
+  return CG.graph['seqid']-csid
 
 def open_breathing_helices(seq, ss, free=3):
   """ """
@@ -176,38 +216,33 @@ def open_breathing_helices(seq, ss, free=3):
   # mutable secondary structure 
   nbr = list(ss)
 
-  print "S", ss
-
-  rec_fill_nbrs(nbrs, ss, nbr, pt, free)
+  rec_fill_nbrs(nbrs, ss, nbr, pt, (0, len(ss)), free)
 
   nbrs.add(''.join(nbr))
-  print "R", nbrs
 
   return nbrs
 
-def rec_fill_nbrs(nbrs, ss, mb, pt, free):
+def rec_fill_nbrs(nbrs, ss, mb, pt, (n, m), free):
   """ 
-    TODO: Multiloops
+    TODO: Test function, but looks good
   """
-
-
   skip = 0 # fast forward in case we have deleted stuff
-  for i, j in enumerate(pt) :
+  for i in range(n, m) :
+    j = pt[i]
     if j == -1 : continue
     if i < skip: continue
-    #print i, j
 
     nb = list(ss)
     [o,l] = [0,0]
     [p,q] = [i,j]
 
+    add = True
     while p < q and (l == 0 or o < free):
-      #print "pq:", p, q
       if pt[p] != q or p != pt[q] :
-        print """ this is a multiloop """
+        """ this is a multiloop """
         # i,j = 1, len(pt)
-        # rec_fill_nbrs(nbrs, sm, pt, free-o)
-        # add = 0
+        rec_fill_nbrs(nbrs, ''.join(nb), mb, pt, (p,q), free-o)
+        add = False
         break
       else :
         # remove the base-pairs
@@ -227,58 +262,44 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, free):
       q -= 1
       o += l
 
-    #print "N", ''.join(sm), o
-    nbrs.add(''.join(nb))
+    if add :
+      nbrs.add(''.join(nb))
     skip = j+1
 
   return 
 
-def fold_exterior_loop(seq, con, fast=0):
-  """ """
+def fold_exterior_loop(seq, con, fast=1):
+  """ Constrained folding, if fast, only fold the unconstrained exterior loop
+  of a structure, leave the rest as is. """
 
   if fast :
-    print "fast method not implemented"
+    spacer = 'NNN'
+    pt = nal.make_pair_table(con, base=0)
+    ext = ''
+
+    # shrink the sequcnes
+    skip = 0
+    for i, j in enumerate(pt):
+      if i < skip : continue
+      if j == -1 : 
+        ext += seq[i]
+      else :
+        ext += spacer
+        skip = j+1
+    css, cfe = RNA.fold(ext)
+    
+    # replace characters in constraint
+    c, skip = 0, 0
+    for i, j in enumerate(pt):
+      if i < skip : continue
+      if j == -1 : 
+        con = con[:i] + css[c] + con[i+1:]
+        c += 1
+      else :
+        c += len(spacer)
+        skip = j+1
     ss = con
 
-    """
-    sub exterior_fold {
-      my ($seq, $str, $bonus) = @_;
-      my $spacer = 3; # insert 3 x 'N' 
-      my $ext;
-    
-      my @pt = make_pair_table($str);
-    
-      # Shrink the RNA sequence
-      for (my $i=0; $i<@pt; ++$i) { 
-        if ($pt[$i] > $i) {
-          $i = $pt[$i];
-          $ext .= 'N' x $spacer;
-          next;
-        } 
-        $ext .= substr($seq, $i, 1);
-      }
-    
-      my ($cstr,$cfe);
-      if ($bonus) {
-        ($cstr,$cfe) = vrna_aptamer_fold($ext, $bonus);
-      } else {
-        ($cstr,$cfe) = RNA::fold($ext);
-      }
-    
-      # Replace Characters in structure
-      my $c=0;
-      for (my $i=0; $i<@pt; ++$i) { 
-        if ($pt[$i] > $i) {
-          $i = $pt[$i];
-          $c += $spacer;
-          next;
-        } 
-        substr($str, $i, 1) = substr($cstr, $c, 1);
-        $c++;
-      }
-      return $str;
-    }
-    """
   else :
     # Force copy of string for ViennaRNA swig interface bug
     tmp = (con + '.')[:-1]
@@ -288,42 +309,43 @@ def fold_exterior_loop(seq, con, fast=0):
 
   return ss
 
-def talk_to_DrForna(CG, seq, sorted_nodes, tfile, _time, _cutoff, repl=None) :
-  """ TODO: this should not return time, it should just talk! """
+def talk_to_DrForna(CG, seq, sorted_nodes, tfile, _time, _cutoff, 
+    repl=None, _outfile=None) :
+  """  """
   # http://www.regular-expressions.info/floatingpoint.html
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
 
-  if len(sorted_nodes) == 1 :
-    time = 0
-    ss = sorted_nodes[0][0]
-    print "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
-        _time, 1.0, ss[:len(seq)], CG.node[ss]['energy'])
-  else :
-    prevcourse = []
-    with open(tfile) as tkn :
-      # this is nasty, but used to check if we're at the last line
-      tknlines = tkn.readlines()
-      for line in tknlines:
-        if reg_flt.match(line) :
-          course = map(float, line.strip().split())
-          time = course[0]
+  prevcourse = []
+  with open(tfile) as tkn :
+    # this is nasty, but used to check if we're at the last line
+    tknlines = tkn.readlines()
+    for line in tknlines:
+      if reg_flt.match(line) :
+        course = map(float, line.strip().split())
+        time = course[0]
 
-          for e, occu in enumerate(course[1:]) :
-            # is it above visibility threshold?
-            if occu > _cutoff :
-              # can we actually skip the point?
-              if repl and prevcourse and prevcourse[e+1] > 0 and line is not tknlines[-2]:
-                y1 = min(prevcourse[e+1], course[e+1])
-                y2 = max(prevcourse[e+1], course[e+1])
-                dy = math.log(y2) - math.log(y1)
-                if dy < repl : continue
-              ss = sorted_nodes[e][0]
-              #print "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
-              #    _time + time, occu, ss[:len(seq)], CG.node[ss]['energy'])
+        for e, occu in enumerate(course[1:]) :
+          # is it above visibility threshold?
+          if occu > _cutoff :
+            # can we actually skip the point?
+            if repl and prevcourse and prevcourse[e+1] > 0 \
+                and line is not tknlines[-2]:
+              y1 = min(prevcourse[e+1], course[e+1])
+              y2 = max(prevcourse[e+1], course[e+1])
+              dy = math.log(y2) - math.log(y1)
+              if dy < repl : continue
+            ss = sorted_nodes[e][0]
 
-          prevcourse = course
+            line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
+                _time + time, occu, ss[:len(seq)], CG.node[ss]['energy'])
 
-  return time + _time
+            if _outfile :
+              with open(_outfile, 'a') as outf:
+                outf.write(line + '\n')
+            else :
+              print line
+        prevcourse = course
+  return 
 
 def get_drtrafo_args():
   """ A collection of arguments that are used by DrTransformer """
@@ -335,12 +357,14 @@ def get_drtrafo_args():
 
   parser.add_argument("--findpath", type = int, default = 10, metavar='<int>',
       help="Specify search width for *findpath* heuristic") 
-  parser.add_argument("--minrate", type = float, default = 1e-10, metavar='<flt>',
-      help="Specify minimum rate for accepting new neighbors")
+  parser.add_argument("--minrate", type = float, default = 1e-10, 
+      metavar='<flt>',
+      help="Specify minmum rate to accept a new neighbor")
   parser.add_argument("--cutoff", type=float, default=0.01, metavar='<flt>',
       help="Cutoff for population transfer")
 
-  parser.add_argument("--tmpdir", default='DrTrafo_Files', action = 'store', metavar='<str>',
+  parser.add_argument("--tmpdir", default='DrTrafo_Files', action = 'store', 
+      metavar='<str>',
       help="Specify path for storing temporary output files")
   parser.add_argument("-v","--verbose", action="store_true",
       help="Track process by writing verbose output during calculations") 
@@ -352,25 +376,31 @@ def get_drtrafo_args():
       help="Start transcription at this nucleotide")
   parser.add_argument("--stop", type=int, default=0, metavar='<int>',
       help="Stop transcription at this nucleotide")
-  parser.add_argument("-T","--temperature", type=float, default=37.0, metavar='<flt>',
+  parser.add_argument("-T","--temperature", type=float, default=37.0, 
+      metavar='<flt>',
       help="Set the temperature in Celsius for ViennaRNA computations")
 
   parser.add_argument("--treekin", default='treekin', action = 'store',
       help="Specify path to your *treekin* executable")
-  parser.add_argument("--repl", type=float, default=None)
-  parser.add_argument("--p0", nargs='+', default=['1=1'])
-  parser.add_argument("--k0", type=float, default=2e5)
-  parser.add_argument("--t0", type=float, default=0.0)
-  parser.add_argument("--ti", type=float, default=1.02)
-  parser.add_argument("--t8", type=float, default=0.02)
-  parser.add_argument("--tX", type=float, default=60)
+  parser.add_argument("--repl", type=float, default=None,
+      help="Logarithmically reduce output size")
+  #parser.add_argument("--k0", type=float, default=2e5,
+  #    help="Arrhenius rate prefactor")
+  parser.add_argument("--t0", type=float, default=0.0,
+      help="First time point of the printed time-course")
+  parser.add_argument("--ti", type=float, default=1.02,
+      help="Output-time increment of solver (t1 * ti = t2)")
+  parser.add_argument("--t8", type=float, default=0.02,
+      help="Transcription speed in seconds per nucleotide")
+  parser.add_argument("--tX", type=float, default=60,
+      help="Simulation time after transcription")
 
-  parser.add_argument("--noplot", action="store_true", 
-      help="Do not plot results") 
+  #parser.add_argument("--noplot", action="store_true", 
+  #    help="Do not plot results") 
   parser.add_argument("--plot_cutoff", type=float, default=0.02)
-  parser.add_argument("--plot_title", default='')
-  parser.add_argument("--plot_linlog", action="store_true",
-      help="Divide x-axis into lin and log at transcription stop")
+  #parser.add_argument("--plot_title", default='')
+  #parser.add_argument("--plot_linlog", action="store_true",
+  #    help="Divide x-axis into lin and log at transcription stop")
 
   return parser.parse_args()
 
@@ -378,99 +408,112 @@ def main():
   """ DrTransformer - cotranscriptional folding """
   args = get_drtrafo_args()
 
-  if not os.path.exists(args.tmpdir):
-    os.makedirs(args.tmpdir)
-
-  _RT= 0.61632077549999997
-  _last_only  = 0, # Print only the last simulation
-  _output     = 'DrForna', 'BarMap'
-  _replot     = 0.01, # logarithmically reduce plot size
-  _total_time = 0
-
   (name, fullseq) = nal.parse_vienna_stdin()
 
-  print "id time conc struct energy"
-  print >> sys.stderr, "T: i,j,pop,struct,energy"
+  # Adjust arguments, prepare simulation
+  if args.name == '' : 
+    args.name = name
+  else :
+    name = args.name
 
-  RNA.cvar.noLonelyPairs = 1
-  RNA.cvar.temperature = args.temperature
+  _outfile = name + '.drf'
+  _RT= 0.61632077549999997
+  if args.temperature != 37.0 :
+    _RT = (_RT/37.0)*args.temperature
+    print >> sys.stderr, 'WARNING: temperature option not fully supported'
+  _last_only  = 0, # Print only the last simulation
+  _output     = 'DrForna'#, 'BarMap'
 
   if args.stop == 0 : 
     args.stop = len(fullseq)+1
   else :
     fullseq = fullseq[0:args.stop-1]
 
+  if not os.path.exists(args.tmpdir):
+    os.makedirs(args.tmpdir)
+
+  # Minrate specifies the lowest accepted rate for simulations (sec^-1)
+  # it can be directly converted into a activation energy that results this rate
+  maxdG = -_RT * math.log(args.minrate)
+  #print args.minrate, '=>', maxdG
+
+
+  # Start with DrTransformer
+  RNA.cvar.noLonelyPairs = 1
+  RNA.cvar.temperature = args.temperature
+
+  if _output == 'DrForna':
+    with open(_outfile, 'w') as outf :
+      outf.write("id time conc struct energy\n")
+  if args.verbose :
+    print "T: i,j,pop,struct,energy"
+
   # initialize a directed conformation graph
   CG = nx.DiGraph(
-      sequence=fullseq, 
-      seqlen=0,
+      full_sequence=fullseq, 
+      transcript_length=None,
+      total_time=0,
       seqid=0)
   saddles = c.defaultdict()
 
-  for l in range(args.start, args.stop) :
-    CG.graph['seqlen']=l
-    seq = fullseq[0:l]
-
-    # Add MFE
-    ss, mfe = RNA.fold(seq)
-    future = '.' * (args.stop-l-1)
-    ss = ss + future
-    #print >> sys.stderr, "{}\n{} {:6.2f}".format(seq, ss, mfe)
-
-    if CG.has_node(ss) :
-      en = CG.node[ss]['energy']
-    else :
-      en = round(RNA.energy_of_structure(fullseq, ss, 0), 2)
-      if nx.number_of_nodes(CG) == 0 :
-        CG.add_node(ss, energy=en, occupancy=1.0, identity=CG.graph['seqid'])
-        CG.graph['seqid'] += 1
-      else :
-        for ni in nx.nodes(CG) :
-          if add_transition_edges(CG, saddles, fullseq, ni, ss) :
-            CG.node[ss]['energy'] = en
-            CG.node[ss]['occupancy'] = 0.0
-            CG.node[ss]['identity'] = CG.graph['seqid']
-            CG.graph['seqid'] += 1
-
-    if not CG.has_node(ss) :
-      print >> sys.stderr, ss, "[secondary structure could not be connected]"
+  for tlen in range(args.start, args.stop) :
+    CG.graph['transcript_length']=tlen
+    seq = fullseq[0:tlen]
 
     # Expand Graph
-    expand_graph(CG, seq, ss, saddles, verb=args.verbose)
+    nnn = expand_graph(CG, seq, saddles, maxdG=maxdG, 
+        _cutoff = args.cutoff, mfe_only=True, verb=args.verbose)
 
     # Report before simulation (?)
+    # print nnn, "new nodes"
 
     # Simulate
-    _fname = args.tmpdir+'/'+name+'-'+str(l)
-    _t8 = args.tX if l == args.stop-1 else args.t8
+    _fname = args.tmpdir+'/'+name+'-'+str(tlen)
+    _t8 = args.tX if tlen == args.stop-1 else args.t8
 
-    [bfile, rfile, p0, nlist] = dump_conformation_graph(CG, seq, _fname)
+    # produce input for treekin simulation
+    [bfile, rfile, p0, nlist] = dump_conformation_graph(CG, seq, _fname, 
+        verb=args.verbose)
 
+    dn,sr = 0,0
     if len(nlist) == 1 :
-      # Fake Results
-      _total_time += _t8
-      talk_to_DrForna(CG, seq, nlist, None, _total_time, args.plot_cutoff)
-      print >> sys.stderr, "# Deleted {} nodes, {} still reachable.".format(0, 0)
-      continue
+      # Fake Results for DrForna
+      CG.graph['total_time'] += _t8
+      if _output == 'DrForna' :
+        ss = nlist[0][0]
+        line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
+            CG.graph['total_time'], 1.0, ss[:len(seq)], CG.node[ss]['energy'])
+        with open(_outfile, 'a') as outf:
+          outf.write(line + '\n')
+    else :
+      # - Simulate with treekin
+      try:
+        tfile = nal.sys_treekin(_fname, seq, bfile, rfile, 
+            treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
+            useplusI=True, force=True, verb=False)
+      except RuntimeError:
+        try :
+          tfile = nal.sys_treekin(_fname, seq, bfile, rfile, 
+              treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
+              useplusI=False, force=True, verb=True)
+        except RuntimeError:
+          print "Abort after", tlen, "nucleotides:", \
+              "treekin cannot find a solution, sorry"
+          raise SystemExit
 
-    # - Simulate with treekin
-    try:
-      tfile = nal.sys_treekin(_fname, seq, bfile, rfile, 
-          treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
-          useplusI=True, force=True, verb=False)
-    except RuntimeError:
-      tfile = nal.sys_treekin(_fname, seq, bfile, rfile, 
-          treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
-          useplusI=False, force=True, verb=True)
+      # Get Results
+      old_time = CG.graph['total_time']
+      time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
+      if _output == 'DrForna' :
+        talk_to_DrForna(CG, seq, nlist, tfile, old_time,
+          args.plot_cutoff, repl=args.repl, _outfile=_outfile)
+      CG.graph['total_time'] += time_inc
+      
+      # Prune
+      dn,sr = graph_pruning(CG, nlist, args.cutoff, saddles, fullseq)
 
-    # Get Results
-    update_occupancy(CG, nlist, tfile)
-    _total_time = talk_to_DrForna(CG, seq, nlist, tfile, _total_time,
-        args.plot_cutoff, repl=args.repl)
-    
-    # Prune
-    dn,sr = graph_pruning(CG, nlist, args.cutoff, saddles, fullseq)
-    print >> sys.stderr, "# Deleted {} nodes, {} still reachable.".format(dn, sr)
+    if args.verbose :
+      print "# Deleted {} nodes, {} still reachable.".format(dn, sr)
 
   return
 

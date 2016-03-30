@@ -145,89 +145,13 @@ class cd:
 with cd("~/Library"):
   s.call("ls")
 '''
+
 def model_details(force=False, tmp=27, **kwars):
   def wrapper(name):
     return "bla-{0}".format(func(name))
   return wrapper
 
-
-""" Main public functions """
-
-def plot_simulation(name, seq, tfile, 
-    title='',
-    plim=1e-2,
-    lines=[],
-    ylim=(None,None),
-    xlim=(None,None), 
-    verb=True, 
-    lilog=None,
-    force=True):
-  """ Plot a (particular) list of trajectories
-  t [x x x x x]
-  1 [y y y y y]
-  2 [y y y y y]
-  3 [y y y y y]
-  4 [y y y y y]
-  """
-  lines=set(lines)
-  title = title if title else name
-
-  nxy=[]
-  with open(tfile) as tkn :
-    for line in tkn :
-      if re.match('#', line): 
-        continue
-      nxy.append(map(float, line.strip().split()))
-
-  fig = plt.figure()
-  ax = fig.add_subplot(1,1,1)
-  if None not in ylim : ax.set_ylim(ylim)
-  if None not in xlim : ax.set_xlim(xlim) 
-
-  if lilog :
-    ''' Make the second part of the plot logarithmic'''
-    ax.set_xscale('linear')
-    ax.set_xlim((0, lilog))
-    divider = make_axes_locatable(ax)
-    axLog = divider.append_axes("right", size=2, pad=0.0, sharey=ax)
-    axLog.set_xlim((lilog, 1e5))
-    axLog.set_xscale('log')
-    #axLog.set_yticklabels([''])
-  else :
-    ax.set_xscale('log')
-
-  time = []
-  for e, traject in enumerate(zip(*nxy)):
-    if e==0: 
-      time = traject
-      continue
-    if lines and e not in lines : continue
-    if plim and max(traject) < plim : continue
-    if ylim and max(traject) > ylim : continue
-    p, = ax.plot(time, traject, '-')
-    if lilog: p, = axLog.plot(time, traject, '-')
-    p.set_label("lmin {:d}".format(e))
-    #p.set_color(axcolors[finalmin])
-
-  fig.set_size_inches(7,3)
-  fig.text(0.5,0.95, title, ha='center', va='center')
-  plt.xlabel('time [seconds]', fontsize=11)
-  plt.ylabel('occupancy [mol/l]', fontsize=11)
-
-  # """ Add ticks for 1 minute, 1 hour, 1 day, 1 year """
-  # plt.axvline(x=60, linewidth=1, color='black', linestyle='--')
-  # plt.axvline(x=3600, linewidth=1, color='black', linestyle='--')
-  # plt.axvline(x=86400, linewidth=1, color='black', linestyle='--')
-  # plt.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
-  plt.legend()
-
-  pfile = name+'.pdf'
-  plt.savefig(pfile, bbox_inches='tight')
-
-  return pfile
-
 """ utilities """
-
 
 def barriersCG(mfile, efile, verb=False):
   """ Takes a sequence and a file with structures, populations, ...
@@ -261,67 +185,4 @@ def barriersCG(mfile, efile, verb=False):
   return BarCG
 
 
-""" A little example for main """
-
-def main():
-  import rnaworld.syswraps as rns
-  import rnaworld.utils as rnu
-
-  """ xxx """
-  parser = argparse.ArgumentParser()
-  parser.add_argument("-p","--path", 
-    help="Specify path to local file or directory", 
-    default='/dev/null',
-    action = 'store')
-  parser.add_argument("-n","--name",
-    help="Name your output", 
-    default= '')
-  parser.add_argument("-i","--iterations",
-    help="Do stuff multiple times",
-    type=int,
-    default=5) 
-  parser.add_argument("-v","--verbose",
-    help="Verbose output",
-    action="store_true")
-  args = parser.parse_args()
-  
-  """ Model Parameters """
-  name, seq = read_vienna_stdin()
-  print name, seq
-  param='RNA'
-  dangle='some'
-  temp=37.0
-  circ=False
-  noLP=True
-  force=True
-  spatch=['|', 'pylands_spatch.py', '--theo']
-
-  verb=True
-
-  #ener, nos = sys_subopt_range(seq, nos=1000000, maxe=20, verb=verb)
-  sfile = rns.sys_suboptimals(name, seq, 
-      ener=18, 
-      noLP=noLP,
-      opts=spatch,
-      verb=verb, 
-      force=force)
-
-  [sfile, bfile, efile, rfile, psfile] = rns.sys_barriers(name, seq, sfile, 
-      minh=2.0, maxn=20, rates=True, verb=verb, noLP=noLP, force=force)
-  tfile = rns.sys_treekin(name, seq, bfile, rfile, 
-      p0=['2=1'], t0=1e-6, ti=1.02, t8=1e10, verb=verb, force=force)
-  pfile = plot_simulation(name, seq, tfile, 
-      ylim=(0,1), xlim=(1e-2, 1e10), lines=[], force=force)
-
-  # BCG = barriersCG(mfile, efile)
-  RM = rnu.parse_ratefile(rfile)
-  BT = rnu.parse_barfile(bfile, seq=seq)
-
-  print RM, BT
-  print sfile, bfile, efile, rfile, psfile, tfile, pfile
-
-  return
-
-if __name__ == '__main__':
-  main()
 
