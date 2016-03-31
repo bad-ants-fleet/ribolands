@@ -18,16 +18,22 @@ import collections as c
 import rnaworld as nal
 import RNA
 
-def add_transition_edges(CG, saddles, fullseq, s1, s2, ts=None, 
-    maxdG=10.00, _k0 = 2e5, _fpath = 10, _RT = 0.61632077549999997):
+def add_transition_edges(CG, saddles, args, s1, s2, ts=None): 
   """ compute the transition rates between two structures: s1 <-> s2, 
     where s2 is always the new, energetically better structure.
   """
+  maxdG=args.maxdG
+  k0 = args.k0
+  fpath = args.findpath
+  _RT = args._RT
+  fullseq = CG.graph['full_sequence']
+
+
   saddleE = None
   if (s1, s2) in saddles :
     saddleE = saddles[(s1,s2)]
   else :
-    saddleE = float(RNA.find_saddle(fullseq, s1, s2, _fpath))/100
+    saddleE = float(RNA.find_saddle(fullseq, s1, s2, fpath))/100
 
   # Minimum between direct and in-direct path barriers
   if ts : # then we know that the indirect path has to be part of saddles
@@ -49,8 +55,8 @@ def add_transition_edges(CG, saddles, fullseq, s1, s2, ts=None,
     dG_2s = round(saddleE-e2, 2)
 
     # Metropolis Rule
-    k_12 = _k0 * math.e**(-dG_1s/_RT) if dG_1s > 0 else _k0
-    k_21 = _k0 * math.e**(-dG_2s/_RT) if dG_2s > 0 else _k0
+    k_12 = k0 * math.e**(-dG_1s/_RT) if dG_1s > 0 else k0
+    k_21 = k0 * math.e**(-dG_2s/_RT) if dG_2s > 0 else k0
 
     CG.add_weighted_edges_from([(s1, s2, k_12)])
     CG.add_weighted_edges_from([(s2, s1, k_21)])
@@ -106,8 +112,10 @@ def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
       CG.node[ss]['occupancy'] = float(occu)
   return time, iterations
 
-def graph_pruning(CG, sorted_nodes, cutoff, saddles, fullseq) :
+def graph_pruning(CG, sorted_nodes, saddles, args) :
   """ Delete nodes or report them as still reachable """
+  cutoff = args.cutoff
+
   deleted_nodes = 0
   still_reachables = 0
 
@@ -124,7 +132,7 @@ def graph_pruning(CG, sorted_nodes, cutoff, saddles, fullseq) :
         continue
 
       for e, nbr in enumerate(nbrs[1:]) :
-        check = add_transition_edges(CG, saddles, fullseq, nbr, best, ni)
+        check = add_transition_edges(CG, saddles, args, nbr, best, ni)
         if not check :
           print e, nbr, best, ni, check
           sys.exit('over and out')
@@ -134,16 +142,15 @@ def graph_pruning(CG, sorted_nodes, cutoff, saddles, fullseq) :
 
   return deleted_nodes, still_reachables
 
-def expand_graph(CG, seq, saddles, 
-    maxdG = None, 
-    _cutoff = 0.01, 
-    mfe_only=False,
-    verb=False):
+def expand_graph(CG, seq, saddles, args, mfe_only=False):
   """ Expand the graph ...
 
   :return: Number of new nodes
 
   """
+  cutoff= args.cutoff
+  verb  = args.verbose
+
   csid = CG.graph['seqid']
   fseq = CG.graph['full_sequence']
   tlen = CG.graph['transcript_length']
@@ -165,8 +172,8 @@ def expand_graph(CG, seq, saddles,
       for ni in CG.nodes() :
         if CG.has_node(ss):
           #print """ node exists """
-          add_transition_edges(CG, saddles, fseq, ni, ss, maxdG=maxdG)
-        elif add_transition_edges(CG, saddles, fseq, ni, ss, maxdG=maxdG) :
+          add_transition_edges(CG, saddles, args, ni, ss)
+        elif add_transition_edges(CG, saddles, args, ni, ss) :
           CG.node[ss]['energy'] = en
           CG.node[ss]['occupancy'] = 0.0
           CG.node[ss]['identity'] = CG.graph['seqid']
@@ -181,7 +188,7 @@ def expand_graph(CG, seq, saddles,
     for ni, data in CG.nodes_iter(data=True):
       en  = data['energy']
       occ = data['occupancy']
-      if occ < _cutoff : continue
+      if occ < cutoff : continue
 
       ss = ni[0:len(seq)]
 
@@ -196,8 +203,8 @@ def expand_graph(CG, seq, saddles,
 
         if CG.has_node(nbr):
           """ node exists """
-          add_transition_edges(CG, saddles, fseq, ni, nbr, maxdG=maxdG)
-        elif add_transition_edges(CG, saddles, fseq, ni, nbr, maxdG=maxdG) :
+          add_transition_edges(CG, saddles, args, ni, nbr)
+        elif add_transition_edges(CG, saddles, args, ni, nbr) :
           """ node does not exist """
           enbr = round(RNA.energy_of_structure(fseq, nbr, 0), 2)
           CG.node[nbr]['energy'] = enbr
@@ -357,8 +364,7 @@ def get_drtrafo_args():
 
   parser.add_argument("--findpath", type = int, default = 10, metavar='<int>',
       help="Specify search width for *findpath* heuristic") 
-  parser.add_argument("--minrate", type = float, default = 1e-10, 
-      metavar='<flt>',
+  parser.add_argument("--minrate", type = float, default = 1e-10, metavar='<flt>',
       help="Specify minmum rate to accept a new neighbor")
   parser.add_argument("--cutoff", type=float, default=0.01, metavar='<flt>',
       help="Cutoff for population transfer")
@@ -384,8 +390,8 @@ def get_drtrafo_args():
       help="Specify path to your *treekin* executable")
   parser.add_argument("--repl", type=float, default=None,
       help="Logarithmically reduce output size")
-  #parser.add_argument("--k0", type=float, default=2e5,
-  #    help="Arrhenius rate prefactor")
+  parser.add_argument("--k0", type=float, default=2e5,
+      help="Arrhenius rate prefactor")
   parser.add_argument("--t0", type=float, default=0.0,
       help="First time point of the printed time-course")
   parser.add_argument("--ti", type=float, default=1.02,
@@ -416,13 +422,13 @@ def main():
   else :
     name = args.name
 
-  _outfile = name + '.drf'
-  _RT= 0.61632077549999997
+  args._RT=0.61632077549999997
   if args.temperature != 37.0 :
-    _RT = (_RT/37.0)*args.temperature
-    print >> sys.stderr, 'WARNING: temperature option not fully supported'
-  _last_only  = 0, # Print only the last simulation
-  _output     = 'DrForna'#, 'BarMap'
+    args._RT = (args._RT/37.0)*args.temperature
+
+  _outfile = name + '.drf'
+  _last_only = 0, # Print only the last simulation
+  _output = 'DrForna'#, 'nxy'
 
   if args.stop == 0 : 
     args.stop = len(fullseq)+1
@@ -434,9 +440,8 @@ def main():
 
   # Minrate specifies the lowest accepted rate for simulations (sec^-1)
   # it can be directly converted into a activation energy that results this rate
-  maxdG = -_RT * math.log(args.minrate)
+  args.maxdG = -args._RT * math.log(args.minrate)
   #print args.minrate, '=>', maxdG
-
 
   # Start with DrTransformer
   RNA.cvar.noLonelyPairs = 1
@@ -461,8 +466,7 @@ def main():
     seq = fullseq[0:tlen]
 
     # Expand Graph
-    nnn = expand_graph(CG, seq, saddles, maxdG=maxdG, 
-        _cutoff = args.cutoff, mfe_only=True, verb=args.verbose)
+    nnn = expand_graph(CG, seq, saddles, args, mfe_only=False)
 
     # Report before simulation (?)
     # print nnn, "new nodes"
@@ -492,11 +496,11 @@ def main():
             treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
             useplusI=True, force=True, verb=False)
       except RuntimeError:
-        try :
-          tfile = nal.sys_treekin(_fname, seq, bfile, rfile, 
-              treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
-              useplusI=False, force=True, verb=True)
-        except RuntimeError:
+        #try :
+        #  tfile = nal.sys_treekin(_fname, seq, bfile, rfile, 
+        #      treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
+        #      useplusI=False, force=True, verb=True)
+        #except RuntimeError:
           print "Abort after", tlen, "nucleotides:", \
               "treekin cannot find a solution, sorry"
           raise SystemExit
@@ -510,7 +514,7 @@ def main():
       CG.graph['total_time'] += time_inc
       
       # Prune
-      dn,sr = graph_pruning(CG, nlist, args.cutoff, saddles, fullseq)
+      dn,sr = graph_pruning(CG, nlist, saddles, args)
 
     if args.verbose :
       print "# Deleted {} nodes, {} still reachable.".format(dn, sr)
