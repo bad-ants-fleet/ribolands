@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 
-"""
-  Code written by Stefan Badelt (stef@tbi.univie.ac.at)
-
-  vim-config = set: ts=2 et sw=2 sts=2
-"""
+# written by Stefan Badelt (stef@tbi.univie.ac.at)
+# vim-config = set: ts=2 et sw=2 sts=2
 
 import re
 import os
@@ -113,7 +110,7 @@ def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
   return time, iterations
 
 def graph_pruning(CG, sorted_nodes, saddles, args) :
-  """ Delete nodes or report them as still reachable """
+  """ Delete nodes or report them as still reachable. """
   cutoff = args.cutoff
 
   deleted_nodes = 0
@@ -132,18 +129,25 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
         continue
 
       for e, nbr in enumerate(nbrs[1:]) :
-        check = add_transition_edges(CG, saddles, args, nbr, best, ni)
-        if not check :
-          print e, nbr, best, ni, check
-          sys.exit('over and out')
+        always_true = add_transition_edges(CG, saddles, args, nbr, best, ni)
 
       CG.remove_node(ni)
       deleted_nodes += 1
 
   return deleted_nodes, still_reachables
 
-def expand_graph(CG, seq, saddles, args, mfe_only=False):
-  """ Expand the graph ...
+def expand_graph(CG, saddles, args, mfe_only=False):
+  """ Find new neighbors and add them to the Conformation Graph
+
+  The function is devided into two parts. 1) The current mfe structure
+  is connected to all present structures, 2) The conformation graph is
+  expanded using helix-breathing.
+
+  :param CG: Conformation Graph (NetworkX)
+  :param saddles: dictionary of all previous findpath runs
+  :param args: commandline arguments and other global variables
+    (using: cutoff, verbose)
+  :param mfe_only: only use current mfe as potential new neighbor
 
   :return: Number of new nodes
 
@@ -154,6 +158,7 @@ def expand_graph(CG, seq, saddles, args, mfe_only=False):
   csid = CG.graph['seqid']
   fseq = CG.graph['full_sequence']
   tlen = CG.graph['transcript_length']
+  seq = fseq[0:tlen]
 
   # Add MFE
   ss, mfe = RNA.fold(seq)
@@ -164,16 +169,16 @@ def expand_graph(CG, seq, saddles, args, mfe_only=False):
   if CG.has_node(ss) :
     en = CG.node[ss]['energy']
   else :
-    en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
     if nx.number_of_nodes(CG) == 0 :
+      en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
       CG.add_node(ss, energy=en, occupancy=1.0, identity=CG.graph['seqid'])
       CG.graph['seqid'] += 1
     else :
       for ni in CG.nodes() :
         if CG.has_node(ss):
-          #print """ node exists """
           add_transition_edges(CG, saddles, args, ni, ss)
         elif add_transition_edges(CG, saddles, args, ni, ss) :
+          en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
           CG.node[ss]['energy'] = en
           CG.node[ss]['occupancy'] = 0.0
           CG.node[ss]['identity'] = CG.graph['seqid']
@@ -185,6 +190,7 @@ def expand_graph(CG, seq, saddles, args, mfe_only=False):
   if mfe_only is True :
     pass
   else :
+    """ do the helix breathing graph expansion """
     for ni, data in CG.nodes_iter(data=True):
       en  = data['energy']
       occ = data['occupancy']
@@ -202,21 +208,21 @@ def expand_graph(CG, seq, saddles, args, mfe_only=False):
           continue
 
         if CG.has_node(nbr):
-          """ node exists """
           add_transition_edges(CG, saddles, args, ni, nbr)
         elif add_transition_edges(CG, saddles, args, ni, nbr) :
-          """ node does not exist """
           enbr = round(RNA.energy_of_structure(fseq, nbr, 0), 2)
           CG.node[nbr]['energy'] = enbr
           CG.node[nbr]['occupancy'] = 0.0
           CG.node[nbr]['identity'] = CG.graph['seqid']
           CG.graph['seqid'] += 1
         else :
-          print "# WARNING: Could not add transition edge!"
+          """# WARNING: Could not add transition edge!"""
   return CG.graph['seqid']-csid
 
-def open_breathing_helices(seq, ss, free=3):
-  """ """
+def open_breathing_helices(seq, ss, free=6):
+  """ open all breathable helices, i.e. those that share a base-pair
+    with an exterior loop region 
+  """
   nbrs = set()
   pt = nal.make_pair_table(ss, base=0)
 
@@ -230,8 +236,18 @@ def open_breathing_helices(seq, ss, free=3):
   return nbrs
 
 def rec_fill_nbrs(nbrs, ss, mb, pt, (n, m), free):
-  """ 
-    TODO: Test function, but looks good
+  """ recursive helix opening
+  TODO: Test function, but looks good
+
+  :param nbrs: a set of all neighboring conformations
+  :param ss: reference secondary structure
+  :param mb: a mutable version of ss, which, after the final round will have
+    all breathing helices opened
+  :param pt: pair table (zero based)
+  :param (n,m): the range of the pt under current investigation
+  :param free: number of bases that should be freed
+
+  :return: 
   """
   skip = 0 # fast forward in case we have deleted stuff
   for i in range(n, m) :
@@ -260,12 +276,10 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, (n, m), free):
 
       l = 0 # reset interior-loop size
       while (p < q and pt[p+1] == -1):
-        p += 1
-        l += 1
+        [p, l] = [p+1, l+1]
       p += 1
       while (p < q and pt[q-1] == -1):
-        q -= 1
-        l += 1
+        [q, l] = [q-1, l+1]
       q -= 1
       o += l
 
@@ -275,11 +289,21 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, (n, m), free):
 
   return 
 
-def fold_exterior_loop(seq, con, fast=1):
-  """ Constrained folding, if fast, only fold the unconstrained exterior loop
-  of a structure, leave the rest as is. """
+def fold_exterior_loop(seq, con, exterior_only=True):
+  """ Constrained folding 
+  
+  The default behavior is "exterior_only", which replaces all constrained
+  helices with short 'NNN' stretches at the sequence level. This reduces 
+  the sequence length (n) and therefore the runtime O(n^3)
+  
+  :param seq: RNA sequence
+  :param con: constraint
+  :param exterior_only: only fold the extior loop region
 
-  if fast :
+  :return: secondary structure
+  """
+
+  if exterior_only :
     spacer = 'NNN'
     pt = nal.make_pair_table(con, base=0)
     ext = ''
@@ -316,11 +340,21 @@ def fold_exterior_loop(seq, con, fast=1):
 
   return ss
 
-def talk_to_DrForna(CG, seq, sorted_nodes, tfile, _time, _cutoff, 
-    repl=None, _outfile=None) :
-  """  """
+def talk_to_DrForna(CG, seq, sorted_nodes, tfile, df_file, pcutoff, repl):
+  """ Report time course information in DrForna Output format
+  
+  :param CG: Conformation Graph (networkx)
+  :param seq: sequence of current transcript
+  :param sorted_nodes: a list of nodes sorted by their energy
+  :param tfile: current treekin-output file
+  :param df_file: DrForna output file
+  :param pcutoff: cutoff to plot a trajectory point
+
+  """
   # http://www.regular-expressions.info/floatingpoint.html
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
+
+  ttime = CG.graph['total_time']
 
   prevcourse = []
   with open(tfile) as tkn :
@@ -333,7 +367,7 @@ def talk_to_DrForna(CG, seq, sorted_nodes, tfile, _time, _cutoff,
 
         for e, occu in enumerate(course[1:]) :
           # is it above visibility threshold?
-          if occu > _cutoff :
+          if occu > pcutoff :
             # can we actually skip the point?
             if repl and prevcourse and prevcourse[e+1] > 0 \
                 and line is not tknlines[-2]:
@@ -344,15 +378,18 @@ def talk_to_DrForna(CG, seq, sorted_nodes, tfile, _time, _cutoff,
             ss = sorted_nodes[e][0]
 
             line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
-                _time + time, occu, ss[:len(seq)], CG.node[ss]['energy'])
+                ttime + time, occu, ss[:len(seq)], CG.node[ss]['energy'])
 
-            if _outfile :
-              with open(_outfile, 'a') as outf:
+            if df_file :
+              with open(df_file, 'a') as outf:
                 outf.write(line + '\n')
-            else :
-              print line
         prevcourse = course
   return 
+
+def plot_simulation(all_in):
+  for e, course in enumerate(all_in) :
+    """print e, course"""
+  return
 
 def get_drtrafo_args():
   """ A collection of arguments that are used by DrTransformer """
@@ -368,6 +405,8 @@ def get_drtrafo_args():
       help="Specify minmum rate to accept a new neighbor")
   parser.add_argument("--cutoff", type=float, default=0.01, metavar='<flt>',
       help="Cutoff for population transfer")
+  #parser.add_argument("-o", "--output", default='DrForna', metavar='<string>',
+  #    help="Choose output-format: DrForna, NXY")
 
   parser.add_argument("--tmpdir", default='DrTrafo_Files', action = 'store', 
       metavar='<str>',
@@ -428,7 +467,8 @@ def main():
 
   _outfile = name + '.drf'
   _last_only = 0, # Print only the last simulation
-  _output = 'DrForna'#, 'nxy'
+  _output = 'DrForna'#, 
+  #_output = 'pyplot' ... this is under development
 
   if args.stop == 0 : 
     args.stop = len(fullseq)+1
@@ -450,6 +490,9 @@ def main():
   if _output == 'DrForna':
     with open(_outfile, 'w') as outf :
       outf.write("id time conc struct energy\n")
+  elif _output == 'pyplot':
+    all_courses = []
+
   if args.verbose :
     print "T: i,j,pop,struct,energy"
 
@@ -466,10 +509,11 @@ def main():
     seq = fullseq[0:tlen]
 
     # Expand Graph
-    nnn = expand_graph(CG, seq, saddles, args, mfe_only=False)
+    nn = expand_graph(CG, saddles, args, mfe_only=False)
+    if _output == 'pyplot' :
+      all_courses.extend([[] * nn])
 
-    # Report before simulation (?)
-    # print nnn, "new nodes"
+    """ {} new nodes """.format(nn)
 
     # Simulate
     _fname = args.tmpdir+'/'+name+'-'+str(tlen)
@@ -489,6 +533,11 @@ def main():
             CG.graph['total_time'], 1.0, ss[:len(seq)], CG.node[ss]['energy'])
         with open(_outfile, 'a') as outf:
           outf.write(line + '\n')
+      elif _output == 'pyplot' :
+        ss = nlist[0][0]
+        idx = CG.node[ss]['identity']
+        all_courses[idx].append((CG.graph['total_time'], 1.0))
+
     else :
       # - Simulate with treekin
       try:
@@ -506,11 +555,12 @@ def main():
           raise SystemExit
 
       # Get Results
-      old_time = CG.graph['total_time']
       time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
       if _output == 'DrForna' :
-        talk_to_DrForna(CG, seq, nlist, tfile, old_time,
-          args.plot_cutoff, repl=args.repl, _outfile=_outfile)
+        talk_to_DrForna(CG, seq, nlist, tfile, 
+            _outfile, args.plot_cutoff, args.repl)
+      else :
+        """ append time course to all_courses here """
       CG.graph['total_time'] += time_inc
       
       # Prune
@@ -518,6 +568,9 @@ def main():
 
     if args.verbose :
       print "# Deleted {} nodes, {} still reachable.".format(dn, sr)
+
+  if _output == 'pyplot' :
+    plot_simulation(all_courses)
 
   return
 
