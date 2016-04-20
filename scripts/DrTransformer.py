@@ -58,36 +58,54 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
     CG.add_weighted_edges_from([(s1, s2, k_12)])
     CG.add_weighted_edges_from([(s2, s1, k_21)])
 
-  #print "#Added Edge:", s1, s2, "({}, {:g}, {:g})".format(valid, k_12, k_21)
+    #print "#Added Edge:", s1, s2, "({}, {:g}, {:g})".format(valid, k_12, k_21)
 
   return valid
 
 def dump_conformation_graph(CG, seq, name, verb=False) :
   """ Make a barriers + rates output from the current conformation graph """
-  bfile = name+'.bar'
-  rfile = name+'.rts'
-  p0 = []
 
   sorted_nodes = sorted(CG.nodes(data=True), 
       key=lambda x: x[1]['energy'], reverse=False)
-  with open(bfile, 'w') as bar, open(rfile, 'w') as rts :
-    bar.write("     {}\n".format(seq))
-    for e, (ni, data) in enumerate(sorted_nodes) :
-      bar.write("{:4d} {} {:6.2f}\n".format(e+1, ni[:len(seq)], data['energy']))
-      if verb :
-        print "{:4d} {} {:6.2f} {:6.4f}".format(
-            e+1, ni[:len(seq)], data['energy'], data['occupancy'])
-      if data['occupancy'] > 0 :
-        p0.append("{}={}".format(e+1,data['occupancy']))
-      rates = []
-      for (nj, jdata) in sorted_nodes :
-        if CG.has_edge(ni,nj) :
-          rates.append(CG[ni][nj]['weight'])
-        else :
-          rates.append(0)
-      line = "".join(map("{:10.4g}".format, rates))
-      rts.write("{}\n".format(line))
 
+  def remove_inactive(snodes) :
+    nnodes = []
+    for (n,d) in snodes:
+      if d['active'] == True :
+        nnodes.append((n,d))
+    return nnodes
+
+  sorted_nodes = remove_inactive(sorted_nodes)
+
+  if name :
+    bfile = name+'.bar'
+    rfile = name+'.rts'
+    p0 = []
+    with open(bfile, 'w') as bar, open(rfile, 'w') as rts :
+      bar.write("     {}\n".format(seq))
+      for e, (ni, data) in enumerate(sorted_nodes) :
+        bar.write("{:4d} {} {:6.2f}\n".format(
+          e+1, ni[:len(seq)], data['energy']))
+        if verb :
+          print "{:4d} {} {:6.2f} {:6.4f} (ID = {:d})".format(
+              e+1, ni[:len(seq)], 
+              data['energy'], data['occupancy'], data['identity'])
+        if data['occupancy'] > 0 :
+          p0.append("{}={}".format(e+1,data['occupancy']))
+        rates = []
+        for (nj, jdata) in sorted_nodes :
+          if CG.has_edge(ni,nj) :
+            rates.append(CG[ni][nj]['weight'])
+          else :
+            rates.append(0)
+        line = "".join(map("{:10.4g}".format, rates))
+        rts.write("{}\n".format(line))
+  else :
+    print "Distribution of structures at the end:"
+    for e, (ni, data) in enumerate(sorted_nodes) :
+      print "{:4d} {} {:6.2f} {:6.4f} (ID = {:d})".format(e+1, ni[:len(seq)], 
+          data['energy'], data['occupancy'], data['identity'])
+    return 
   return [bfile, rfile, p0, sorted_nodes]
 
 def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
@@ -121,17 +139,29 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
     if data['occupancy'] < cutoff :
       nbrs = sorted(CG.successors(ni), 
           key=lambda x: CG.node[x]['energy'], reverse=False)
+
+      def remove_inactive(CG, snodes) :
+        """ there must be a more beautiful way to do this ... """
+        nnodes = []
+        for n in snodes:
+          if CG.node[n]['active'] == True :
+            nnodes.append((n))
+        return nnodes
+      nbrs = remove_inactive(CG, nbrs)
+
       best, been = nbrs[0], CG.node[nbrs[0]]['energy']
 
       if been > data['energy'] :
         still_reachables += 1
-        #print "still reachable", best, been
         continue
 
       for e, nbr in enumerate(nbrs[1:]) :
         always_true = add_transition_edges(CG, saddles, args, nbr, best, ni)
+        if always_true is False :
+          sys.exit('over and out')
 
-      CG.remove_node(ni)
+      CG.node[ni]['active']=False
+      CG.node[ni]['occupancy']=0.0
       deleted_nodes += 1
 
   return deleted_nodes, still_reachables
@@ -166,25 +196,31 @@ def expand_graph(CG, saddles, args, mfe_only=False):
   ss = ss + future
   #print >> sys.stderr, "{}\n{} {:6.2f}".format(seq, ss, mfe)
 
-  if CG.has_node(ss) :
-    en = CG.node[ss]['energy']
-  else :
-    if nx.number_of_nodes(CG) == 0 :
-      en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
-      CG.add_node(ss, energy=en, occupancy=1.0, identity=CG.graph['seqid'])
-      CG.graph['seqid'] += 1
-    else :
-      for ni in CG.nodes() :
-        if CG.has_node(ss):
-          add_transition_edges(CG, saddles, args, ni, ss)
-        elif add_transition_edges(CG, saddles, args, ni, ss) :
-          en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
-          CG.node[ss]['energy'] = en
-          CG.node[ss]['occupancy'] = 0.0
-          CG.node[ss]['identity'] = CG.graph['seqid']
-          CG.graph['seqid'] += 1
+  # If there is no node bec we are in the beginning, add the node,
+  # otherwise, go through all nodes and try to add transition edges
 
-  if not CG.has_node(ss) :
+  if nx.number_of_nodes(CG) == 0 :
+    en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
+    CG.add_node(ss, energy=en, occupancy=1.0, 
+        identity=CG.graph['seqid'], active=True)
+    CG.graph['seqid'] += 1
+  else :
+    for ni in CG.nodes() :
+      if CG.node[ni]['active'] == False : continue
+      if ni == ss or CG.has_edge(ni,ss) : continue
+
+      if CG.has_node(ss): # from a previous iteration
+        if add_transition_edges(CG, saddles, args, ni, ss):
+          CG.node[ss]['active'] = True # in case it was there but inactive
+      elif add_transition_edges(CG, saddles, args, ni, ss) :
+        en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
+        CG.node[ss]['active'] = True
+        CG.node[ss]['energy'] = en
+        CG.node[ss]['occupancy'] = 0.0
+        CG.node[ss]['identity'] = CG.graph['seqid']
+        CG.graph['seqid'] += 1
+
+  if not CG.has_node(ss) or CG.node[ss]['active'] is False:
     print "# WARNING: ", ss, "[mfe secondary structure could not be connected]"
 
   if mfe_only is True :
@@ -192,6 +228,7 @@ def expand_graph(CG, saddles, args, mfe_only=False):
   else :
     """ do the helix breathing graph expansion """
     for ni, data in CG.nodes_iter(data=True):
+      if data['active'] == False : continue
       en  = data['energy']
       occ = data['occupancy']
       if occ < cutoff : continue
@@ -208,10 +245,12 @@ def expand_graph(CG, saddles, args, mfe_only=False):
           continue
 
         if CG.has_node(nbr):
-          add_transition_edges(CG, saddles, args, ni, nbr)
+          if add_transition_edges(CG, saddles, args, ni, nbr):
+            CG.node[nbr]['active'] = True # in case it was there but inactive
         elif add_transition_edges(CG, saddles, args, ni, nbr) :
           enbr = round(RNA.energy_of_structure(fseq, nbr, 0), 2)
           CG.node[nbr]['energy'] = enbr
+          CG.node[nbr]['active'] = True
           CG.node[nbr]['occupancy'] = 0.0
           CG.node[nbr]['identity'] = CG.graph['seqid']
           CG.graph['seqid'] += 1
@@ -340,25 +379,25 @@ def fold_exterior_loop(seq, con, exterior_only=True):
 
   return ss
 
-def talk_to_DrForna(CG, seq, sorted_nodes, tfile, df_file, pcutoff, repl):
+def talk(CG, sorted_nodes, tfile, repl, df_file = None, all_courses=[]):
   """ Report time course information in DrForna Output format
   
   :param CG: Conformation Graph (networkx)
-  :param seq: sequence of current transcript
   :param sorted_nodes: a list of nodes sorted by their energy
   :param tfile: current treekin-output file
   :param df_file: DrForna output file
-  :param pcutoff: cutoff to plot a trajectory point
+  :param repl: a factor to reduce the plot size, see --repl <float> option
 
   """
+
   # http://www.regular-expressions.info/floatingpoint.html
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
 
   ttime = CG.graph['total_time']
 
-  prevcourse = []
-  with open(tfile) as tkn :
+  with open(tfile) as tkn, open(df_file, 'a') as outf :
     # this is nasty, but used to check if we're at the last line
+    prevcourse = []
     tknlines = tkn.readlines()
     for line in tknlines:
       if reg_flt.match(line) :
@@ -367,28 +406,65 @@ def talk_to_DrForna(CG, seq, sorted_nodes, tfile, df_file, pcutoff, repl):
 
         for e, occu in enumerate(course[1:]) :
           # is it above visibility threshold?
-          if occu > pcutoff :
-            # can we actually skip the point?
-            if repl and prevcourse and prevcourse[e+1] > 0 \
-                and line is not tknlines[-2]:
-              y1 = min(prevcourse[e+1], course[e+1])
-              y2 = max(prevcourse[e+1], course[e+1])
-              dy = math.log(y2) - math.log(y1)
-              if dy < repl : continue
-            ss = sorted_nodes[e][0]
+          ss = sorted_nodes[e][0]
 
-            line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
-                ttime + time, occu, ss[:len(seq)], CG.node[ss]['energy'])
+          # can we actually skip the point?
+          if repl and prevcourse and prevcourse[e+1] > 0 \
+              and line is not tknlines[-2]:
+            y1 = min(prevcourse[e+1], course[e+1])
+            y2 = max(prevcourse[e+1], course[e+1])
+            dy = math.log(y2) - math.log(y1)
+            if dy < repl : continue
 
-            if df_file :
-              with open(df_file, 'a') as outf:
-                outf.write(line + '\n')
+          if all_courses :
+            ident = CG.node[ss]['identity']
+            all_courses[ident].append((ttime+time, occu))
+          if df_file is not None :
+            dfline = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
+              ttime + time, occu, ss[:CG.graph['transcript_length']], 
+              CG.node[ss]['energy'])
+            outf.write(dfline + '\n')
         prevcourse = course
   return 
 
-def plot_simulation(all_in):
+def plot_simulation(all_in, args):
+  import matplotlib.pyplot as plt
+  t8 = args.t8
+  stop = args.stop
+  cutoff = args.cutoff
+
+  name  = args.name
+  title = args.name
+
+  fig = plt.figure()
+  ax = fig.add_subplot(1,1,1)
+  ax.set_xscale('log')
   for e, course in enumerate(all_in) :
-    """print e, course"""
+    if course == [] : continue
+    t, o = zip(*course)
+    p, = ax.plot(t, o, '-')
+    # determine which lines are part of the legend,
+    # like this, it is only those that are populated 
+    # at the end of transcription
+    if t[-1] > t8*stop :
+      #print e, t[-1], o[-1]
+      p.set_label("ID {:d}".format(e))
+
+  fig.set_size_inches(7,3)
+  fig.text(0.5,0.95, title, ha='center', va='center')
+  plt.xlabel('time [seconds]', fontsize=11)
+  plt.ylabel('occupancy [mol/l]', fontsize=11)
+
+  # """ Add ticks for 1 minute, 1 hour, 1 day, 1 year """
+  # plt.axvline(x=60, linewidth=1, color='black', linestyle='--')
+  # plt.axvline(x=3600, linewidth=1, color='black', linestyle='--')
+  # plt.axvline(x=86400, linewidth=1, color='black', linestyle='--')
+  # plt.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
+  plt.legend()
+
+  pfile = name+'.pdf'
+  plt.savefig(pfile, bbox_inches='tight')
+
   return
 
 def get_drtrafo_args():
@@ -405,8 +481,8 @@ def get_drtrafo_args():
       help="Specify minmum rate to accept a new neighbor")
   parser.add_argument("--cutoff", type=float, default=0.01, metavar='<flt>',
       help="Cutoff for population transfer")
-  #parser.add_argument("-o", "--output", default='DrForna', metavar='<string>',
-  #    help="Choose output-format: DrForna, NXY")
+  parser.add_argument("--pyplot", action="store_true",
+      help="Plot the simulation using matplotlib")
 
   parser.add_argument("--tmpdir", default='DrTrafo_Files', action = 'store', 
       metavar='<str>',
@@ -468,7 +544,6 @@ def main():
   _outfile = name + '.drf'
   _last_only = 0, # Print only the last simulation
   _output = 'DrForna'#, 
-  #_output = 'pyplot' ... this is under development
 
   if args.stop == 0 : 
     args.stop = len(fullseq)+1
@@ -490,11 +565,13 @@ def main():
   if _output == 'DrForna':
     with open(_outfile, 'w') as outf :
       outf.write("id time conc struct energy\n")
-  elif _output == 'pyplot':
+
+  if args.pyplot:
     all_courses = []
 
   if args.verbose :
-    print "T: i,j,pop,struct,energy"
+    print fullseq
+    print "# ID, Structure, Energy, Occupancy"
 
   # initialize a directed conformation graph
   CG = nx.DiGraph(
@@ -510,10 +587,14 @@ def main():
 
     # Expand Graph
     nn = expand_graph(CG, saddles, args, mfe_only=False)
-    if _output == 'pyplot' :
-      all_courses.extend([[] * nn])
+    #print """ {} new nodes """.format(nn), CG.graph['seqid'], "total nodes"
 
-    """ {} new nodes """.format(nn)
+    if args.pyplot :
+      all_courses.extend([[] for i in range(nn)])
+      # Just so that I will remember... 
+      # DO **NOT** DO IT THIS WAY: all_courses.extend([ [] ] * nn )
+      # and if you are a python geek reading this, please tell me when or why
+      # you would ever allocate space like that!
 
     # Simulate
     _fname = args.tmpdir+'/'+name+'-'+str(tlen)
@@ -533,10 +614,10 @@ def main():
             CG.graph['total_time'], 1.0, ss[:len(seq)], CG.node[ss]['energy'])
         with open(_outfile, 'a') as outf:
           outf.write(line + '\n')
-      elif _output == 'pyplot' :
+      if args.pyplot :
         ss = nlist[0][0]
-        idx = CG.node[ss]['identity']
-        all_courses[idx].append((CG.graph['total_time'], 1.0))
+        ident = CG.node[ss]['identity']
+        all_courses[ident].append((CG.graph['total_time'], 1.0))
 
     else :
       # - Simulate with treekin
@@ -556,11 +637,17 @@ def main():
 
       # Get Results
       time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
-      if _output == 'DrForna' :
-        talk_to_DrForna(CG, seq, nlist, tfile, 
-            _outfile, args.plot_cutoff, args.repl)
-      else :
-        """ append time course to all_courses here """
+      #print time_inc, iterations
+
+      ac  = all_courses if args.pyplot else []
+      drf = _outfile if _output == 'DrForna' else None
+
+      # beware that talk() actually modifies ac
+      talk(CG, nlist, tfile, args.repl, df_file = drf, all_courses = ac)
+
+      # this line is not necessary, readability only
+      if args.pyplot : all_courses = ac
+
       CG.graph['total_time'] += time_inc
       
       # Prune
@@ -569,8 +656,10 @@ def main():
     if args.verbose :
       print "# Deleted {} nodes, {} still reachable.".format(dn, sr)
 
-  if _output == 'pyplot' :
-    plot_simulation(all_courses)
+  if args.verbose:
+    dump_conformation_graph(CG, CG.graph['full_sequence'], None, verb=args.verbose)
+  if args.pyplot :
+    plot_simulation(all_courses, args)
 
   return
 
