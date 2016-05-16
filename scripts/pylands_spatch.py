@@ -16,7 +16,7 @@ import string
 import math
 import RNA
 
-import rnaworld as nal
+import ribolands as ril
 
 def aptamer_energy(seq, ss, verb=False,
     # Default Theophylline
@@ -48,7 +48,7 @@ def aptamer_energy(seq, ss, verb=False,
       if pocR != ss[mR.start():mR.end()] :
         continue
       # Now make sure that these are really base-pairs
-      ptable = nal.make_pair_table(ss, base=0)
+      ptable = ril.make_pair_table(ss, base=0)
       if mL.start() == ptable[mR.end()-1] and \
           mL.end()-1 == ptable[mR.start()] and \
           mR.start() == ptable[mL.end()-1] and \

@@ -12,7 +12,7 @@ import networkx as nx
 import subprocess as s
 import collections as c
 
-import rnaworld as nal
+import ribolands as ril
 import RNA
 
 def add_transition_edges(CG, saddles, args, s1, s2, ts=None): 
@@ -263,7 +263,7 @@ def open_breathing_helices(seq, ss, free=6):
     with an exterior loop region 
   """
   nbrs = set()
-  pt = nal.make_pair_table(ss, base=0)
+  pt = ril.make_pair_table(ss, base=0)
 
   # mutable secondary structure 
   nbr = list(ss)
@@ -344,7 +344,7 @@ def fold_exterior_loop(seq, con, exterior_only=True):
 
   if exterior_only :
     spacer = 'NNN'
-    pt = nal.make_pair_table(con, base=0)
+    pt = ril.make_pair_table(con, base=0)
     ext = ''
 
     # shrink the sequcnes
@@ -529,7 +529,7 @@ def main():
   """ DrTransformer - cotranscriptional folding """
   args = get_drtrafo_args()
 
-  (name, fullseq) = nal.parse_vienna_stdin()
+  (name, fullseq) = ril.parse_vienna_stdin()
 
   # Adjust arguments, prepare simulation
   if args.name == '' : 
@@ -622,12 +622,12 @@ def main():
     else :
       # - Simulate with treekin
       try:
-        tfile = nal.sys_treekin(_fname, seq, bfile, rfile, 
+        tfile = ril.sys_treekin(_fname, seq, bfile, rfile, 
             treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
             useplusI=True, force=True, verb=False)
       except RuntimeError:
         #try :
-        #  tfile = nal.sys_treekin(_fname, seq, bfile, rfile, 
+        #  tfile = ril.sys_treekin(_fname, seq, bfile, rfile, 
         #      treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
         #      useplusI=False, force=True, verb=True)
         #except RuntimeError:

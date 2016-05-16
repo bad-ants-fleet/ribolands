@@ -8,7 +8,7 @@
 #  for uncommenting large parts during testing
 #
 #  *) do not exceed 80 characters per line
-#  *) indents: 2x whitespace, no tab characters!
+#  *) indents: 2x whitespace, no tabs!
 #
 #  -*- VIM config -*- 
 #  set textwidth=80
@@ -501,7 +501,7 @@ def which(program):
   return None
 
 def main():
-  import rnaworld.utils as rnu
+  import ribolands.utils as rnu
   
   # Quick set test model params """
   name, seq = rnu.parse_vienna_stdin()

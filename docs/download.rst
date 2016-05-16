@@ -1,9 +1,9 @@
 Download
 ========
 
-The source code for the rnaworld module can be found at github: 
+The source code for the ribolands module can be found at github: 
 
-https://github.com/../rnaworld
+https://github.com/../ribolands
 
 To install, just run the usual::
 

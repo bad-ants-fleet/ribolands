@@ -10,19 +10,19 @@ with open('LICENSE') as f:
     license = f.read()
 
 # Dynamically figure out the version
-version = __import__('rnaworld').__version__
+version = __import__('ribolands').__version__
 
 setup(
-    name='rnaworld',
+    name='ribolands',
     version=version,
     description='RNA folding kinetics using ViennaRNA programs',
     long_description=readme,
     author='Stefan Badelt',
     author_email='stef@tbi.univie.ac.at',
-    #url='http://www.tbi.univie.ac.at/~stef/rnaworld/',
+    #url='http://www.tbi.univie.ac.at/~stef/ribolands/',
     license=license,
     #packages=find_packages(exclude=('tests', 'docs'))
-    packages=['rnaworld'],
+    packages=['ribolands'],
     scripts=['scripts/pylands_spatch.py',
       'scripts/cofold_kinetics.py', 
       'scripts/BarMap.py',

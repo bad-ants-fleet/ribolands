@@ -11,7 +11,6 @@
 #  *) indents: 2x whitespace, no tab characters!
 #
 #  -*- VIM config -*- 
-
 #  set textwidth=80
 #  set ts=2 et sw=2 sts=2
 #
@@ -20,7 +19,6 @@
 #
 #  -*- TODO -*-
 #  *) write documentation
-#  *) add general utilities: make_pair_table
 
 import re
 import sys

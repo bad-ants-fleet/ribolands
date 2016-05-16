@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 import math
 #import cofold_plot as conc
 
-import rnaworld as nal
+import ribolands as ril
 import RNA
 
 def module_exists(module_name):
@@ -145,7 +145,7 @@ def add_basins(RG, bfile, spe, seq, nodelist, pure):
   Z = 0.
   zs = []
   nodes = []
-  for line in nal.parse_barfile(bfile, seq=seq) :
+  for line in ril.parse_barfile(bfile, seq=seq) :
     if nodelist and nodelist[(spe, line[1])] == 0 : 
       """ this is only needed in the bionly case """
       rescue_flag = 1
@@ -261,7 +261,7 @@ def bimolecular_cofold_basins(RG, spe, seq, args, ns, bionly):
 
   [bfile, efile, rfile, ps] = bm.barriers(seq, args)
 
-  #[sfile, bfile, efile, rfile, psfile] = nal.sys_barriers(args.name, seq, args.name+'.spt', 
+  #[sfile, bfile, efile, rfile, psfile] = ril.sys_barriers(args.name, seq, args.name+'.spt', 
   #      barriers=args.barriers,
   #      minh=args.b_minh,
   #      maxn=args.b_maxn,
@@ -354,10 +354,10 @@ def interkin_equilibrium(species, args):
       ''' Do an additional run first: 'true-dimers-only' '''
       args.spatch.append('-d')
       [bfile, efile, rfile, ps] = bm.barriers(seq, args)
-      patchdata  = nal.parse_barfile(bfile, seq=seq)
+      patchdata  = ril.parse_barfile(bfile, seq=seq)
       args.spatch.pop()
     [bfile, efile, rfile, ps] = bm.barriers(seq, args)
-    bardata = nal.parse_barfile(bfile, seq=seq)
+    bardata = ril.parse_barfile(bfile, seq=seq)
     args.name = name
 
     ''' Write the Barriers Output into TreeData dictionary '''
@@ -502,16 +502,16 @@ def cofold_barriers(_name, species,
       name = name.translate(string.maketrans("&", "_"))
       
       if s_ener is None :
-        myener, nos = nal.sys_subopt_range(seq, nos=s_maxn, maxe=20, verb=verb)
+        myener, nos = ril.sys_subopt_range(seq, nos=s_maxn, maxe=20, verb=verb)
       else :
         myener = s_ener
 
       if bionly is False :
         _fname = name + "_truedimers"
         s_opts.append('-d')
-        sfile = nal.sys_suboptimals(_fname, seq, 
+        sfile = ril.sys_suboptimals(_fname, seq, 
             ener=myener, opts=s_opts, verb=verb, force=force)
-        [sfile, bfile, efile, rfile, psfile] = nal.sys_barriers(_fname, seq, sfile, 
+        [sfile, bfile, efile, rfile, psfile] = ril.sys_barriers(_fname, seq, sfile, 
             barriers=barriers, minh=minh, maxn=maxn, k0=k0, temp=temp, 
             verb=verb, force=force)
         # this function modifies sortednodes and hypercount... not nice!
@@ -519,9 +519,9 @@ def cofold_barriers(_name, species,
         s_opts.pop()
 
       _fname = name
-      sfile = nal.sys_suboptimals(_fname, seq, 
+      sfile = ril.sys_suboptimals(_fname, seq, 
           ener=myener, opts=[], verb=verb, force=force)
-      [sfile, bfile, efile, rfile, psfile] = nal.sys_barriers(_fname, seq, sfile, 
+      [sfile, bfile, efile, rfile, psfile] = ril.sys_barriers(_fname, seq, sfile, 
           barriers=barriers, minh=minh, maxn=maxn, k0=k0, temp=temp, 
           verb=verb, force=force)
       if bionly :
@@ -532,13 +532,13 @@ def cofold_barriers(_name, species,
       continue
     else :
       if s_ener is None :
-        myener, nos = nal.sys_subopt_range(seq, nos=s_maxn, maxe=20, verb=verb)
+        myener, nos = ril.sys_subopt_range(seq, nos=s_maxn, maxe=20, verb=verb)
       else :
         myener = s_ener
       _fname = name
-      sfile = nal.sys_suboptimals(_fname, seq, 
+      sfile = ril.sys_suboptimals(_fname, seq, 
           ener=myener, opts=[], verb=verb, force=force)
-      [sfile, bfile, efile, rfile, psfile] = nal.sys_barriers(_fname, seq, sfile, 
+      [sfile, bfile, efile, rfile, psfile] = ril.sys_barriers(_fname, seq, sfile, 
           barriers=barriers, minh=minh, maxn=maxn, k0=k0, temp=temp, 
           verb=verb, force=force)
       add_edges(RG, bfile, rfile, 'uni', spe, seq, sortednodes, hypercount)
@@ -562,8 +562,8 @@ def add_edges(RG, bfile, rfile, mode, spe, seq, snodes, hcount):
   
   """
   RM = []
-  lmins = [] #map(lambda(x): (spe, x[1]), nal.parse_barfile(bfile, seq=seq))
-  for line in nal.parse_barfile(bfile, seq=seq):
+  lmins = [] #map(lambda(x): (spe, x[1]), ril.parse_barfile(bfile, seq=seq))
+  for line in ril.parse_barfile(bfile, seq=seq):
     lmins.append((spe, line[1]))
     if (spe, line[1]) not in snodes :
       snodes[(spe,line[1])] = 0
@@ -770,7 +770,7 @@ def main():
   args = get_interkin_args()
 
   """ Read Input & Update Arguments """
-  name, inseq = nal.parse_vienna_stdin()
+  name, inseq = ril.parse_vienna_stdin()
 
   if args.name == '' : 
     args.name = name
@@ -781,7 +781,7 @@ def main():
     print "# Input: {:s} {:s} {:6.2f} kcal/mol".format(name, inseq, args.s_ener)
     
   if args.s_ener == 0 :
-    args.s_ener, args.s_maxn = nal.sys_subopt_range(inseq, 
+    args.s_ener, args.s_maxn = ril.sys_subopt_range(inseq, 
         nos=args.s_maxn, 
         maxe=20, #args.s_maxe, 
         verb=args.verbose)

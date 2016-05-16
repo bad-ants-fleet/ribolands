@@ -19,8 +19,8 @@ import collections as c
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-import rnaworld as nal
-from rnaworld.syswraps import which
+import ribolands as ril
+from ribolands.syswraps import which
 
 def barmap_plot(name, seq, tfiles, plist, args):
   """ Description, 
@@ -163,7 +163,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
     cname = "{}-t8_{}-len_{}".format(bname,t8,l)
     [bfile, efile, rfile, psfile] = bfiles[e]
 
-    ctfile = nal.sys_treekin(cname, cseq, bfile, rfile, 
+    ctfile = ril.sys_treekin(cname, cseq, bfile, rfile, 
         treekin = args.treekin,
         repl=None,
         #useplusI=True,
@@ -263,7 +263,7 @@ def barmap_barriers(_bname, seq, sfiles, args):
     # Make sure the first round for mapping is always recomputed
     # force = True if e == 1 else args.force
 
-    [sfile, bfile, efile, rfile, psfile] = nal.sys_barriers(cname, cseq, sfile, 
+    [sfile, bfile, efile, rfile, psfile] = ril.sys_barriers(cname, cseq, sfile, 
         barriers=args.barriers,
         minh=args.b_minh,
         maxn=args.b_maxn,
@@ -288,7 +288,7 @@ def barmap_subopts(_sname, seq, args):
     cseq  = seq[0:l]
     cname = "{}-len_{}".format(_sname,l)
   
-    csfile = nal.sys_suboptimals(cname, cseq, 
+    csfile = ril.sys_suboptimals(cname, cseq, 
         RNAsubopt=args.RNAsubopt,
         ener=args.s_ener, 
         temp=args.temperature,
@@ -489,7 +489,7 @@ def main():
 
   ### parse input & adjust arguments ###
   args = get_barmap_args()
-  name, seq = nal.parse_vienna_stdin()
+  name, seq = ril.parse_vienna_stdin()
 
   if args.name == '' : 
     args.name = name
@@ -505,7 +505,7 @@ def main():
     seq = seq[:args.stop]
 
   if args.s_ener == 0 :
-    args.s_ener, args.s_maxn = nal.sys_subopt_range(seq, 
+    args.s_ener, args.s_maxn = ril.sys_subopt_range(seq, 
         nos=args.s_maxn, maxe=args.s_maxe, verb=args.verbose)
     if args.verbose:
       print "# Energyrange {:.2f} computes {:d} sequences".format(
