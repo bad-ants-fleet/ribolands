@@ -482,7 +482,8 @@ def get_drtrafo_args():
   parser.add_argument("--cutoff", type=float, default=0.01, metavar='<flt>',
       help="Cutoff for population transfer")
   parser.add_argument("--pyplot", action="store_true",
-      help="Plot the simulation using matplotlib")
+      help="Plot the simulation using matplotlib, use this in combination with \
+          --verbose in order to interpret the legend")
 
   parser.add_argument("--tmpdir", default='DrTrafo_Files', action = 'store', 
       metavar='<str>',
