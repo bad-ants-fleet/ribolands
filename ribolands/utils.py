@@ -25,35 +25,51 @@ import sys
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-def make_pair_table(ss, base=0):
-  """ 
-    Return a secondary struture in form of pair table:
+def make_pair_table(ss, base=0, chars=['.']):
+  """Return a secondary struture in form of pair table:
+
+  :param ss: secondary structure in dot-bracket format
+  :param base: choose between a pair-table with base 0 or 1
+  :param chars: a list of characters that are ignored, default: ['.']
+
+  :exmaple:
      base=0: ((..)). => [5,4,-1,-1,1,0,-1]
       i.e. start counting from 0, unpaired = -1
      base=1: ((..)). => [7,6,5,0,0,2,1,0]
       i.e. start counting from 1, unpaired = 0, pt[0]=len(ss)
 
-    TODO: raise error for unbalanced brackets
+  :return: a pair-table
+  :return-type: list
   """
   stack=[];
 
   if base is 0:
     pt=[-1] * len(ss);
-  else :
-    base = 1
+  elif base == 1:
     pt = [0] * (len(ss) + base);
     pt[0] = len(ss);
+  else :
+    raise ValueError("unexpected value in make_pair_table: \
+        (base = " + str(base) + ")")
 
   for i, char in enumerate(ss, base):
     if (char == '('):
       stack.append(i);
     elif (char == ')'):
-      j=stack.pop();
+      try :
+        j=stack.pop();
+      except IndexError, e :
+        raise RuntimeError("Too many closing brackets in secondary structure")
       pt[i]=j
       pt[j]=i
+    elif (char not in set(chars)):
+      raise ValueError("unexpected character in sequence: '" + char + "'")
+
+  if stack != [] :
+    raise RuntimeError("Too many opening brackets in secondary structure")
   return pt
 
-def parse_vienna_stdin():
+def parse_vienna_stdin(stdin):
   """ Read STDIN in fasta format
   Read a Sequence and its Name in Fasta Format. Only one Input-Sequence is
   allowed at a time. The Characters must be A, C, G, U, &
@@ -62,20 +78,18 @@ def parse_vienna_stdin():
   """
   name = 'NoName'
   seq  = ''
-  for line in sys.stdin:
+  for line in stdin:
     if re.match('>', line):
       if name != 'NoName' :
-        print >> sys.stderr, 'Only single-sequence fasta format supported!'
-        raise ValueError
+        raise NotImplementedError('Only single-sequence fasta format supported!')
       else : 
         name = line.strip().split()[0][1:]
     else:
       seq += line.strip()
+
   m = re.search('[^AUCG&]', seq) 
   if m :
-    print >> sys.stderr, \
-      "Does not look like RNA:", m.string[m.span()[0]], "in", seq
-    raise ValueError
+    raise ValueError("Does not look like RNA: ('{}' in '{}')".format(m.string[m.span()[0]], seq))
   return (name, seq)
 
 # make sure that you use args in order to name every column correctly
@@ -87,8 +101,7 @@ def parse_barfile(bfile, seq=''):
     for e, line in enumerate(bar) :
       if e == 0 : 
         if seq and seq != line.strip() :
-          print >> sys.stderr, 'Wrong sequence', seq, ' vs. ', line
-          raise ValueError
+          raise ValueError('Wrong sequence ' + seq + ' vs. ' + line)
       else :
         output.append(line.strip().split())
         #[idx, lmin, en, father, bar] = line.strip().split()[0:5]

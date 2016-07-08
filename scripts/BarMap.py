@@ -489,7 +489,7 @@ def main():
 
   ### parse input & adjust arguments ###
   args = get_barmap_args()
-  name, seq = ril.parse_vienna_stdin()
+  name, seq = ril.parse_vienna_stdin(sys.stdin)
 
   if args.name == '' : 
     args.name = name

@@ -2,22 +2,22 @@
 
 #  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
 #  University of Vienna, Department of Theoretical Chemistry
-#
+
+#  -*- Content -*-
+#  *) systemcalls of RNAsubopt, barriers and treekin 
+#  *) tested under linux
+
 #  -*- Style -*- 
 #  Use double quotes or '#' for comments, such that single quotes are available
 #  for uncommenting large parts during testing
 #
 #  *) do not exceed 80 characters per line
 #  *) indents: 2x whitespace, no tabs!
-#
+
 #  -*- VIM config -*- 
 #  set textwidth=80
 #  set ts=2 et sw=2 sts=2
-#
-#  -*- Content -*-
-#  *) systemcalls of RNAsubopt, barriers and treekin 
-#  *) tested under linux
-#
+
 #  -*- TODO -*-
 #  *) encapsulate syswraps into tmp-directory (bec of barriers)
 
@@ -28,6 +28,23 @@ import gzip
 import math
 import subprocess as sub
 
+class ExecError(Exception):
+  """Ribolands-error handling
+
+  Attributes:
+  msg (str): Human readable string describing the exception.
+  """
+
+  def __init__(self, msg):
+    """Exception initialization
+
+    Args:
+      msg (str): Human readable string describing the exception.
+    """
+    self.msg = msg
+
+  def __str__(self):
+    return "Error: " + self.value
 
 # **************** #
 # public functions #
@@ -77,7 +94,7 @@ def sys_treekin(name, seq, bfile, rfile,
     If you have installed the program, make sure that the path you specified 
     is executable.
     """
-    raise ValueError('Could not find executable')
+    raise RuntimeError('Could not find executable')
 
 
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
@@ -160,8 +177,8 @@ def sys_barriers(name, seq, sfile,
   wrapper will produce two output files from ``STDIN`` and ``STDERR``,
   respectively. 
 
-  .. note:: This wrapper is written for ``barriers v1.6``, previous implementations \
-      do not have the ``--mapstruc`` option.
+  .. note:: This wrapper is written for ``barriers v1.6``, \
+      previous implementations do not have the ``--mapstruc`` option.
 
   :param name: Name of the sequence used to name the output file.
   :param seq: Nucleic acid sequence.
@@ -192,7 +209,7 @@ def sys_barriers(name, seq, sfile,
     If you have installed the program, make sure that the path you specified 
     is executable.
     """
-    raise ValueError('Could not find executable')
+    raise RuntimeError('Could not find executable')
 
   if not sfile or not os.path.exists(sfile) : 
     sfile = sys_suboptimals(name, seq, 
@@ -323,7 +340,7 @@ def sys_suboptimals(name, seq,
     If you have installed the program, make sure that the path you specified 
     is executable.
     """
-    raise ValueError('Could not find executable')
+    raise RuntimeError('Could not find executable')
 
   if ener is None :
     ener, nos = sys_subopt_range(seq, verb=verb, 
@@ -396,7 +413,7 @@ def sys_subopt_range(seq,
     If you have installed the program, make sure that the path you specified 
     is executable.
     """
-    raise ValueError('Could not find executable')
+    raise RuntimeError('Could not find executable')
 
 
   num, nump = 0, 0
@@ -449,7 +466,10 @@ def sys_subopt_range(seq,
 
   return e, num
 
-""" start of internal functions """
+# ***************** #
+# private functions #
+# ................. #
+
 def subopt_reaches_minh(fname, minh):
   """ Internal function to report on whether the energy-range of suboptimal
   structures exceeds the ``--minh`` options for ``barriers``. If this is not

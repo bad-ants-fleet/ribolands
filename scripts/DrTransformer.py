@@ -529,7 +529,7 @@ def main():
   """ DrTransformer - cotranscriptional folding """
   args = get_drtrafo_args()
 
-  (name, fullseq) = ril.parse_vienna_stdin()
+  (name, fullseq) = ril.parse_vienna_stdin(sys.stdin)
 
   # Adjust arguments, prepare simulation
   if args.name == '' : 
@@ -542,8 +542,8 @@ def main():
     args._RT = (args._RT/37.0)*args.temperature
 
   _outfile = name + '.drf'
-  _last_only = 0, # Print only the last simulation
-  _output = 'DrForna'#, 
+  _output = 'DrForna'
+  #_last_only = 0, # not implemented in python version
 
   if args.stop == 0 : 
     args.stop = len(fullseq)+1

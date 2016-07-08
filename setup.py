@@ -2,7 +2,6 @@
 
 from setuptools import setup, find_packages
 
-
 with open('README.md') as f:
     readme = f.read()
 
@@ -15,7 +14,7 @@ version = __import__('ribolands').__version__
 setup(
     name='ribolands',
     version=version,
-    description='RNA folding kinetics using ViennaRNA programs',
+    description='RNA folding kinetics using ViennaRNA',
     long_description=readme,
     author='Stefan Badelt',
     author_email='stef@tbi.univie.ac.at',
