@@ -23,7 +23,7 @@ Two scripts for cotranscriptional folding are part of the `ribolands` package:
 
 >>> ener, nos = sys_subopt_range(seq, nos=100000)
 >>> sfile = sys_suboptimals(name, seq, ener=ener)
->>> [sfile, bfile, efile, rfile, psfile] = sys_barriers('test', 'ACGUGACUG', sfile, maxn=50, minh=1.0, rates=True)
+>>> [sfile, bfile, efile, rfile, psfile] = sys_barriers(name, seq, sfile, maxn=50, minh=1.0, rates=True)
 >>> tfile = sys_treekin(name, seq, bfile, rfile, p0=['2=1'], t0=1e-6, t8=1e10)
 ```
 
