@@ -30,7 +30,7 @@ Two scripts for cotranscriptional folding are part of the `ribolands` package:
 
 ## Cite
 If you are using `BarMap` or `DrTransformer` please cite: Stefan Badelt.
-Control of RNA function by conformational design. PhD thesis, University of
+[Control of RNA function by conformational design.] PhD thesis, University of
 Vienna, 2016
 
 ## Installation
@@ -51,14 +51,15 @@ Do not forget to set your environment variables when using local installations:
 ## Version
 0.2.0
 
-### Development / Unittests
+## Development / Unittests
   python setup.py test
 
-### Build the documentation
+## Build the documentation
   sphinx-build -b html docs ~/your/html/sourcedir/
 
-### License
+## License
 MIT
 
 [//]: References
 [ribolands]: <https://rna.tbi.univie.ac.at/ribolands>
+[Control of RNA function by conformational design.]: <http://www.tbi.univie.ac.at/newpapers/pdfs/TBI-t-2016-1.pdf>
