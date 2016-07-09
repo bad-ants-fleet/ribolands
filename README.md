@@ -17,7 +17,7 @@ Two scripts for cotranscriptional folding are part of the `ribolands` package:
     graph.
 
 ### Examples
-```sh
+```
 >>> from ribolands import sys_subopt_range, sys_suboptimals, sys_barriers
 
 >>> [name, seq] = ['test', 'ACUGAGGUCGAU']
@@ -28,32 +28,34 @@ Two scripts for cotranscriptional folding are part of the `ribolands` package:
 >>> tfile = sys_treekin(name, seq, bfile, rfile, p0=['2=1'], t0=1e-6, t8=1e10)
 ```
 
+## Cite
+If you are using `BarMap` or `DrTransformer` please cite: Stefan Badelt.
+Control of RNA function by conformational design. PhD thesis, University of
+Vienna, 2016
+
 ## Installation
+```sh
   python setup.py install
+```
 
 ### local installation
+```sh
   python setup.py install --prefix=/your/destination/ribolands-x.y.r
-  
+```
 Do not forget to set your environment variables when using local installations:
-  
+```sh
   export PATH=/your/destination/ribolands-x.y.r/bin:$PATH
-
   export PYTHONPATH=/your/destination/ribolands-x.y.r/lib/python2.7/site-packages/:$PYTHONPATH
+```
   
 ## Version
 0.2.0
 
-### Devolment / Unittests
+### Development / Unittests
   python setup.py test
 
 ### Build the documentation
   sphinx-build -b html docs ~/your/html/sourcedir/
-
-### Todos
-
- - Write Tests
- - Sphinx Documentation
- - Release
 
 ### License
 MIT
