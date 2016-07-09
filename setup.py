@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 from setuptools import setup, find_packages
@@ -13,26 +14,19 @@ version = __import__('ribolands').__version__
 
 setup(
     name='ribolands',
-    version=version,
-    description='RNA folding kinetics using ViennaRNA',
+    description='energy landscapes and folding kinetics of nucleic acids',
     long_description=readme,
+    version=version,
+    license=license,
     author='Stefan Badelt',
     author_email='stef@tbi.univie.ac.at',
-    #url='http://www.tbi.univie.ac.at/~stef/ribolands/',
-    license=license,
-    #packages=find_packages(exclude=('tests', 'docs'))
+    # TODO: url='http://rna.tbi.univie.ac.at/ribolands/', 
+    # TODO: #install_requires=['matplotlib','numpy','pandas'],
+    test_suite='tests',
     packages=['ribolands'],
     scripts=['scripts/pylands_spatch.py',
       'scripts/cofold_kinetics.py', 
       'scripts/BarMap.py',
       'scripts/DrTransformer.py']
 )
-
-#   install_requires=['matplotlib','numpy','pandas'],
-#   classifiers=['Development Status :: 4 - Beta',\
-#                    'Programming Language :: Python :: 2.7',\
-#                    'License :: OSI Approved :: MIT License',\
-#                    'Operating System :: Linux',\
-#                    'Intended Audience :: Science/Research',\
-#                    'Topic :: Scientific/Engineering :: Visualization']
 
