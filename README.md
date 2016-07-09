@@ -1,4 +1,5 @@
-# ribolands -- energy landscapes and folding kinetics of nucleic acids
+# ribolands
+energy landscapes and folding kinetics of nucleic acids
 
 **ribolands** is a python interface to compute folding kinetics on dynamic or
 bimolecular energy landscapes. First of all, it provides a python interface to
@@ -59,4 +60,3 @@ MIT
 
 [//]: References
 [ribolands]: <https://rna.tbi.univie.ac.at/ribolands>
-
