@@ -540,7 +540,8 @@ def main():
 
   args._RT=0.61632077549999997
   if args.temperature != 37.0 :
-    args._RT = (args._RT/37.0)*args.temperature
+    kelvin = 273.15 + args.temperature
+    args._RT = (args._RT/310.15)*kelvin
 
   _outfile = name + '.drf'
   _output = 'DrForna'
