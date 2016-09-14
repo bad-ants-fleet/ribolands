@@ -32,6 +32,77 @@ def smart_open(filename=None, mode='w'):
     if fh is not sys.stdout:
       fh.close()
 
+def crnwrapper(CG, _fname, nlist, p0, t0, ti, t8, force, verb = False):
+  from crnsimulator import writeODElib
+  from crnsimulator.reactiongraph import DiGraph_to_ODE
+  import sympy
+  import numpy as np
+  from scipy.integrate import odeint
+
+  crn, ode, rdict = DiGraph_to_ODE(CG, rate_dict=True)
+
+  M = []
+  V = []
+  for (ss, attr) in nlist:
+    ssid = 'id_' + str(attr['identity'])
+    sfunc = sympy.sympify(' + '.join(
+      ['*'.join(map(str,xp)) for xp in ode[ssid]]))
+    ode[ssid] = sfunc
+    M.append(sfunc)
+    V.append(ssid)
+
+  M = sympy.Matrix(M)
+
+  J = None
+  #try : 
+  #  J = M.jacobian(V)
+  #except ValueError, e :
+  #  print 'Failed to write jacobian! :-/. That may be a bug!'
+  #  print 'ERROR:', e
+  #  J = []
+  #  for f in M :
+  #    for x in V:
+  #      J.append(f.diff(x))
+  #  J = sympy.Matrix(J)
+
+  #print p0
+  time = np.linspace(0, t8, 300)
+  myp0 = [0] * len(nlist)
+  for tup in p0 :
+    p, f = tup.split('=')
+    myp0[int(p)-1]=float(f)
+
+  ### => SOLVER
+  _libname = 'ode_lib'+str(CG.graph['transcript_length'])
+  odename = _libname
+  if writeODElib(odename, V, M, J, rdict) :
+    _temp = __import__(odename, globals(), locals(), [], -1)
+    odesystem = getattr(_temp, odename)
+    if J :
+      jacobian = getattr(_temp, 'jacobian')
+    else :
+      jacobian = None
+
+    # Set/Adjust Parameters
+    rates = None # default rates from file
+    try :
+      if jacobian :
+        ny = odeint(odesystem, myp0, time, (rates, ), Dfun=jacobian).T
+      else :
+        ny = odeint(odesystem, myp0, time, (rates, )).T
+    except ValueError, e:
+      print 'Fail, rerun!'
+      print 'p0', myp0, 't', time
+      print odeint(odesystem, myp0, time, (rates, ), full_output=True)
+
+  tfile = _fname+'.tkn'
+  with open(tfile, 'w') as tf :
+    for i in zip(time, *ny):
+      tf.write(' '.join(map("{:.9e}".format, i))+'\n')
+    tf.write('# of iterations: ' + str(300) + '\n')
+
+  return tfile
+
 def add_transition_edges(CG, saddles, args, s1, s2, ts=None): 
   """ compute the transition rates between two structures: s1 <-> s2, 
     where s2 is always the new, energetically better structure.
@@ -133,13 +204,12 @@ def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
   """
     Update the occupancy in the Graph and the total simulation time
   """
-
   # http://www.regular-expressions.info/floatingpoint.html
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
 
   lastlines = s.check_output(['tail', '-2', tfile]).strip().split("\n")
   if not reg_flt.match(lastlines[0]):
-    sys.exit('over and out')
+    raise ValueError('Cannot parse simulation output')
   else :
     time = float(lastlines[0].split()[0])
     iterations = int(lastlines[-1].split()[-1])
@@ -179,7 +249,7 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
       for e, nbr in enumerate(nbrs[1:]) :
         always_true = add_transition_edges(CG, saddles, args, nbr, best, ni)
         if always_true is False :
-          sys.exit('over and out')
+          raise ValueError('Did not add the transition edge!')
 
       if True: # hack here to keep all nodes
         CG.node[ni]['active']=False
@@ -469,7 +539,8 @@ def plot_simulation(all_in, args):
 
   fig = plt.figure()
   ax = fig.add_subplot(1,1,1)
-  #ax.set_xscale('log')
+  ax.set_xscale('log')
+  #ax.xlim([0, 1000])
   for e, course in enumerate(all_in) :
     if course == [] : continue
     t, o = zip(*course)
@@ -665,6 +736,10 @@ def main(args):
         except SubprocessError:
           raise Exception("Stopping after {} nucleotides: treekin cannot find a solution!".format(tlen))
 
+      # - Simulate with crnsimulator
+      #tfile = crnwrapper(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
+      #    verb=False)
+
       # Get Results
       time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
       #print time_inc, iterations
@@ -684,7 +759,8 @@ def main(args):
       dn,sr = graph_pruning(CG, nlist, saddles, args)
 
     if args.verbose :
-      print "# Deleted {} nodes, {} still reachable.".format(dn, sr)
+      print("# Transcripton length {}.".format(tlen),
+          "Deleted {} nodes, {} still reachable.".format(dn, sr))
 
   if args.logfile or args.stdout == 'log':
     with smart_open(_logfile, 'a') as lfh :

@@ -770,7 +770,7 @@ def main():
   args = get_interkin_args()
 
   """ Read Input & Update Arguments """
-  name, inseq = ril.parse_vienna_stdin()
+  name, inseq = ril.parse_vienna_stdin(sys.stdin)
 
   if args.name == '' : 
     args.name = name
