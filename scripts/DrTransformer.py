@@ -11,6 +11,8 @@ import argparse
 import networkx as nx
 import subprocess as s
 import collections as c
+import tempfile
+import shutil
 
 import ribolands as ril
 import RNA
@@ -62,7 +64,7 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
 
   return valid
 
-def dump_conformation_graph(CG, seq, name, verb=False) :
+def dump_conformation_graph(CG, seq, name, logf=None,verb=False) :
   """ Make a barriers + rates output from the current conformation graph """
 
   sorted_nodes = sorted(CG.nodes(data=True), 
@@ -87,9 +89,14 @@ def dump_conformation_graph(CG, seq, name, verb=False) :
         bar.write("{:4d} {} {:6.2f}\n".format(
           e+1, ni[:len(seq)], data['energy']))
         if verb :
-          print "{:4d} {} {:6.2f} {:6.4f} (ID = {:d})".format(
-              e+1, ni[:len(seq)], 
+          line = "{:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(e+1, ni[:len(seq)], 
               data['energy'], data['occupancy'], data['identity'])
+          if logf :
+            with open(logf, 'a') as log :
+              log.write(line)
+          else :
+            sys.stdout.write(line)
+
         if data['occupancy'] > 0 :
           p0.append("{}={}".format(e+1,data['occupancy']))
         rates = []
@@ -379,7 +386,7 @@ def fold_exterior_loop(seq, con, exterior_only=True):
 
   return ss
 
-def talk(CG, sorted_nodes, tfile, repl, df_file = None, all_courses=[]):
+def talk(CG, sorted_nodes, tfile, repl, all_courses=[]):
   """ Report time course information in DrForna Output format
   
   :param CG: Conformation Graph (networkx)
@@ -395,7 +402,7 @@ def talk(CG, sorted_nodes, tfile, repl, df_file = None, all_courses=[]):
 
   ttime = CG.graph['total_time']
 
-  with open(tfile) as tkn, open(df_file, 'a') as outf :
+  with open(tfile) as tkn:
     # this is nasty, but used to check if we're at the last line
     prevcourse = []
     tknlines = tkn.readlines()
@@ -419,11 +426,11 @@ def talk(CG, sorted_nodes, tfile, repl, df_file = None, all_courses=[]):
           if all_courses :
             ident = CG.node[ss]['identity']
             all_courses[ident].append((ttime+time, occu))
-          if df_file is not None :
-            dfline = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
-              ttime + time, occu, ss[:CG.graph['transcript_length']], 
-              CG.node[ss]['energy'])
-            outf.write(dfline + '\n')
+
+          dfline = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
+            ttime + time, occu, ss[:CG.graph['transcript_length']], CG.node[ss]['energy'])
+          yield dfline
+          #outf.write(dfline + '\n')
         prevcourse = course
   return 
 
@@ -467,33 +474,14 @@ def plot_simulation(all_in, args):
 
   return
 
-def get_drtrafo_args():
+def add_drtrafo_args(parser):
   """ A collection of arguments that are used by DrTransformer """
-  parser = argparse.ArgumentParser(
-      #formatter_class=argparse.RawTextHelpFormatter,
-      formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-      #formatter_class=argparse.MetavarTypeHelpFormatter,
-      description='echo sequence | %(prog)s [options]')
-
   parser.add_argument("--findpath", type = int, default = 10, metavar='<int>',
       help="Specify search width for *findpath* heuristic") 
   parser.add_argument("--minrate", type = float, default = 1e-10, metavar='<flt>',
       help="Specify minmum rate to accept a new neighbor")
   parser.add_argument("--cutoff", type=float, default=0.01, metavar='<flt>',
       help="Cutoff for population transfer")
-  parser.add_argument("--pyplot", action="store_true",
-      help="Plot the simulation using matplotlib, use this in combination with \
-          --verbose in order to interpret the legend")
-
-  parser.add_argument("--tmpdir", default='DrTrafo_Files', action = 'store', 
-      metavar='<str>',
-      help="Specify path for storing temporary output files")
-  parser.add_argument("-v","--verbose", action="store_true",
-      help="Track process by writing verbose output during calculations") 
-  #parser.add_argument("-f","--force", action="store_true",
-  #    help="Force to overwrite existing BarMap files") 
-  parser.add_argument("-n","--name", default='', metavar='<string>',
-      help="Name your output files, this option overwrites the fasta-header")
   parser.add_argument("--start", type=int, default=1, metavar='<int>',
       help="Start transcription at this nucleotide")
   parser.add_argument("--stop", type=int, default=0, metavar='<int>',
@@ -517,18 +505,38 @@ def get_drtrafo_args():
   parser.add_argument("--tX", type=float, default=60,
       help="Simulation time after transcription")
 
-  #parser.add_argument("--noplot", action="store_true", 
-  #    help="Do not plot results") 
   parser.add_argument("--plot_cutoff", type=float, default=0.02)
   #parser.add_argument("--plot_title", default='')
   #parser.add_argument("--plot_linlog", action="store_true",
   #    help="Divide x-axis into lin and log at transcription stop")
 
-  return parser.parse_args()
+  parser.add_argument("--tmpdir", default='', action = 'store', 
+      metavar='<str>',
+      help="Specify path for storing temporary output files, these \
+      files will not be removed when the program terminates")
 
-def main():
+  #TODO: make v to increase the verbosity
+  parser.add_argument("-v","--verbose", action="store_true",
+      help="Track process by writing verbose output during calculations") 
+
+  parser.add_argument("-n","--name", default='', metavar='<string>',
+      help="Name your output files, this option overwrites the fasta-header")
+
+  parser.add_argument("--logfile", action="store_true",
+      help="Write verbose output into name.log") 
+  parser.add_argument("--drffile", action="store_true",
+      help="Write DrForna output into name.drf") 
+  parser.add_argument("--pyplot", action="store_true",
+      help="Plot the simulation using matplotlib, use this in combination with \
+          --verbose in order to interpret the legend")
+  
+  parser.add_argument("--stdout", default='log', action = 'store',
+      help="Choose the stdout format: <log, drf>")
+
+  return
+
+def main(args):
   """ DrTransformer - cotranscriptional folding """
-  args = get_drtrafo_args()
 
   (name, fullseq) = ril.parse_vienna_stdin(sys.stdin)
 
@@ -543,8 +551,18 @@ def main():
     kelvin = 273.15 + args.temperature
     args._RT = (args._RT/310.15)*kelvin
 
-  _outfile = name + '.drf'
-  _output = 'DrForna'
+  if args.stdout != 'drf' and args.drffile :
+    _drffile = name + '.drf'
+  else :
+    _drffile = None
+
+  if args.logfile:
+    if args.stdout == 'log' :
+      args.stdout = ''
+    _logfile = name + '.log'
+  else :
+    _logfile = None
+
   #_last_only = 0, # not implemented in python version
 
   if args.stop == 0 : 
@@ -552,8 +570,12 @@ def main():
   else :
     fullseq = fullseq[0:args.stop-1]
 
-  if not os.path.exists(args.tmpdir):
-    os.makedirs(args.tmpdir)
+  if args.tmpdir :
+    _tmpdir = args.tmpdir 
+    if not os.path.exists(_tmpdir):
+      os.makedirs(_tmpdir)
+  else :
+    _tmpdir = tempfile.mkdtemp(prefix='DrTrafo')
 
   # Minrate specifies the lowest accepted rate for simulations (sec^-1)
   # it can be directly converted into a activation energy that results this rate
@@ -564,16 +586,22 @@ def main():
   RNA.cvar.noLonelyPairs = 1
   RNA.cvar.temperature = args.temperature
 
-  if _output == 'DrForna':
-    with open(_outfile, 'w') as outf :
+  if _drffile :
+    with open(_drffile, 'w') as outf :
       outf.write("id time conc struct energy\n")
+  elif args.stdout == 'drf' :
+      sys.stdout.write("id time conc struct energy\n")
 
   if args.pyplot:
     all_courses = []
 
-  if args.verbose :
-    print fullseq
-    print "# ID, Structure, Energy, Occupancy"
+  if _logfile :
+    with open(_logfile, 'w') as logf :
+      logf.write(fullseq + "\n")
+      logf.write("# ID, Structure, Energy, Occupancy\n")
+  elif args.stdout == 'log':
+      sys.stdout.write(fullseq + "\n")
+      sys.stdout.write("# ID, Structure, Energy, Occupancy\n")
 
   # initialize a directed conformation graph
   CG = nx.DiGraph(
@@ -599,23 +627,28 @@ def main():
       # you would ever allocate space like that!
 
     # Simulate
-    _fname = args.tmpdir+'/'+name+'-'+str(tlen)
+    _fname = _tmpdir+'/'+name+'-'+str(tlen)
     _t8 = args.tX if tlen == args.stop-1 else args.t8
 
     # produce input for treekin simulation
     [bfile, rfile, p0, nlist] = dump_conformation_graph(CG, seq, _fname, 
-        verb=args.verbose)
+        logf=_logfile,
+        verb=(args.logfile or args.stdout == 'log'))
 
     dn,sr = 0,0
     if len(nlist) == 1 :
       # Fake Results for DrForna
       CG.graph['total_time'] += _t8
-      if _output == 'DrForna' :
+      if _drffile or args.stdout == 'drf':
+      #if _output == 'DrForna' :
         ss = nlist[0][0]
         line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
             CG.graph['total_time'], 1.0, ss[:len(seq)], CG.node[ss]['energy'])
-        with open(_outfile, 'a') as outf:
-          outf.write(line + '\n')
+        if _drffile :
+          with open(_drffile, 'a') as outf:
+            outf.write(line + '\n')
+        else :
+          sys.stdout.write(line + '\n')
       if args.pyplot :
         ss = nlist[0][0]
         ident = CG.node[ss]['identity']
@@ -642,10 +675,15 @@ def main():
       #print time_inc, iterations
 
       ac  = all_courses if args.pyplot else []
-      drf = _outfile if _output == 'DrForna' else None
 
       # beware that talk() actually modifies ac
-      talk(CG, nlist, tfile, args.repl, df_file = drf, all_courses = ac)
+      if _drffile :
+        with open(_drffile, 'a') as outf:
+          for dfline in talk(CG, nlist, tfile, args.repl, all_courses = ac):
+            outf.write(dfline + '\n')
+      elif args.stdout == 'drf':
+          for dfline in talk(CG, nlist, tfile, args.repl, all_courses = ac):
+            print dfline
 
       # this line is not necessary, readability only
       if args.pyplot : all_courses = ac
@@ -663,8 +701,21 @@ def main():
   if args.pyplot :
     plot_simulation(all_courses, args)
 
+  if not args.tmpdir :
+    shutil.rmtree(_tmpdir)
+
   return
 
 if __name__ == '__main__':
-  main()
+  parser = argparse.ArgumentParser(
+      #formatter_class=argparse.RawTextHelpFormatter,
+      formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+      #formatter_class=argparse.MetavarTypeHelpFormatter,
+      description='echo sequence | %(prog)s [options]')
+
+  add_drtrafo_args(parser)
+
+  args = parser.parse_args()
+
+  main(args)
 
