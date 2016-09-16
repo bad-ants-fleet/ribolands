@@ -181,9 +181,10 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
         if always_true is False :
           sys.exit('over and out')
 
-      CG.node[ni]['active']=False
-      CG.node[ni]['occupancy']=0.0
-      deleted_nodes += 1
+      if True: # hack here to keep all nodes
+        CG.node[ni]['active']=False
+        CG.node[ni]['occupancy']=0.0
+        deleted_nodes += 1
 
   return deleted_nodes, still_reachables
 
@@ -441,6 +442,31 @@ def talk_generator(CG, sorted_nodes, tfile, repl):
         prevcourse = course
   return 
 
+def plot_xmgrace(all_in, args):
+  head = """
+@with line
+@line on
+@line loctype world
+@line g0
+@line linewidth .1
+@line linestyle 1
+@line color 7
+@line arrow 0
+@line arrow type 0
+@line arrow length 1.000000
+@line arrow layout 1.000000, 1.000000
+@line def
+"""
+  with open('xname.gr', 'w') as xmgr :
+    xmgr.write(head)
+    for e, course in enumerate(all_in) :
+      t, o = zip(*course)
+      for i in range(len(t)) :
+        xmgr.write("{:f} {:f}\n".format(t[i], o[i]))
+      xmgr.write("&\n")
+
+  return 
+
 def plot_simulation(all_in, args):
   import matplotlib.pyplot as plt
   t8 = args.t8
@@ -456,18 +482,22 @@ def plot_simulation(all_in, args):
   for e, course in enumerate(all_in) :
     if course == [] : continue
     t, o = zip(*course)
-    p, = ax.plot(t, o, '-')
     # determine which lines are part of the legend,
     # like this, it is only those that are populated 
     # at the end of transcription
     if t[-1] > t8*stop :
       #print e, t[-1], o[-1]
+      p, = ax.plot(t, o, '--')
       p.set_label("ID {:d}".format(e))
+    else :
+      p, = ax.plot(t, o, '-')
 
   fig.set_size_inches(7,3)
   fig.text(0.5,0.95, title, ha='center', va='center')
   plt.xlabel('time [seconds]', fontsize=11)
   plt.ylabel('occupancy [mol/l]', fontsize=11)
+  for tlen in range(args.start, args.stop) :
+    plt.axvline(x=tlen*t8, linewidth=0.05, color='black', linestyle='-')
 
   # """ Add ticks for 1 minute, 1 hour, 1 day, 1 year """
   # plt.axvline(x=60, linewidth=1, color='black', linestyle='--')
@@ -701,6 +731,7 @@ def main(args):
 
   if args.pyplot :
     plot_simulation(all_courses, args)
+    plot_xmgrace(all_courses, args)
 
   if not args.tmpdir :
     shutil.rmtree(_tmpdir)
