@@ -457,13 +457,13 @@ def plot_xmgrace(all_in, args):
 @line arrow layout 1.000000, 1.000000
 @line def
 """
-  with open('xname.gr', 'w') as xmgr :
-    xmgr.write(head)
+  with open(args.name + '.gr', 'w') as gfh :
+    gfh.write(head)
     for e, course in enumerate(all_in) :
       t, o = zip(*course)
       for i in range(len(t)) :
-        xmgr.write("{:f} {:f}\n".format(t[i], o[i]))
-      xmgr.write("&\n")
+        gfh.write("{:f} {:f}\n".format(t[i], o[i]))
+      gfh.write("&\n")
 
   return 
 
@@ -564,6 +564,8 @@ def add_drtrafo_args(parser):
   parser.add_argument("--pyplot", action="store_true",
       help="Plot the simulation using matplotlib. Interpret the legend \
           using the *log* output")
+  parser.add_argument("--xmgrace", action="store_true",
+      help="Print a plot for xmgrace. Interpret the legend using the *log* output")
   
   parser.add_argument("--stdout", default='log', action = 'store',
       help="Choose the stdout format: <log, drf>")
@@ -631,7 +633,7 @@ def main(args):
     with smart_open(_drffile, 'w') as dfh :
       dfh.write("id time conc struct energy\n")
 
-  if args.pyplot:
+  if args.pyplot or args.xmgrace:
     all_courses = []
 
   if _logfile :
@@ -655,7 +657,7 @@ def main(args):
     nn = expand_graph(CG, saddles, args, mfe_only=False)
     #print """ {} new nodes """.format(nn), CG.graph['seqid'], "total nodes"
 
-    if args.pyplot :
+    if args.pyplot or args.xmgrace:
       all_courses.extend([[] for i in range(nn)])
       # Just so that I will remember... 
       # DO **NOT** DO IT THIS WAY: all_courses.extend([ [] ] * nn )
@@ -682,7 +684,7 @@ def main(args):
               CG.graph['total_time'], 1.0, ss[:len(seq)], CG.node[ss]['energy'])
           dfh.write(line + '\n')
 
-      if args.pyplot :
+      if args.pyplot or args.xmgrace:
         ss = nlist[0][0]
         ident = CG.node[ss]['identity']
         all_courses[ident].append((CG.graph['total_time'], 1.0))
@@ -707,10 +709,10 @@ def main(args):
       time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
       #print time_inc, iterations
 
-      if args.pyplot or _drffile :
+      if args.pyplot or args.xmgrace or _drffile :
         for data in talk_generator(CG, nlist, tfile, args.repl) :
           [id_, tt_, oc_, ss_, en_] = data
-          if args.pyplot :
+          if args.pyplot or args.xmgrace :
             all_courses[id_].append((tt_,oc_))
           if _drffile :
             with smart_open(_drffile, 'a') as dfh:
@@ -729,12 +731,16 @@ def main(args):
       dump_conformation_graph(CG, CG.graph['full_sequence'], None,
           logf=lfh, verb=True)
 
-  if args.pyplot :
-    plot_simulation(all_courses, args)
-    plot_xmgrace(all_courses, args)
-
+  # CLEANUP the /tmp/directory
   if not args.tmpdir :
     shutil.rmtree(_tmpdir)
+
+  # Plot results
+  if args.pyplot:
+    plot_simulation(all_courses, args)
+
+  if args.xmgrace:
+    plot_xmgrace(all_courses, args)
 
   return
 
