@@ -13,9 +13,23 @@ import subprocess as s
 import collections as c
 import tempfile
 import shutil
+import contextlib
 
 import ribolands as ril
 import RNA
+
+@contextlib.contextmanager
+def smart_open(filename=None, mode='w'):
+  if filename and filename != '-':
+    fh = open(filename, mode)
+  else:
+    fh = sys.stdout
+
+  try:
+    yield fh
+  finally:
+    if fh is not sys.stdout:
+      fh.close()
 
 def add_transition_edges(CG, saddles, args, s1, s2, ts=None): 
   """ compute the transition rates between two structures: s1 <-> s2, 
@@ -64,7 +78,7 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
 
   return valid
 
-def dump_conformation_graph(CG, seq, name, logf=None,verb=False) :
+def dump_conformation_graph(CG, seq, name, logf=sys.stdout,verb=False) :
   """ Make a barriers + rates output from the current conformation graph """
 
   sorted_nodes = sorted(CG.nodes(data=True), 
@@ -89,13 +103,10 @@ def dump_conformation_graph(CG, seq, name, logf=None,verb=False) :
         bar.write("{:4d} {} {:6.2f}\n".format(
           e+1, ni[:len(seq)], data['energy']))
         if verb :
-          line = "{:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(e+1, ni[:len(seq)], 
+          line = "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
+              CG.graph['transcript_length'], e+1, ni[:len(seq)], 
               data['energy'], data['occupancy'], data['identity'])
-          if logf :
-            with open(logf, 'a') as log :
-              log.write(line)
-          else :
-            sys.stdout.write(line)
+          logf.write(line)
 
         if data['occupancy'] > 0 :
           p0.append("{}={}".format(e+1,data['occupancy']))
@@ -108,10 +119,13 @@ def dump_conformation_graph(CG, seq, name, logf=None,verb=False) :
         line = "".join(map("{:10.4g}".format, rates))
         rts.write("{}\n".format(line))
   else :
-    print "Distribution of structures at the end:"
+    line = "Distribution of structures at the end:\n"
     for e, (ni, data) in enumerate(sorted_nodes) :
-      print "{:4d} {} {:6.2f} {:6.4f} (ID = {:d})".format(e+1, ni[:len(seq)], 
+      line += "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
+          CG.graph['transcript_length'], e+1, ni[:len(seq)], 
           data['energy'], data['occupancy'], data['identity'])
+    logf.write(line)
+
     return 
   return [bfile, rfile, p0, sorted_nodes]
 
@@ -386,17 +400,16 @@ def fold_exterior_loop(seq, con, exterior_only=True):
 
   return ss
 
-def talk(CG, sorted_nodes, tfile, repl, all_courses=[]):
-  """ Report time course information in DrForna Output format
+def talk_generator(CG, sorted_nodes, tfile, repl):
+  """ Generator function that yields the time course information from the
+  treekin output file.
   
   :param CG: Conformation Graph (networkx)
   :param sorted_nodes: a list of nodes sorted by their energy
   :param tfile: current treekin-output file
-  :param df_file: DrForna output file
   :param repl: a factor to reduce the plot size, see --repl <float> option
 
   """
-
   # http://www.regular-expressions.info/floatingpoint.html
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
 
@@ -423,14 +436,8 @@ def talk(CG, sorted_nodes, tfile, repl, all_courses=[]):
             dy = math.log(y2) - math.log(y1)
             if dy < repl : continue
 
-          if all_courses :
-            ident = CG.node[ss]['identity']
-            all_courses[ident].append((ttime+time, occu))
-
-          dfline = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
-            ttime + time, occu, ss[:CG.graph['transcript_length']], CG.node[ss]['energy'])
-          yield dfline
-          #outf.write(dfline + '\n')
+          yield CG.node[ss]['identity'], ttime+time, occu, \
+              ss[:CG.graph['transcript_length']], CG.node[ss]['energy']
         prevcourse = course
   return 
 
@@ -445,7 +452,7 @@ def plot_simulation(all_in, args):
 
   fig = plt.figure()
   ax = fig.add_subplot(1,1,1)
-  ax.set_xscale('log')
+  #ax.set_xscale('log')
   for e, course in enumerate(all_in) :
     if course == [] : continue
     t, o = zip(*course)
@@ -515,20 +522,18 @@ def add_drtrafo_args(parser):
       help="Specify path for storing temporary output files, these \
       files will not be removed when the program terminates")
 
-  #TODO: make v to increase the verbosity
-  parser.add_argument("-v","--verbose", action="store_true",
-      help="Track process by writing verbose output during calculations") 
-
   parser.add_argument("-n","--name", default='', metavar='<string>',
       help="Name your output files, this option overwrites the fasta-header")
 
+  parser.add_argument("-v","--verbose", action="store_true",
+      help="Increases verbosity of the output") 
   parser.add_argument("--logfile", action="store_true",
-      help="Write verbose output into name.log") 
+      help="Write verbose information into name.log") 
   parser.add_argument("--drffile", action="store_true",
       help="Write DrForna output into name.drf") 
   parser.add_argument("--pyplot", action="store_true",
-      help="Plot the simulation using matplotlib, use this in combination with \
-          --verbose in order to interpret the legend")
+      help="Plot the simulation using matplotlib. Interpret the legend \
+          using the *log* output")
   
   parser.add_argument("--stdout", default='log', action = 'store',
       help="Choose the stdout format: <log, drf>")
@@ -546,29 +551,22 @@ def main(args):
   else :
     name = args.name
 
-  args._RT=0.61632077549999997
-  if args.temperature != 37.0 :
-    kelvin = 273.15 + args.temperature
-    args._RT = (args._RT/310.15)*kelvin
-
-  if args.stdout != 'drf' and args.drffile :
+  # Adjust filehandle-stuff
+  _drffile = None
+  if args.drffile :
     _drffile = name + '.drf'
-  else :
-    _drffile = None
+    if args.stdout == 'drf' :
+      args.stdout = ''
+  elif args.stdout == 'drf' :
+    _drffile = '-'
 
+  _logfile = None
   if args.logfile:
+    _logfile = name + '.log'
     if args.stdout == 'log' :
       args.stdout = ''
-    _logfile = name + '.log'
-  else :
-    _logfile = None
-
-  #_last_only = 0, # not implemented in python version
-
-  if args.stop == 0 : 
-    args.stop = len(fullseq)+1
-  else :
-    fullseq = fullseq[0:args.stop-1]
+  elif args.stdout == 'log' :
+    _logfile = '-'
 
   if args.tmpdir :
     _tmpdir = args.tmpdir 
@@ -577,31 +575,39 @@ def main(args):
   else :
     _tmpdir = tempfile.mkdtemp(prefix='DrTrafo')
 
+  # Adjust simulation parameters
+  args._RT=0.61632077549999997
+  if args.temperature != 37.0 :
+    kelvin = 273.15 + args.temperature
+    args._RT = (args._RT/310.15)*kelvin
+
+  if args.stop == 0 : 
+    args.stop = len(fullseq)+1
+  else :
+    fullseq = fullseq[0:args.stop-1]
+
   # Minrate specifies the lowest accepted rate for simulations (sec^-1)
   # it can be directly converted into a activation energy that results this rate
   args.maxdG = -args._RT * math.log(args.minrate)
   #print args.minrate, '=>', maxdG
 
-  # Start with DrTransformer
+  ############################
+  # Start with DrTransformer #
+  ############################
   RNA.cvar.noLonelyPairs = 1
   RNA.cvar.temperature = args.temperature
 
   if _drffile :
-    with open(_drffile, 'w') as outf :
-      outf.write("id time conc struct energy\n")
-  elif args.stdout == 'drf' :
-      sys.stdout.write("id time conc struct energy\n")
+    with smart_open(_drffile, 'w') as dfh :
+      dfh.write("id time conc struct energy\n")
 
   if args.pyplot:
     all_courses = []
 
   if _logfile :
-    with open(_logfile, 'w') as logf :
-      logf.write(fullseq + "\n")
-      logf.write("# ID, Structure, Energy, Occupancy\n")
-  elif args.stdout == 'log':
-      sys.stdout.write(fullseq + "\n")
-      sys.stdout.write("# ID, Structure, Energy, Occupancy\n")
+    with smart_open(_logfile, 'w') as lfh :
+      lfh.write(fullseq + "\n")
+      lfh.write("# ID, Structure, Energy, Occupancy\n")
 
   # initialize a directed conformation graph
   CG = nx.DiGraph(
@@ -631,24 +637,21 @@ def main(args):
     _t8 = args.tX if tlen == args.stop-1 else args.t8
 
     # produce input for treekin simulation
-    [bfile, rfile, p0, nlist] = dump_conformation_graph(CG, seq, _fname, 
-        logf=_logfile,
-        verb=(args.logfile or args.stdout == 'log'))
+    with smart_open(_logfile, 'a') as lfh :
+      [bfile, rfile, p0, nlist] = dump_conformation_graph(CG, seq, _fname, 
+          logf=lfh, verb=(False or _logfile))
 
     dn,sr = 0,0
     if len(nlist) == 1 :
       # Fake Results for DrForna
       CG.graph['total_time'] += _t8
-      if _drffile or args.stdout == 'drf':
-      #if _output == 'DrForna' :
-        ss = nlist[0][0]
-        line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
-            CG.graph['total_time'], 1.0, ss[:len(seq)], CG.node[ss]['energy'])
-        if _drffile :
-          with open(_drffile, 'a') as outf:
-            outf.write(line + '\n')
-        else :
-          sys.stdout.write(line + '\n')
+      if _drffile :
+        with smart_open(_drffile, 'a') as dfh:
+          ss = nlist[0][0]
+          line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
+              CG.graph['total_time'], 1.0, ss[:len(seq)], CG.node[ss]['energy'])
+          dfh.write(line + '\n')
+
       if args.pyplot :
         ss = nlist[0][0]
         ident = CG.node[ss]['identity']
@@ -674,19 +677,14 @@ def main(args):
       time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
       #print time_inc, iterations
 
-      ac  = all_courses if args.pyplot else []
-
-      # beware that talk() actually modifies ac
-      if _drffile :
-        with open(_drffile, 'a') as outf:
-          for dfline in talk(CG, nlist, tfile, args.repl, all_courses = ac):
-            outf.write(dfline + '\n')
-      elif args.stdout == 'drf':
-          for dfline in talk(CG, nlist, tfile, args.repl, all_courses = ac):
-            print dfline
-
-      # this line is not necessary, readability only
-      if args.pyplot : all_courses = ac
+      if args.pyplot or _drffile :
+        for data in talk_generator(CG, nlist, tfile, args.repl) :
+          [id_, tt_, oc_, ss_, en_] = data
+          if args.pyplot :
+            all_courses[id_].append((tt_,oc_))
+          if _drffile :
+            with smart_open(_drffile, 'a') as dfh:
+              dfh.write("{} {} {} {:s} {:6.2f}\n".format(*data))
 
       CG.graph['total_time'] += time_inc
       
@@ -696,8 +694,11 @@ def main(args):
     if args.verbose :
       print "# Deleted {} nodes, {} still reachable.".format(dn, sr)
 
-  if args.verbose:
-    dump_conformation_graph(CG, CG.graph['full_sequence'], None, verb=args.verbose)
+  if args.logfile or args.stdout == 'log':
+    with smart_open(_logfile, 'a') as lfh :
+      dump_conformation_graph(CG, CG.graph['full_sequence'], None,
+          logf=lfh, verb=True)
+
   if args.pyplot :
     plot_simulation(all_courses, args)
 
