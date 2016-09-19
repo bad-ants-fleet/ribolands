@@ -181,9 +181,10 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
         if always_true is False :
           sys.exit('over and out')
 
-      CG.node[ni]['active']=False
-      CG.node[ni]['occupancy']=0.0
-      deleted_nodes += 1
+      if True: # hack here to keep all nodes
+        CG.node[ni]['active']=False
+        CG.node[ni]['occupancy']=0.0
+        deleted_nodes += 1
 
   return deleted_nodes, still_reachables
 
@@ -441,6 +442,31 @@ def talk_generator(CG, sorted_nodes, tfile, repl):
         prevcourse = course
   return 
 
+def plot_xmgrace(all_in, args):
+  head = """
+@with line
+@line on
+@line loctype world
+@line g0
+@line linewidth .1
+@line linestyle 1
+@line color 7
+@line arrow 0
+@line arrow type 0
+@line arrow length 1.000000
+@line arrow layout 1.000000, 1.000000
+@line def
+"""
+  with open(args.name + '.gr', 'w') as gfh :
+    gfh.write(head)
+    for e, course in enumerate(all_in) :
+      t, o = zip(*course)
+      for i in range(len(t)) :
+        gfh.write("{:f} {:f}\n".format(t[i], o[i]))
+      gfh.write("&\n")
+
+  return 
+
 def plot_simulation(all_in, args):
   import matplotlib.pyplot as plt
   t8 = args.t8
@@ -456,18 +482,22 @@ def plot_simulation(all_in, args):
   for e, course in enumerate(all_in) :
     if course == [] : continue
     t, o = zip(*course)
-    p, = ax.plot(t, o, '-')
     # determine which lines are part of the legend,
     # like this, it is only those that are populated 
     # at the end of transcription
     if t[-1] > t8*stop :
       #print e, t[-1], o[-1]
+      p, = ax.plot(t, o, '--')
       p.set_label("ID {:d}".format(e))
+    else :
+      p, = ax.plot(t, o, '-')
 
   fig.set_size_inches(7,3)
   fig.text(0.5,0.95, title, ha='center', va='center')
   plt.xlabel('time [seconds]', fontsize=11)
   plt.ylabel('occupancy [mol/l]', fontsize=11)
+  for tlen in range(args.start, args.stop) :
+    plt.axvline(x=tlen*t8, linewidth=0.05, color='black', linestyle='-')
 
   # """ Add ticks for 1 minute, 1 hour, 1 day, 1 year """
   # plt.axvline(x=60, linewidth=1, color='black', linestyle='--')
@@ -534,6 +564,8 @@ def add_drtrafo_args(parser):
   parser.add_argument("--pyplot", action="store_true",
       help="Plot the simulation using matplotlib. Interpret the legend \
           using the *log* output")
+  parser.add_argument("--xmgrace", action="store_true",
+      help="Print a plot for xmgrace. Interpret the legend using the *log* output")
   
   parser.add_argument("--stdout", default='log', action = 'store',
       help="Choose the stdout format: <log, drf>")
@@ -601,7 +633,7 @@ def main(args):
     with smart_open(_drffile, 'w') as dfh :
       dfh.write("id time conc struct energy\n")
 
-  if args.pyplot:
+  if args.pyplot or args.xmgrace:
     all_courses = []
 
   if _logfile :
@@ -625,7 +657,7 @@ def main(args):
     nn = expand_graph(CG, saddles, args, mfe_only=False)
     #print """ {} new nodes """.format(nn), CG.graph['seqid'], "total nodes"
 
-    if args.pyplot :
+    if args.pyplot or args.xmgrace:
       all_courses.extend([[] for i in range(nn)])
       # Just so that I will remember... 
       # DO **NOT** DO IT THIS WAY: all_courses.extend([ [] ] * nn )
@@ -652,7 +684,7 @@ def main(args):
               CG.graph['total_time'], 1.0, ss[:len(seq)], CG.node[ss]['energy'])
           dfh.write(line + '\n')
 
-      if args.pyplot :
+      if args.pyplot or args.xmgrace:
         ss = nlist[0][0]
         ident = CG.node[ss]['identity']
         all_courses[ident].append((CG.graph['total_time'], 1.0))
@@ -677,10 +709,10 @@ def main(args):
       time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
       #print time_inc, iterations
 
-      if args.pyplot or _drffile :
+      if args.pyplot or args.xmgrace or _drffile :
         for data in talk_generator(CG, nlist, tfile, args.repl) :
           [id_, tt_, oc_, ss_, en_] = data
-          if args.pyplot :
+          if args.pyplot or args.xmgrace :
             all_courses[id_].append((tt_,oc_))
           if _drffile :
             with smart_open(_drffile, 'a') as dfh:
@@ -699,11 +731,16 @@ def main(args):
       dump_conformation_graph(CG, CG.graph['full_sequence'], None,
           logf=lfh, verb=True)
 
-  if args.pyplot :
-    plot_simulation(all_courses, args)
-
+  # CLEANUP the /tmp/directory
   if not args.tmpdir :
     shutil.rmtree(_tmpdir)
+
+  # Plot results
+  if args.pyplot:
+    plot_simulation(all_courses, args)
+
+  if args.xmgrace:
+    plot_xmgrace(all_courses, args)
 
   return
 
