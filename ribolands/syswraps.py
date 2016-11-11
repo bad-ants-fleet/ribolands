@@ -20,6 +20,7 @@
 
 #  -*- TODO -*-
 #  *) encapsulate syswraps into tmp-directory (bec of barriers)
+#  *) Unify STDERR and STDOUT handling ...
 
 import os
 import re
@@ -104,7 +105,7 @@ def sys_treekin(name, seq, bfile, rfile,
   efile = name+'.err'
 
   if not force and os.path.exists(tfile):
-    if verb : print >> sys.stderr, tfile, "<= Files exist"
+    if verb : print "# {:s} <= Files exist".format(tfile), 
     return tfile
     
   treecall = [treekin, '--method', 'I']
@@ -117,7 +118,7 @@ def sys_treekin(name, seq, bfile, rfile,
   treecall.extend(('-f', rfile))
   
   if verb :
-    print >> sys.stderr, ' '.join(treecall), '<', bfile, '2>', efile, '>', tfile
+    print '# '+' '.join(treecall), '<', bfile, '2>', efile, '>', tfile
 
   # Do the simulation (catch treekin errors)
   with open(bfile, 'r') as bar, \
@@ -126,11 +127,10 @@ def sys_treekin(name, seq, bfile, rfile,
       proc = sub.Popen(treecall,stdin=bar,stdout=tkn,stderr=err)
       proc.communicate(None)
       if proc.returncode :
-        print >> sys.stderr, \
-            "ERROR: process terminated with return code", proc.returncode
-        print >> sys.stderr, \
+        print >> sys.stderr, "# ERROR: " + \
             ' '.join(treecall), '<', bfile, '2>', efile, '>', tfile
-        raise RuntimeError
+        raise RuntimeError("process terminated with return code:", 
+            proc.returncode)
 
   '''
   # This should be caught by the proc.returncode before ...
