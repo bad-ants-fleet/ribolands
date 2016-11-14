@@ -121,9 +121,8 @@ def dump_conformation_graph(CG, seq, name, logf=sys.stdout,verb=False) :
   else :
     line = "Distribution of structures at the end:\n"
     for e, (ni, data) in enumerate(sorted_nodes) :
-      line += "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
-          CG.graph['transcript_length'], e+1, ni[:len(seq)], 
-          data['energy'], data['occupancy'], data['identity'])
+      line += "LAST {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(e+1, 
+          ni[:len(seq)], data['energy'], data['occupancy'], data['identity'])
     logf.write(line)
 
     return 
