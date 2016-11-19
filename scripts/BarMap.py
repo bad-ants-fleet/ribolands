@@ -414,32 +414,23 @@ def get_barmap_args():
   """ A collection of arguments that are used by BarMap """
   parser = argparse.ArgumentParser()
 
-  parser.add_argument("--RNAsubopt", default='RNAsubopt', action = 'store',
-      help="Specify path to your *RNAsubopt* executable")
-  parser.add_argument("--barriers", default='barriers', action = 'store',
-      help="Specify path to your *barriers* executable") 
-  parser.add_argument("--treekin", default='treekin', action = 'store',
-      help="Specify path to your *treekin* executable")
-  parser.add_argument("--tmpdir", default='BarMap_Files', action = 'store',
-      help="Specify path for storing temporary output files")
+  ril.argparse_add_arguments(parser, 
+      RNAsubopt=True,
+      barriers=True,
+      treekin=True,
+      noLP=True, temperature=True, 
+      tmpdir=True, name=True, force=True, verbose=True,
+      start=True, stop=True, k0=True, tX=True, cutoff=True)
 
-  parser.add_argument("-v","--verbose", action="store_true",
-      help="Track process by writing verbose output during calculations") 
-  parser.add_argument("-f","--force", action="store_true",
-      help="Force to overwrite existing BarMap files") 
-  parser.add_argument("-n","--name", default='',
-      help="Name your output files, this option overwrites the fasta-header")
-  parser.add_argument("--start", type=int, default=1,
-      help="Start transcription at this nucleotide")
-  parser.add_argument("--stop", type=int, default=0,
-      help="Stop transcription at this nucleotide")
-  #parser.add_argument("--circ", action="store_true",
-  #    help="Circular RNA")  
-  parser.add_argument("--noLP", action="store_true",
-      help="Compute BarMap pipeline with the ViennaRNA --noLP option")
-  parser.add_argument("-T","--temperature", type=float, default=37.0,
-      help="Set the temperature for ViennaRNA computations")
+  parser.add_argument("--plot_cutoff", type=float, default=0.02)
+  parser.add_argument("--plot_title", default='')
+  parser.add_argument("--noplot", action="store_true", 
+      help="Do not plot results") 
+  parser.add_argument("--plot_linlog", action="store_true",
+      help="Divide x-axis into lin and log at transcription stop")
 
+  ##############
+  # Depricated:
   #TODO: need to think whether this is the best way to do it... hidden, for now!
   parser.add_argument("--spatch", 
       default='pylands_spatch.py', action = 'store',
@@ -449,34 +440,6 @@ def get_barmap_args():
       help="Use *hidden* spatch script to include theophylline contributions")
   #parser.add_argument("--s_stmp", default='/tmp', action = 'store',
   #    help="Specify path to a temporary sort directory for unix sort")
-
-  parser.add_argument("-e", "--s_ener", type=float, default=0,
-      help="Set the energy range for suboptimal structure computation." + 
-      " This will overwrite the options --s_maxe and --s_maxn.")
-  parser.add_argument("--s_maxe", type=float, default=20,
-      help="Set a the maximum subopt range in combination with --s_maxn.")
-  parser.add_argument("--s_maxn", type=int, default=7100000,
-      help="Specify the number of suboptimal structures. The corresponding" +
-      " energy range is computed form the full length molecule.")
-  parser.add_argument("--b_minh", type=float, default=0.001,
-      help="Set the minimum barrier height (i.e. barriers --minh)")
-  parser.add_argument("--b_maxn", type=int, default=100,
-      help="Set the maximum number of local minima (i.e. barriers --max)")
-
-  parser.add_argument("--p0", nargs='+', default=['1=1'])
-  parser.add_argument("--k0", type=float, default=2e5)
-  parser.add_argument("--t0", type=float, default=0.0)
-  parser.add_argument("--ti", type=float, default=1.02)
-  parser.add_argument("--t8", type=float, default=0.02)
-  parser.add_argument("--tX", type=float, default=60)
-  parser.add_argument("--cutoff", type=float, default=0.01)
-
-  parser.add_argument("--plot_cutoff", type=float, default=0.02)
-  parser.add_argument("--plot_title", default='')
-  parser.add_argument("--noplot", action="store_true", 
-      help="Do not plot results") 
-  parser.add_argument("--plot_linlog", action="store_true",
-      help="Divide x-axis into lin and log at transcription stop")
 
   return parser.parse_args()
 
@@ -489,12 +452,12 @@ def main():
 
   ### parse input & adjust arguments ###
   args = get_barmap_args()
+
+  # Read Input & Update Arguments
   name, seq = ril.parse_vienna_stdin(sys.stdin)
 
-  if args.name == '' : 
-    args.name = name
-  else :
-    name = args.name
+  # One name, just to be clear ...
+  (args.name, name) = (args.name, args.name) if args.name else (name, name)
 
   if args.verbose: 
     print "# Input: {:s} {:s} {:6.2f} kcal/mol".format(name, seq, args.s_ener)
@@ -504,7 +467,7 @@ def main():
   else :
     seq = seq[:args.stop]
 
-  if args.s_ener == 0 :
+  if args.s_ener is None :
     args.s_ener, args.s_maxn = ril.sys_subopt_range(seq, 
         nos=args.s_maxn, maxe=args.s_maxe, verb=args.verbose)
     if args.verbose:
@@ -518,7 +481,7 @@ def main():
     You need to make sure that the executables of pylands are in your
     $PATH environment.
     """
-    raise SystemExit
+    raise RuntimeError('Could not find executable')
 
   spatch = ['|', args.spatch]
   args.spatch = ''

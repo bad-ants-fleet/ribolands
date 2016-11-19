@@ -516,46 +516,20 @@ def add_drtrafo_args(parser):
       help="Specify search width for *findpath* heuristic") 
   parser.add_argument("--minrate", type = float, default = 1e-10, metavar='<flt>',
       help="Specify minmum rate to accept a new neighbor")
-  parser.add_argument("--cutoff", type=float, default=0.01, metavar='<flt>',
-      help="Cutoff for population transfer")
-  parser.add_argument("--start", type=int, default=1, metavar='<int>',
-      help="Start transcription at this nucleotide")
-  parser.add_argument("--stop", type=int, default=0, metavar='<int>',
-      help="Stop transcription at this nucleotide")
-  parser.add_argument("-T","--temperature", type=float, default=37.0, 
-      metavar='<flt>',
-      help="Set the temperature in Celsius for ViennaRNA computations")
 
-  parser.add_argument("--treekin", default='treekin', action = 'store',
-      help="Specify path to your *treekin* executable")
-  parser.add_argument("--repl", type=float, default=None,
-      help="Logarithmically reduce output size")
-  parser.add_argument("--k0", type=float, default=2e5,
-      help="Arrhenius rate prefactor")
-  parser.add_argument("--t0", type=float, default=0.0,
-      help="First time point of the printed time-course")
-  parser.add_argument("--ti", type=float, default=1.02,
-      help="Output-time increment of solver (t1 * ti = t2)")
-  parser.add_argument("--t8", type=float, default=0.02,
-      help="Transcription speed in seconds per nucleotide")
-  parser.add_argument("--tX", type=float, default=60,
-      help="Simulation time after transcription")
+  ril.argparse_add_arguments(parser, cutoff=True, start=True, stop=True, 
+      tmpdir=True, name=True, verbose=True, k0=True, tX=True,
+      temperature=True, treekin=True)
 
-  parser.add_argument("--plot_cutoff", type=float, default=0.02)
+  parser.add_argument("--plot_cutoff", type=float, metavar='<flt>', default=0.02,
+      help="Occupancy cutoff for final figure")
   #parser.add_argument("--plot_title", default='')
   #parser.add_argument("--plot_linlog", action="store_true",
   #    help="Divide x-axis into lin and log at transcription stop")
 
-  parser.add_argument("--tmpdir", default='', action = 'store', 
-      metavar='<str>',
-      help="Specify path for storing temporary output files, these \
-      files will not be removed when the program terminates")
-
-  parser.add_argument("-n","--name", default='', metavar='<string>',
-      help="Name your output files, this option overwrites the fasta-header")
-
-  parser.add_argument("-v","--verbose", action="store_true",
-      help="Increases verbosity of the output") 
+  
+  parser.add_argument("--repl", type=float, default=None, metavar='<flt>',
+      help="Logarithmically reduce output size")
   parser.add_argument("--logfile", action="store_true",
       help="Write verbose information into name.log") 
   parser.add_argument("--drffile", action="store_true",
@@ -564,10 +538,10 @@ def add_drtrafo_args(parser):
       help="Plot the simulation using matplotlib. Interpret the legend \
           using the *log* output")
   parser.add_argument("--xmgrace", action="store_true",
-      help="Print a plot for xmgrace. Interpret the legend using the *log* output")
-  
+      help="Print a plot for xmgrace. " + \
+          "Interpret the legend using the *log* output")
   parser.add_argument("--stdout", default='log', action = 'store',
-      help="Choose the stdout format: <log, drf>")
+      metavar='<str>', help="Choose the stdout format: <log, drf>")
 
   return
 
@@ -693,7 +667,7 @@ def main(args):
       try:
         tfile = ril.sys_treekin(_fname, seq, bfile, rfile, 
             treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
-            useplusI=True, force=True, verb=False)
+            useplusI=True, force=True, verb=(args.verbose > 1))
       except RuntimeError:
         #try :
         #  tfile = ril.sys_treekin(_fname, seq, bfile, rfile, 

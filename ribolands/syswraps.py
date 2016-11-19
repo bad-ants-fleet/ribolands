@@ -18,10 +18,6 @@
 #  set textwidth=80
 #  set ts=2 et sw=2 sts=2
 
-#  -*- TODO -*-
-#  *) encapsulate syswraps into tmp-directory (bec of barriers)
-#  *) Unify STDERR and STDOUT handling ...
-
 import os
 import re
 import sys
@@ -91,12 +87,11 @@ def sys_treekin(name, seq, bfile, rfile,
     print """ 
     You need to install *treekin*, which you can download from the 
     ViennaRNA package homepage: http://www.tbi.univie.ac.at/RNA/Treekin/
-    
-    If you have installed the program, make sure that the path you specified 
+
+    If the program is installed, make sure that the path you specified 
     is executable.
     """
     raise RuntimeError('Could not find executable')
-
 
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
   # http://www.regular-expressions.info/floatingpoint.html
@@ -154,7 +149,7 @@ def sys_treekin(name, seq, bfile, rfile,
   '''
 
   return tfile
-
+ 
 def sys_barriers(name, seq, sfile,
     barriers='barriers',
     minh=0.001,
@@ -206,7 +201,7 @@ def sys_barriers(name, seq, sfile,
     You need to install *barriers*, which you can download from the 
     ViennaRNA package homepage: http://www.tbi.univie.ac.at/RNA/Barriers/
     
-    If you have installed the program, make sure that the path you specified 
+    If the program is installed, make sure that the path you specified 
     is executable.
     """
     raise RuntimeError('Could not find executable')
@@ -337,7 +332,7 @@ def sys_suboptimals(name, seq,
     You need to install *RNAsubopt*, which is part of the ViennaRNA
     package, download: http://www.tbi.univie.ac.at/RNA 
     
-    If you have installed the program, make sure that the path you specified 
+    If the program is installed, make sure that the path you specified 
     is executable.
     """
     raise RuntimeError('Could not find executable')
@@ -410,7 +405,7 @@ def sys_subopt_range(seq,
     You need to install *RNAsubopt*, which is part of the ViennaRNA
     package, download: http://www.tbi.univie.ac.at/RNA 
     
-    If you have installed the program, make sure that the path you specified 
+    If the program is installed, make sure that the path you specified 
     is executable.
     """
     raise RuntimeError('Could not find executable')
