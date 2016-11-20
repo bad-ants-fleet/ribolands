@@ -3,7 +3,7 @@
 ### General checklist:
   - fix preabmles of all files
   - check dependencies
-  - print verbose output to STOUT or LOGFILE (instead of STDERR)
+  - print verbose output to STDOUT or LOGFILE (instead of STDERR)
   - write unittests
   - compile manpage
 
