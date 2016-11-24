@@ -25,23 +25,34 @@ import gzip
 import math
 import subprocess as sub
 
+class SubprocessError(Exception):
+  """Raise Error: Commandline call failed."""
+
+  def __init__(self, code, call=None):
+    self.message = "Process terminated with return code: {}.\n".format(code)
+    if call:
+      self.message += "|==== \n"
+      self.message += "{}.\n".format(call) 
+      self.message += "|====\n"
+
+    super(SubprocessError, self).__init__(self.message) 
+
 class ExecError(Exception):
-  """Ribolands-error handling
+  """Raise Error: Executable not found."""
 
-  Attributes:
-  msg (str): Human readable string describing the exception.
-  """
+  def __init__(self, var, program=None, download=None):
+    self.message = "{} is not executable.\n".format(var)
+    self.message += "|==== \n"
+    if program:
+      self.message += "|You need to install *{}*.\n".format(program) 
+      if download:
+        self.message += "|Download: {}\n".format(download)
 
-  def __init__(self, msg):
-    """Exception initialization
+    self.message += "|If the program is installed, "
+    self.message += "make sure that the path you specified is executable.\n"
+    self.message += "|====\n"
 
-    Args:
-      msg (str): Human readable string describing the exception.
-    """
-    self.msg = msg
-
-  def __str__(self):
-    return "Error: " + self.value
+    super(ExecError, self).__init__(self.message) 
 
 # **************** #
 # public functions #
@@ -83,15 +94,8 @@ def sys_treekin(name, seq, bfile, rfile,
   """
 
   if which(treekin) is None :
-    print treekin, "is not executable"
-    print """ 
-    You need to install *treekin*, which you can download from the 
-    ViennaRNA package homepage: http://www.tbi.univie.ac.at/RNA/Treekin/
-
-    If the program is installed, make sure that the path you specified 
-    is executable.
-    """
-    raise RuntimeError('Could not find executable')
+    raise ExecError(treekin, 
+        "treekin", 'http://www.tbi.univie.ac.at/RNA/Treekin')
 
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
   # http://www.regular-expressions.info/floatingpoint.html
@@ -113,7 +117,8 @@ def sys_treekin(name, seq, bfile, rfile,
   treecall.extend(('-f', rfile))
   
   if verb :
-    print '# '+' '.join(treecall), '<', bfile, '2>', efile, '>', tfile
+    print '#', "{} < {} 2> {} > {}".format(
+        ' '.join(treecall), bfile, efile, tfile)
 
   # Do the simulation (catch treekin errors)
   with open(bfile, 'r') as bar, \
@@ -122,10 +127,9 @@ def sys_treekin(name, seq, bfile, rfile,
       proc = sub.Popen(treecall,stdin=bar,stdout=tkn,stderr=err)
       proc.communicate(None)
       if proc.returncode :
-        print >> sys.stderr, "# ERROR: " + \
-            ' '.join(treecall), '<', bfile, '2>', efile, '>', tfile
-        raise RuntimeError("process terminated with return code:", 
-            proc.returncode)
+        call = "{} < {} 2> {} > {}".format(
+            ' '.join(treecall), bfile, efile, tfile)
+        raise SubprocessError(proc.returncode, call)
 
   '''
   # This should be caught by the proc.returncode before ...
@@ -196,15 +200,8 @@ def sys_barriers(name, seq, sfile,
   """
 
   if which(barriers) is None :
-    print barriers, "is not executable"
-    print """ 
-    You need to install *barriers*, which you can download from the 
-    ViennaRNA package homepage: http://www.tbi.univie.ac.at/RNA/Barriers/
-    
-    If the program is installed, make sure that the path you specified 
-    is executable.
-    """
-    raise RuntimeError('Could not find executable')
+    raise ExecError(barriers, "barriers", 
+        'http://www.tbi.univie.ac.at/RNA/Barriers')
 
   if not sfile or not os.path.exists(sfile) : 
     sfile = sys_suboptimals(name, seq, 
@@ -220,7 +217,7 @@ def sys_barriers(name, seq, sfile,
       os.path.exists(rfile) and \
       os.path.exists(psfile) and \
       os.path.exists(efile):
-      if verb : print >> sys.stderr, bfile, "<= Files exist"
+      if verb : print "#", bfile, "<= Files exist"
       return [sfile, bfile, efile, rfile, psfile]
 
   if gzip :
@@ -238,7 +235,7 @@ def sys_barriers(name, seq, sfile,
   elif moves == 'shift' :
     barcall.extend(['--moves=Shift'])
   else :
-    print >> sys.stderr, 'Invalid move-set in sys_barriers()'
+    raise ValueError("Invalid move-set in sys_barriers()")
 
   # buggy barriers
   if subopt_reaches_minh(sfile, minh) : 
@@ -253,7 +250,7 @@ def sys_barriers(name, seq, sfile,
   if mfile : barcall.extend(["--mapstruc", mfile])
 
   if verb :
-    print >> sys.stderr, ' '.join(barcall), '2>', efile, '>', bfile
+    print '#', ' '.join(barcall), '2>', efile, '>', bfile
 
   with open(sfile, 'r') as shandle, \
       open(bfile, 'w') as bhandle, \
@@ -262,10 +259,9 @@ def sys_barriers(name, seq, sfile,
         stdin=shandle,stdout=bhandle,stderr=ehandle, shell=True)
     process.communicate(None)
     if process.returncode :
-      print >> sys.stderr, \
-          "ERROR: process terminated with return code", process.returncode
-      print >> sys.stderr, 'Error:', ' '.join(barcall), '2>', efile, '>', bfile
-      raise RuntimeError
+      call = "{} 2> {} > {}".format(
+          ' '.join(barcall), efile, tfile)
+      raise SubprocessError(proc.returncode, call)
 
   if rates :
     if k0 != 1.0:
@@ -327,26 +323,20 @@ def sys_suboptimals(name, seq,
   """
 
   if which(RNAsubopt) is None :
-    print RNAsubopt, "is not executable"
-    print """ 
-    You need to install *RNAsubopt*, which is part of the ViennaRNA
-    package, download: http://www.tbi.univie.ac.at/RNA 
-    
-    If the program is installed, make sure that the path you specified 
-    is executable.
-    """
-    raise RuntimeError('Could not find executable')
+    raise ExecError(RNAsubopt, "RNAsubopt", 
+        'http://www.tbi.univie.ac.at/RNA')
 
   if ener is None :
     ener, nos = sys_subopt_range(seq, verb=verb, 
         RNAsubopt=RNAsubopt, noLP=noLP, circ=circ, temp=temp)
-    if verb: print >> sys.stderr, \
-        "Energy-Update: {:.2f} kcal/mol to compute {} sequences".format(ener, nos)
+    if verb: 
+      print "# Energy-Update: {:.2f} kcal/mol to compute {} sequences".format(
+          ener, nos)
 
   sfile = name+'.spt.gz' if gzip else name + '.spt'
 
   if os.path.exists(sfile) and not force : 
-    if verb: print >> sys.stderr, sfile, "<= File exists"
+    if verb: print "#", sfile, "<= File exists"
     return sfile
 
   sptcall = [RNAsubopt, "-e {:.2f} -T {:.2f}".format(ener, temp)]
@@ -358,18 +348,16 @@ def sys_suboptimals(name, seq,
   if gzip : sptcall.extend(('|', 'gzip', '--best')) 
 
   if verb :
-    print >> sys.stderr, 'echo', '"'+seq+'"', '|', ' '.join(sptcall), '>', sfile
+    print "#", "echo \"{}\" | {} > {}".format(seq, ' '.join(sptcall), sfile)
 
   with open(sfile, 'w') as shandle:
     Psubopt = sub.Popen([' '.join(sptcall)],
         stdin=sub.PIPE, stdout=shandle, shell=True)
     Psubopt.communicate(seq)
     if Psubopt.returncode :
-      print >> sys.stderr, \
-        "ERROR: process terminated with return code", Psubopt.returncode
-      print >> sys.stderr, 'Error:', \
-          'echo', '"'+seq+'"', '|', ' '.join(sptcall), '>', sfile
-      raise RuntimeError
+      call = "echo \"{}\" | {} > {}".format(seq, ' '.join(sptcall), sfile)
+      raise SubprocessError(p.returncode, call)
+
   return sfile
 
 def sys_subopt_range(seq,
@@ -400,23 +388,14 @@ def sys_subopt_range(seq,
   """
 
   if which(RNAsubopt) is None :
-    print RNAsubopt, "is not executable"
-    print """ 
-    You need to install *RNAsubopt*, which is part of the ViennaRNA
-    package, download: http://www.tbi.univie.ac.at/RNA 
+    raise ExecError(RNAsubopt, "RNAsubopt", 'http://www.tbi.univie.ac.at/RNA')
     
-    If the program is installed, make sure that the path you specified 
-    is executable.
-    """
-    raise RuntimeError('Could not find executable')
-
-
   num, nump = 0, 0
   e = maxe if nos is 0 else 2.
   ep = e-1
   while (num < nos+1) :
     if verb: 
-      print "Energy: ", "{:.2f}".format(float(e))
+      print "# Energy: ", "{:.2f}".format(float(e))
 
     sptcall = [RNAsubopt, "-D -e {:.2f} -T {:.2f}".format(float(e), temp)]
     if circ : sptcall.append("--circ")
@@ -425,7 +404,9 @@ def sys_subopt_range(seq,
     process = sub.Popen([' '.join(sptcall)], 
             stdin=sub.PIPE, stdout=sub.PIPE, stderr=sub.PIPE, shell=True)
     output, err = process.communicate(seq)
-    if err : print "ERROR:", err
+    if err : 
+      # this one might be not so bad ...
+      raise Exception(err)
 
     structures = 0
     for l in output.split("\n")[1:-1]:
@@ -492,7 +473,8 @@ def subopt_reaches_minh(fname, minh):
 
 def which(program):
   """ Emulates the unix ``which`` command. Snatched from:
-    `http://stackoverflow.com/questions/377017/test-if-executable-exists-in-python`
+    `http://stackoverflow.com/questions/377017/
+      test-if-executable-exists-in-python`
 
     :param program: executable
     :type program: string
