@@ -95,7 +95,7 @@ def argparse_add_arguments(parser,
 
   # Other, commonly used arguments:
   if tmpdir :
-    parser.add_argument("--tmpdir", default='./', action = 'store', 
+    parser.add_argument("--tmpdir", default='', action = 'store', 
         metavar='<str>',
         help="Specify path for storing temporary output files. " + \
             "These files will not be removed when the program terminates.")

@@ -32,7 +32,7 @@ class SubprocessError(Exception):
     self.message = "Process terminated with return code: {}.\n".format(code)
     if call:
       self.message += "|==== \n"
-      self.message += "{}.\n".format(call) 
+      self.message += "{}\n".format(call) 
       self.message += "|====\n"
 
     super(SubprocessError, self).__init__(self.message) 
@@ -60,19 +60,18 @@ class ExecError(Exception):
 
 def sys_treekin(name, seq, bfile, rfile,
   treekin = 'treekin',
-  verb = False,
   p0 = ['1=0.5', '2=0.5'],
   t0 = 1e-6,
   repl=None,
   useplusI=True,
   ti = 1.02,
   t8 = 1e10,
+  verb = False,
   force=False):
   """ **Perform a system-call of the program ``treekin``.**
 
-  Printing the results into a file and return the respective filename. This
-  wrapper will produce two output files from ``STDIN`` and ``STDERR``,
-  respectively. 
+  Prints the results into files and returns the respective filenames. This
+  wrapper will produce two files, one from ``STDIN`` and ``STDERR`` output.
 
   .. note:: This wrapper is written for ``treekin v0.4``. 
 
@@ -131,28 +130,23 @@ def sys_treekin(name, seq, bfile, rfile,
             ' '.join(treecall), bfile, efile, tfile)
         raise SubprocessError(proc.returncode, call)
 
-  '''
-  # This should be caught by the proc.returncode before ...
-  lastlines = sub.check_output(['tail', '-2', tfile]).strip().split("\n")
-  if not reg_flt.match(lastlines[0]):
-    t_total += t8
-    print "{:3d} {:3d} {:f} {:s}".format(l, 1, 1.0, get_structure(l, 1, args))
-    if get_structure(l, 2, args):
-      print >> sys.stderr, \
-          "No valid time-course in {:s}: {:s}".format(tfile, lastlines[0])
-      with open(efile, 'r') as err:
-        print >> sys.stderr, err.read().strip()
-      sys.exit('over and out')
-    continue
+  # Adapt here to return exact simulation time and number of iterations
+  if verb : 
+    lastlines = sub.check_output(['tail', '-2', tfile]).strip().split("\n")
+    
+    # Unfortunately, running treekin with a single state leads to an error that
+    # is printed to STDOUT instead of STDERR. The program, exits with success.
 
-  time = float(lastlines[0].split()[0])
-  iterations = int(lastlines[-1].split()[-1])
-  if verb and iterations < iterate :
-    print >> sys.stderr, "Equilibrium reached after" + \
-    " {:d} of {:d} iterations at time {:f}:".format(iterations, iterate, time)
-  '''
+    # ** On entry to DGESV parameter number  4 had an illegal value
 
-  return tfile
+    if not reg_flt.match(lastlines[0]):
+      print '# No output from treekin simulation.'
+    else :
+      time = float(lastlines[0].split()[0])
+      iterations = int(lastlines[-1].split()[-1])
+      print "# Treekin stopped after {:d} iterations at time {:f}".format(
+          iterations, time)
+  return tfile, efile
  
 def sys_barriers(name, seq, sfile,
     barriers='barriers',
@@ -173,10 +167,9 @@ def sys_barriers(name, seq, sfile,
   """ **Perform a system-call of the program ``barriers``.**
 
   The print the results into a file and return the respective filename. This
-  wrapper will produce two output files from ``STDIN`` and ``STDERR``,
-  respectively. 
+  wrapper will return the output files, including ``STDIN`` and ``STDERR``.
 
-  .. note:: This wrapper is written for ``barriers v1.6``, \
+  .. note:: This wrapper is written for ``barriers v1.6.0``, \
       previous implementations do not have the ``--mapstruc`` option.
 
   :param name: Name of the sequence used to name the output file.
@@ -292,20 +285,19 @@ def sys_suboptimals(name, seq,
     force=False):
   """ **Perform a system-call of the program ``RNAsubopt``.**
 
-  The print the results into a file and return the filename. This wrapper will
-  produce two output files from ``STDIN`` and ``STDERR``, respectively. 
+  The print the results into a file and return the filename. 
 
   :param name: Name of the sequence used to name the output file.
   :param seq: Nucleic acid sequence.
   :param RNAsubopt: path to executable
   :param ener: Specify energy range
   :param temp: Specify temperature in Celsius.
-  :param verb: Print the current system-call to ``stderr``.
   :param noLP: exclude lonely-base-pairs in suboptimal structures
   :param circ: compute density of states
   :param opts: more options for ``RNAsubopt``
 
   :param force: Overwrite existing files with the same name.
+  :param verb: Print verbose information as a comment '#'.
 
   :type name: string
   :type seq: string
@@ -381,7 +373,7 @@ def sys_subopt_range(seq,
   :param temp: temperature in Celsius
   :param noLP: exclude lonely-base-pairs in suboptimal structures
   :param circ: compute density of states
-  :param verb: print verbose output to ``stderr``
+  :param verb: Print verbose information as a comment '#'.
   
   :return: (energy-range, number-of-structures)
   :rtype: tuple
@@ -391,7 +383,7 @@ def sys_subopt_range(seq,
     raise ExecError(RNAsubopt, "RNAsubopt", 'http://www.tbi.univie.ac.at/RNA')
     
   num, nump = 0, 0
-  e = maxe if nos is 0 else 2.
+  e = maxe if nos == 0 else 2.
   ep = e-1
   while (num < nos+1) :
     if verb: 

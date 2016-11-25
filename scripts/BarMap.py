@@ -163,7 +163,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
     cname = "{}-t8_{}-len_{}".format(bname,t8,l)
     [bfile, efile, rfile, psfile] = bfiles[e]
 
-    ctfile = ril.sys_treekin(cname, cseq, bfile, rfile, 
+    ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile, 
         treekin = args.treekin,
         repl=None,
         #useplusI=True,
@@ -459,20 +459,25 @@ def main():
   # One name, just to be clear ...
   (args.name, name) = (args.name, args.name) if args.name else (name, name)
 
-  if args.verbose: 
-    print "# Input: {:s} {:s} {:6.2f} kcal/mol".format(name, seq, args.s_ener)
-    
   if args.stop == 0 : 
     args.stop = len(seq)
   else :
     seq = seq[:args.stop]
 
+  if args.verbose: 
+    print "# Input: {:s} {:s}".format(name, seq)
+    
   if args.s_ener is None :
     args.s_ener, args.s_maxn = ril.sys_subopt_range(seq, 
-        nos=args.s_maxn, maxe=args.s_maxe, verb=args.verbose)
+        nos=args.s_maxn, maxe=args.s_maxe, verb=(args.verbose>0))
     if args.verbose:
       print "# Energyrange {:.2f} computes {:d} sequences".format(
           args.s_ener, args.s_maxn)
+  elif args.verbose : 
+    args.s_ener, args.s_maxn = ril.sys_subopt_range(seq, 
+        nos=0, maxe=args.s_ener, verb=False)
+    print "# Energyrange {:.2f} computes {:d} sequences".format(
+        args.s_ener, args.s_maxn)
 
   # Spatch-Hack to include theophylline binding
   if which(args.spatch) is None :
@@ -490,6 +495,9 @@ def main():
     #spatch.append('-v')
     name += '_theo'; args.name = name
     args.spatch=spatch
+
+  if not args.tmpdir :
+    args.tmpdir = 'BarMap_'+args.name
 
   if not os.path.exists(args.tmpdir):
     os.makedirs(args.tmpdir)

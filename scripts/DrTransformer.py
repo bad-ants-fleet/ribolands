@@ -665,7 +665,7 @@ def main(args):
     else :
       # - Simulate with treekin
       try:
-        tfile = ril.sys_treekin(_fname, seq, bfile, rfile, 
+        tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
             treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
             useplusI=True, force=True, verb=(args.verbose > 1))
       except RuntimeError:
