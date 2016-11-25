@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import ribolands as ril
-from ribolands.syswraps import which
+from ribolands.syswraps import which, ExecError
 
 def barmap_plot(name, seq, tfiles, plist, args):
   """ Description, 
@@ -58,7 +58,7 @@ def barmap_plot(name, seq, tfiles, plist, args):
         elif not reg_flt.match(line):
           nxy.append([t8, 1.0])
           if verb :
-            print >> sys.stderr, "WARNING:", tfile, "does not contain data!"
+            print "# WARNING:", tfile, "does not contain data!"
           break
         nxy.append(map(float, line.strip().split()))
 
@@ -97,7 +97,7 @@ def barmap_plot(name, seq, tfiles, plist, args):
 
   lin_time = (stop-start)*float(t8)
   if verb :
-    print >> sys.stderr, "Total simulation time:", tot_time
+    print "# Total simulation time:", tot_time
   fig = plt.figure()
   ax = fig.add_subplot(1,1,1)
   #ax.set_ylim([0,1.01])
@@ -192,11 +192,10 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
       tt += t8
       print "{:3d} {:3d} {:f} {:s}".format(l, 1, 1.0, get_structure(bfile, 1))
       if get_structure(bfile, 2):
-        print >> sys.stderr, \
-            "No valid time-course in {:s}: {:s}".format(ctfile, lastlines[0])
-        with open(efile, 'r') as err:
-          print >> sys.stderr, err.read().strip()
-        sys.exit('over and out')
+        # This is untested, there used to be these problems, but treekin 0.4
+        # should not have them anymore.
+        raise RuntimeError('treekin crashed but returned success:',
+            "No valid time-course in {:s}: {:s}".format(ctfile, lastlines[0]))
 
   return tfiles
 
@@ -213,7 +212,7 @@ def barmap_mapping(_bname, seq, args):
 
   if os.path.exists(mapinfo) and not force:
     if verb :
-      print >> sys.stderr, mapinfo, "<= File exists"
+      print "# {} <= File exists".format(mapinfo)
     with open(mapinfo, 'r') as m:
       m.readline().strip()
       for line in m:
@@ -228,7 +227,7 @@ def barmap_mapping(_bname, seq, args):
 
       if os.path.exists(pname + '.bar'):
         if verb : 
-          print >> sys.stderr, "Get mapping info {:d} -> {:d}".format(l-1,l)
+          print "# Get mapping info {:d} -> {:d}".format(l-1,l)
         mlist.append(get_mapping_dict(pname + '.bar', cname + '.err'))
  
     plist = pathlist(mlist)
@@ -318,7 +317,8 @@ def set_p0(bfile, l, lastlines, curlmin, newlmin, cutoff, verb):
         print "{:3d} {:3d} {:f} {:s} {:d} => {:d}".format(
             l, i, float(pop), get_structure(bfile, i), i, lminmap[i])
         if lminmap[i] == 0:
-          sys.exit('lost significant population!')
+          raise Exception('Lost significant population!')
+
 
   p0 = [] 
   p0sum = 0.0
@@ -329,7 +329,7 @@ def set_p0(bfile, l, lastlines, curlmin, newlmin, cutoff, verb):
       p0sum += y
 
   if verb : 
-    print >> sys.stderr, "Total population {:.3f}\n".format(p0sum)
+    print "# Total population {:.3f}\n".format(p0sum)
   return p0
 
 def get_structure(bfile, idx):
@@ -359,10 +359,10 @@ def get_mapping_dict(oldbar, minfo):
         gstr, sptidx, energy, fmin, fminT, gmin, gminT = line.strip().split()
         mapinfo.append([gminT, gstr])
       elif re.match('not in hash', line.strip()):
-        print >> sys.stderr, "structure not in hash"
+        print "# structure not in hash"
         mapinfo.append([0, ''])
       elif re.match('not yet assigned', line.strip()):
-        print >> sys.stderr, "structure not yet assigned"
+        print "# structure not yet assigned"
         mapinfo.append([0, ''])
 
     for n, line in enumerate(old):
@@ -370,7 +370,7 @@ def get_mapping_dict(oldbar, minfo):
       else : # old idx = enumerate n
         [old_idx, old_min] = line.strip().split()[0:2]
         if n > len(mapinfo):
-          sys.exit('ERROR: To many lines in barfile: ' \
+          raise Exception('ERROR: To many lines in barfile: ' \
               + minfo + ' missing mapping information!')
         mapper[int(old_idx)]=int(mapinfo[n-1][0])
 
@@ -481,12 +481,9 @@ def main():
 
   # Spatch-Hack to include theophylline binding
   if which(args.spatch) is None :
-    print >> sys.stderr, args.spatch, "is not executable"
-    print """ 
-    You need to make sure that the executables of pylands are in your
-    $PATH environment.
-    """
-    raise RuntimeError('Could not find executable')
+    # TODO: Spatch is a hack, these things can now be done directly in the 
+    # ViennaRNA library.
+    raise ExecError(args.spatch, "pylands_spatch.py")
 
   spatch = ['|', args.spatch]
   args.spatch = ''
