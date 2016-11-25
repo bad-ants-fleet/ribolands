@@ -16,10 +16,11 @@ class Test_complete_pipeline(unittest.TestCase):
 
   def setUp(self):
     self.testname = 'ribolands_testsuite' 
-    # check if files would be overwritten, if everything is fine,
-    # add them to (here: initialize) self.files, because then they
-    # get cleaned up after the tests have completed
-    self.files = self._RiboTestFiles(self.testname)
+    self.files = set()
+    # Check if files would be overwritten, if everything is fine, add them to
+    # self.files. They get cleaned up after the tests have completed.
+    for f in self._RiboTestFiles(self.testname):
+      self.files.add(f)
 
   def tearDown(self):
     # remove files that might have been written to disc
@@ -40,12 +41,18 @@ class Test_complete_pipeline(unittest.TestCase):
 
     self.assertEqual(rsys.sys_subopt_range(seq, nos=1), (0, 1))
 
+    # Testing hidden feature: return number of structs for given energy:
+    self.assertEqual(rsys.sys_subopt_range(seq, nos=0, maxe=8.5), (8.5, 390))
+
   def test_bugs_subopt_range(self):
     seq  = 'UAACUCACAAUGGUUGCAAA'
 
     # Returns energy-range 2.0 kcal/mol with 1 structure, because the secondary
     # structure space starts at around 4 kcal/mol.
     self.assertEqual(rsys.sys_subopt_range(seq, nos=20, circ=True), (2.0, 1))
+
+    # Hack the function to show that there exists a better result!
+    self.assertEqual(rsys.sys_subopt_range(seq, nos=0, maxe=8.5, circ=True), (8.5, 20))
 
     # Interestingly, this effect gets reduced when reducing the temperature,
     # but it terminates at 10 structures, instead of moving on ...
@@ -75,10 +82,10 @@ class Test_complete_pipeline(unittest.TestCase):
 
     [sfile, bfile, efile, rfile, psfile] = rsys.sys_barriers(name, seq, sfile)
 
-    self.assertFileEqual(bfile, ref_bfile)
-    self.assertFileEqual(efile, ref_efile)
-    self.assertFileEqual(rfile, ref_rfile)
-    self.assertFileEqual(psfile, ref_psfile)
+    self.assertFileWeakEqual(bfile, ref_bfile)
+    self.assertFileWeakEqual(efile, ref_efile)
+    self.assertFileWeakEqual(rfile, ref_rfile)
+    self.assertFileWeakEqual(psfile, ref_psfile)
 
   def test_sys_treekin(self):
     seq  = 'UAACUCACAAUGGUUGCAAA'
@@ -88,21 +95,23 @@ class Test_complete_pipeline(unittest.TestCase):
     ref_tfile = 'tests/files/' + self.testname + '.tkn'
 
     with self.assertRaises(rsys.SubprocessError):
-      tfile = rsys.sys_treekin(name, seq, bfile, rfile)
+      tfile, efile = rsys.sys_treekin(name, seq, bfile, rfile)
 
   def test_full_workflow(self):
-    name = 'tmptest'
+    name = 'full_workflow_1'
     seq  = 'UAACUCACAAUGGUUGCAAA'
+    ref_tfile = 'tests/files/' + name + '.tkn'
+    ref_efile = 'tests/files/' + name + '.err'
 
-    self.files += self._RiboTestFiles(name)
-
-    for fname in self.files :
-      if os.path.exists(fname) : 
-        raise Exception("attempting to overwrite temporary file", fname)
+    for f in self._RiboTestFiles(name):
+      self.files.add(f)
 
     sfile = rsys.sys_suboptimals(name, seq, ener=4.0)
     [sfile, bfile, efile, rfile, psfile] = rsys.sys_barriers(name, seq, sfile)
-    tfile = rsys.sys_treekin(name, seq, bfile, rfile)
+    tfile, efile = rsys.sys_treekin(name, seq, bfile, rfile, ti=2)
+
+    self.assertFileWeakEqual(tfile, ref_tfile)
+    self.assertFileWeakEqual(efile, ref_efile)
 
   def _RiboTestFiles(self, prefix):
     files = [
@@ -119,15 +128,16 @@ class Test_complete_pipeline(unittest.TestCase):
 
     return files
 
-  def assertFileEqual(self, test_file, ref_file):
+  def assertFileWeakEqual(self, test_file, ref_file):
     """Read two files and compare them line-by-line. 
 
-    Skipps lines staring with '%'
+    Weak, beacuse it skipps lines staring with '%' or '#'.
     """
     with open(test_file) as tst, open(ref_file) as ref :
       for r in ref :
         t = tst.readline()
-        # A postscript-comment that may contain a current timestamp
+        # A comment that may contain a current timestamp
         if t[0] == '%': continue
+        if t[0] == '#': continue
         self.assertEqual(t, r)
 
