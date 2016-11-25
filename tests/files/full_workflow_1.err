@@ -1,0 +1,5 @@
+WARNING: Matrix is non-ergodic! Decreasing dimension to 6.
+Time to initialize: 0.00 secs.
+Corrected numerical error: 3.122502e-17 (8.673617e-19 per number)
+Time to diagonalize: 0.00 secs.
+Time to iterate: 0.00 secs.
