@@ -104,7 +104,7 @@ def sys_treekin(name, seq, bfile, rfile,
 
   if not force and os.path.exists(tfile):
     if verb : print "# {:s} <= Files exist".format(tfile), 
-    return tfile
+    return tfile, efile
     
   treecall = [treekin, '--method', 'I']
   if useplusI : treecall.extend(['--useplusI'])
@@ -523,7 +523,7 @@ def main():
 
   [sfile, bfile, efile, rfile, psfile] = sys_barriers(name, seq, sfile, 
       minh=b_minh, maxn=b_maxn, rates=True, verb=verb, noLP=noLP, force=force)
-  tfile = sys_treekin(name, seq, bfile, rfile, 
+  tfile, _ = sys_treekin(name, seq, bfile, rfile, 
       p0=['2=1'], t0=1e-6, ti=1.02, t8=1e10, verb=verb, force=force)
   pfile = rnu.plot_simulation(name, seq, tfile, 
       ylim=(0,1), xlim=(1e-2, 1e10), lines=[], force=force)
@@ -534,7 +534,6 @@ def main():
 
   print RM, BT
   print sfile, bfile, efile, rfile, psfile, tfile, pfile
-
   return
 
 if __name__ == '__main__':
