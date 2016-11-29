@@ -58,14 +58,9 @@ If you are using `BarMap` or `DrTransformer` please cite:
 
 ### local installation
 ```sh
-  python setup.py install --prefix=/your/destination/ribolands-x.y.r
+  python setup.py install --user
 ```
-Do not forget to set your environment variables when using local installations:
-```sh
-  export PATH=/your/destination/ribolands-x.y.r/bin:$PATH
-  export PYTHONPATH=/your/destination/ribolands-x.y.r/lib/python2.7/site-packages/:$PYTHONPATH
-```
-  
+ 
 ## Version
 0.2.0
 
