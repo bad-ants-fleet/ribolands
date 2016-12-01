@@ -586,7 +586,7 @@ def main(args):
     kelvin = 273.15 + args.temperature
     args._RT = (args._RT/310.15)*kelvin
 
-  if args.stop == 0 : 
+  if args.stop is None : 
     args.stop = len(fullseq)+1
   else :
     fullseq = fullseq[0:args.stop-1]
