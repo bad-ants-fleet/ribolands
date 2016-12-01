@@ -8,6 +8,7 @@ from utils import parse_barfile
 from utils import parse_ratefile
 from utils import make_pair_table
 from utils import plot_simulation
+from utils import ProgressBar
 
 from syswraps import sys_subopt_range
 from syswraps import sys_suboptimals 

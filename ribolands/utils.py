@@ -22,6 +22,34 @@ import sys
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+class ProgressBar(object):
+  # prog = MyProgress(clockmax=135):
+  #   for i in range(0, 135) :
+  #     prog.inc()
+  #
+  def __init__(self, clockmax):
+    if clockmax < 1:
+      raise Exception("Imporper input.")
+
+    self.clock = 0
+    self.clockmax = clockmax
+    print('# |Progress' + ' '*(clockmax-8) + '|')
+    sys.stdout.write('# |')
+    
+  def inc(self):
+    self.clock +=1 
+    if self.clock % 10 == 0:
+      sys.stdout.write(str(self.clock/10))
+    elif self.clock % 5 == 0 :
+      sys.stdout.write(",")
+    else :
+      sys.stdout.write(".")
+
+    sys.stdout.flush()
+    if self.clock == self.clockmax:
+      sys.stdout.write("| 100%\n")
+
+
 def argparse_add_arguments(parser, 
     RNAsubopt=False, barriers=False, treekin=False,
     noLP=False, temperature=False, circ=False,
@@ -114,7 +142,7 @@ def argparse_add_arguments(parser,
     parser.add_argument("--start", type=int, default=1, metavar='<int>',
         help="Start transcription at this nucleotide")
   if stop :
-    parser.add_argument("--stop", type=int, default=0, metavar='<int>',
+    parser.add_argument("--stop", type=int, default=None, metavar='<int>',
         help="Stop transcription at this nucleotide")
 
   if k0 :
