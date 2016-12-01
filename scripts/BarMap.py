@@ -132,11 +132,11 @@ def plot_xmgrace(all_in, plist, args):
 @map color 15 to (0, 139, 0), "green4"
 
 """
-  best = ['red', 'blue', 'green', 'yellow', 'magenta', 'black']
   best = range(1,16)
+  gfile = args.name + '.gr'
 
   c = 0
-  with open(args.name + '.gr', 'w') as gfh :
+  with open(gfile, 'w') as gfh :
     gfh.write(head)
     for e, course in enumerate(all_in) :
       if e == 0 : continue
@@ -148,7 +148,10 @@ def plot_xmgrace(all_in, plist, args):
         if y[0] is None: continue
         if flag == 0 :
           gfh.write("@  s{} line color {}\n".format(c, color))
-          gfh.write("@  s{} line linewidth 2\n".format(c))
+          if color == best[-1] :
+            gfh.write("@  s{} line linewidth 1\n".format(c))
+          else :
+            gfh.write("@  s{} line linewidth 2\n".format(c))
         for i in range(len(x)):
           gfh.write("{:f} {:f}\n".format(x[i],y[i]))
         flag = 1
@@ -157,7 +160,7 @@ def plot_xmgrace(all_in, plist, args):
         gfh.write("&\n")
         c+=1
 
-  return 
+  return gfile
 
 def plot_matplotlib(name, seq, tlist, plist, args):
   """ Description """
@@ -192,10 +195,14 @@ def plot_matplotlib(name, seq, tlist, plist, args):
     axLog.set_xlim((lin_time, tX))
     axLog.set_xscale('log')
 
-  best = ['red', 'blue', 'green', 'yellow', 'magenta', 'black']
+  best = ['black', 'red', 'green', 'blue', 'yellow', 'brown', 'grey', 'violet', 
+      'magenta', 'orange', 'indigo', 'maroon', 'cyan']
   seen = set()
   for e, traject in enumerate(tlist):
-    if e==0: continue
+    if e==0: 
+      for i in range(len(traject)) :
+        plt.axvline(x=traject[i][-1], linewidth=0.1, color='black', linestyle='--')
+      continue
 
     fulltime = []
     fulltrajectory = []
@@ -218,6 +225,7 @@ def plot_matplotlib(name, seq, tlist, plist, args):
       else :
         lin.set_label("lmin {:d}".format(finalmin))
       seen.add(finalmin)
+
 
   plt.legend()
   fig.text(0.5,0.95, title, ha='center', va='center')
@@ -391,9 +399,9 @@ def barmap_subopts(_sname, seq, args):
   return sfiles
 
 def set_p0(bfile, l, lastlines, curlmin, newlmin, cutoff, verb):
-  '''
+  """
   remap densities from :lastlines: using the information in plist
-  '''
+  """
 
   lminmap = c.defaultdict(int)
   for x,y in zip(curlmin, newlmin): 
@@ -410,7 +418,6 @@ def set_p0(bfile, l, lastlines, curlmin, newlmin, cutoff, verb):
             l, i, float(pop), get_structure(bfile, i), i, lminmap[i])
         if lminmap[i] == 0:
           raise Exception('Lost significant population!')
-
 
   p0 = [] 
   p0sum = 0.0
@@ -556,15 +563,13 @@ def main(args):
   else :
     seq = seq[:args.stop]
 
-  if args.verbose: 
-    print "# Input: {:s} {:s}".format(name, seq)
+  print "# Input: {:s} {:s}".format(name, seq)
     
   if args.s_ener is None :
     args.s_ener, args.s_maxn = ril.sys_subopt_range(seq, 
         nos=args.s_maxn, maxe=args.s_maxe, verb=(args.verbose>0))
-    if args.verbose:
-      print "# Energyrange {:.2f} computes {:d} sequences".format(
-          args.s_ener, args.s_maxn)
+    print "# Energyrange {:.2f} computes {:d} sequences".format(
+        args.s_ener, args.s_maxn)
   elif args.verbose : 
     args.s_ener, args.s_maxn = ril.sys_subopt_range(seq, 
         nos=0, maxe=args.s_ener, verb=False)
@@ -591,8 +596,7 @@ def main(args):
   if not os.path.exists(args.tmpdir):
     os.makedirs(args.tmpdir)
 
-  print """# Starting with BarMap computations ... """
-  #TODO: assign names here in the main loop
+  """# Starting with BarMap computations ... """
 
   print """# writing RNAsubopt files ... """
   sname = "{}/{}-ener_{:.2f}".format(args.tmpdir, args.name, args.s_ener)
@@ -624,7 +628,6 @@ def main(args):
       print "# Your results have been plotted in the file: {}".format(plotfile) 
 
   print "# Thank you for using BarMap b(^.^)d"
-  return
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(
