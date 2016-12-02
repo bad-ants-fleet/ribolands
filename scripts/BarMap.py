@@ -287,7 +287,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
                 float(pop), ss, float(en))
     else :
       tt += t8
-      print "{:3d} {:3d} {:f} {:s}".format(l, 1, 1.0, get_structure(bfile, 1))
+      print "{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, 1, 1.0, get_structure(bfile, 1), 0.00)
       if get_structure(bfile, 2):
         # This is untested, there used to be these problems, but treekin 0.4
         # should not have them anymore.
