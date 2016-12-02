@@ -282,8 +282,9 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
       else :
         for (i, pop) in enumerate(lastlines[0].split()):
           if i != 0 and float(pop) > cutoff :
-            print "{:3d} {:3d} {:f} {:s}".format(l, i, 
-                float(pop), get_structure(bfile, i))
+            ss, en = get_structure(bfile, i, energy=True)
+            print "{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, i, 
+                float(pop), ss, float(en))
     else :
       tt += t8
       print "{:3d} {:3d} {:f} {:s}".format(l, 1, 1.0, get_structure(bfile, 1))
@@ -414,8 +415,9 @@ def set_p0(bfile, l, lastlines, curlmin, newlmin, cutoff, verb):
     else :
       p0dict[lminmap[i]]+=float(pop)
       if float(pop) > cutoff:
-        print "{:3d} {:3d} {:f} {:s} {:d} => {:d}".format(
-            l, i, float(pop), get_structure(bfile, i), i, lminmap[i])
+        ss, en = get_structure(bfile, i, energy=True)
+        print "{:3d} {:3d} {:f} {:s} {:6.2f} {:4d} => {:d}".format(
+            l, i, float(pop), ss, float(en), i, lminmap[i])
         if lminmap[i] == 0:
           raise Exception('Lost significant population!')
 
@@ -431,14 +433,17 @@ def set_p0(bfile, l, lastlines, curlmin, newlmin, cutoff, verb):
     print "# Total population {:.3f}\n".format(p0sum)
   return p0
 
-def get_structure(bfile, idx):
+def get_structure(bfile, idx, energy=False):
   ss=''
   with open(bfile, 'r') as bar:
     for n, line in enumerate(bar):
       if n == idx : 
-        ss = line.strip().split()[1]
+        [ss,en] = line.strip().split()[1:3]
         break
-  return ss
+  if energy :
+    return ss, en if ss else ''
+  else :
+    return ss
 
 def get_mapping_dict(oldbar, minfo):
   '''
