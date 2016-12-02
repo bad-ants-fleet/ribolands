@@ -45,19 +45,25 @@ class Test_complete_pipeline(unittest.TestCase):
     self.assertEqual(rsys.sys_subopt_range(seq, nos=0, maxe=8.5), (8.5, 390))
 
   def test_bugs_subopt_range(self):
+    # These bugs have been fixed by increasing the starting energy range for 
+    # RNAsubopt computation from 2kcal/mol to 5kcal/mol.
     seq  = 'UAACUCACAAUGGUUGCAAA'
 
     # Returns energy-range 2.0 kcal/mol with 1 structure, because the secondary
     # structure space starts at around 4 kcal/mol.
-    self.assertEqual(rsys.sys_subopt_range(seq, nos=20, circ=True), (2.0, 1))
+    #self.assertEqual(rsys.sys_subopt_range(seq, nos=20, circ=True), (2.0, 1))
+    self.assertEqual(rsys.sys_subopt_range(seq, nos=20, circ=True), (8.4, 20))
 
     # Hack the function to show that there exists a better result!
     self.assertEqual(rsys.sys_subopt_range(seq, nos=0, maxe=8.5, circ=True), (8.5, 20))
 
     # Interestingly, this effect gets reduced when reducing the temperature,
     # but it terminates at 10 structures, instead of moving on ...
-    self.assertEqual(rsys.sys_subopt_range(seq, nos=20, circ=True, temp=10),
-        (4.7, 10))
+    #self.assertEqual(rsys.sys_subopt_range(seq, nos=20, circ=True, temp=10), (4.7, 10))
+    self.assertEqual(rsys.sys_subopt_range(seq, nos=20, circ=True, temp=10), (6.0, 20))
+
+    seq2 = 'GGGUCGCCGUUACAUAGACCCUGCAACUAU'
+    self.assertEqual(rsys.sys_subopt_range(seq2, nos=7100000, maxe=20.00), (20.0, 60872))
 
   def test_sys_suboptimals(self):
     seq  = 'UAACUCACAAUGGUUGCAAA'

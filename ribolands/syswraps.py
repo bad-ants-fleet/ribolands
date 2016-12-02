@@ -248,12 +248,12 @@ def sys_barriers(name, seq, sfile,
   with open(sfile, 'r') as shandle, \
       open(bfile, 'w') as bhandle, \
       open(efile, 'w') as ehandle:
-    process = sub.Popen(' '.join(barcall),
+    proc = sub.Popen(' '.join(barcall),
         stdin=shandle,stdout=bhandle,stderr=ehandle, shell=True)
-    process.communicate(None)
-    if process.returncode :
+    proc.communicate(None)
+    if proc.returncode :
       call = "{} 2> {} > {}".format(
-          ' '.join(barcall), efile, tfile)
+          ' '.join(barcall), efile, bfile)
       raise SubprocessError(proc.returncode, call)
 
   if rates :
@@ -343,12 +343,12 @@ def sys_suboptimals(name, seq,
     print "#", "echo \"{}\" | {} > {}".format(seq, ' '.join(sptcall), sfile)
 
   with open(sfile, 'w') as shandle:
-    Psubopt = sub.Popen([' '.join(sptcall)],
+    proc = sub.Popen([' '.join(sptcall)],
         stdin=sub.PIPE, stdout=shandle, shell=True)
-    Psubopt.communicate(seq)
-    if Psubopt.returncode :
+    proc.communicate(seq)
+    if proc.returncode :
       call = "echo \"{}\" | {} > {}".format(seq, ' '.join(sptcall), sfile)
-      raise SubprocessError(p.returncode, call)
+      raise SubprocessError(proc.returncode, call)
 
   return sfile
 
@@ -383,7 +383,7 @@ def sys_subopt_range(seq,
     raise ExecError(RNAsubopt, "RNAsubopt", 'http://www.tbi.univie.ac.at/RNA')
     
   num, nump = 0, 0
-  e = maxe if nos == 0 else 2.
+  e = maxe if nos == 0 else 5. # Decreasing this value may introduce bugs ...
   ep = e-1
   while (num < nos+1) :
     if verb: 
