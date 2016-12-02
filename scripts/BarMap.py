@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import ribolands as ril
-from ribolands.syswraps import which, ExecError
+from ribolands.syswraps import which, ExecError, SubprocessError
 
 def get_plot_data(tfiles, plist, args):
   verb = args.verbose
@@ -259,16 +259,30 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
     cname = "{}-t8_{}-len_{}".format(bname,t8,l)
     [bfile, efile, rfile, psfile] = bfiles[e]
 
-    ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile, 
-        treekin = args.treekin,
-        repl=None,
-        #useplusI=True,
-        p0=p0, 
-        t0=args.t0, 
-        ti=args.ti, 
-        t8=t8, 
-        verb=verb, 
-        force=args.force)
+    try :
+      ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile, 
+          treekin = args.treekin,
+          repl=None,
+          useplusI=False,
+          p0=p0, 
+          t0=args.t0, 
+          ti=args.ti, 
+          t8=t8, 
+          verb=verb, 
+          force=args.force)
+    except SubprocessError:
+      print "# repeating treekin calculations with --useplusI"
+      ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile, 
+          treekin = args.treekin,
+          repl=None,
+          useplusI=True,
+          p0=p0, 
+          t0=args.t0, 
+          ti=args.ti, 
+          t8=t8, 
+          verb=verb, 
+          force=True)
+
     tfiles.append(ctfile)
 
     lastlines = s.check_output(['tail', '-2', ctfile]).strip().split("\n")
@@ -603,22 +617,30 @@ def main(args):
 
   """# Starting with BarMap computations ... """
 
-  print """# writing RNAsubopt files ... """
-  sname = "{}/{}-ener_{:.2f}".format(args.tmpdir, args.name, args.s_ener)
-  #if args.circ: myfile += '_circ'
-  if args.noLP: sname += '_noLP'
-  sfiles = barmap_subopts(sname, seq, args)
+  while True :
+    print """# writing RNAsubopt files ... """
+    sname = "{}/{}-ener_{:.2f}".format(args.tmpdir, args.name, args.s_ener)
+    #if args.circ: myfile += '_circ'
+    if args.noLP: sname += '_noLP'
+    sfiles = barmap_subopts(sname, seq, args)
 
-  print """# writing barriers files ... """
-  bname = "{}-minh_{}-maxn_{}-k0_{}".format(sname, 
-      args.b_minh, args.b_maxn, args.k0)
-  bfiles = barmap_barriers(bname, seq, sfiles, args)
+    print """# writing barriers files ... """
+    bname = "{}-minh_{}-maxn_{}-k0_{}".format(sname, 
+        args.b_minh, args.b_maxn, args.k0)
+    bfiles = barmap_barriers(bname, seq, sfiles, args)
 
-  print """# writing/parsing mapping information ... """
-  plist = barmap_mapping(bname, seq, args)
+    print """# writing/parsing mapping information ... """
+    plist = barmap_mapping(bname, seq, args)
 
-  print """# simulations using treekin ... """
-  tfiles = barmap_treekin(bname, seq, bfiles, plist, args)
+    print """# simulations using treekin ... """
+    try :
+      tfiles = barmap_treekin(bname, seq, bfiles, plist, args)
+      break
+    except Exception, e:
+      # Hack here to raise energy and repeat!
+      raise RuntimeError(e)
+      args.s_ener += 2
+
 
   if args.xmgrace or args.pyplot :
     print """# Processing treekin results for plotting ... """

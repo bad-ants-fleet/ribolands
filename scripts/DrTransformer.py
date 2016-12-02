@@ -16,6 +16,7 @@ import shutil
 import contextlib
 
 import ribolands as ril
+from ribolands.syswraps import SubprocessError
 import RNA
 
 @contextlib.contextmanager
@@ -667,16 +668,14 @@ def main(args):
       try:
         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
             treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
-            useplusI=True, force=True, verb=(args.verbose > 1))
-      except RuntimeError:
-        #try :
-        #  tfile = ril.sys_treekin(_fname, seq, bfile, rfile, 
-        #      treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
-        #      useplusI=False, force=True, verb=True)
-        #except RuntimeError:
-          print "Abort after", tlen, "nucleotides:", \
-              "treekin cannot find a solution, sorry"
-          raise SystemExit
+            useplusI=False, force=True, verb=(args.verbose > 1))
+      except SubprocessError:
+        try :
+          tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
+              treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
+              useplusI=True, force=True, verb=True)
+        except SubprocessError:
+          raise Exception("Stopping after {} nucleotides: treekin cannot find a solution!".format(tlen))
 
       # Get Results
       time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
