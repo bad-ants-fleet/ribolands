@@ -401,14 +401,13 @@ def fold_exterior_loop(seq, con, exterior_only=True):
 
   return ss
 
-def talk_generator(CG, sorted_nodes, tfile, repl):
+def talk_generator(CG, sorted_nodes, tfile):
   """ Generator function that yields the time course information from the
   treekin output file.
   
   :param CG: Conformation Graph (networkx)
   :param sorted_nodes: a list of nodes sorted by their energy
   :param tfile: current treekin-output file
-  :param repl: a factor to reduce the plot size, see --repl <float> option
 
   """
   # http://www.regular-expressions.info/floatingpoint.html
@@ -429,14 +428,6 @@ def talk_generator(CG, sorted_nodes, tfile, repl):
           # is it above visibility threshold?
           ss = sorted_nodes[e][0]
 
-          # can we actually skip the point?
-          if repl and prevcourse and prevcourse[e+1] > 0 \
-              and line is not tknlines[-2]:
-            y1 = min(prevcourse[e+1], course[e+1])
-            y2 = max(prevcourse[e+1], course[e+1])
-            dy = math.log(y2) - math.log(y1)
-            if dy < repl : continue
-
           yield CG.node[ss]['identity'], ttime+time, occu, \
               ss[:CG.graph['transcript_length']], CG.node[ss]['energy']
         prevcourse = course
@@ -448,7 +439,7 @@ def plot_xmgrace(all_in, args):
 @line on
 @line loctype world
 @line g0
-@line linewidth .1
+@line linewidth .2
 @line linestyle 1
 @line color 7
 @line arrow 0
@@ -528,9 +519,6 @@ def add_drtrafo_args(parser):
   #parser.add_argument("--plot_linlog", action="store_true",
   #    help="Divide x-axis into lin and log at transcription stop")
 
-  
-  parser.add_argument("--repl", type=float, default=None, metavar='<flt>',
-      help="Logarithmically reduce output size")
   parser.add_argument("--logfile", action="store_true",
       help="Write verbose information into name.log") 
   parser.add_argument("--drffile", action="store_true",
