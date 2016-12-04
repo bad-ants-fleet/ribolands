@@ -406,6 +406,7 @@ def barmap_subopts(_sname, seq, args):
         ener=args.s_ener, 
         temp=args.temperature,
         noLP=args.noLP,
+        sort=['|', 'sort', '-T', args.s_sortdir, '-k3r', '-k2n'],
         verb=args.verbose, 
         force=args.force)
     sfiles.append(csfile)
@@ -549,6 +550,8 @@ def add_barmap_args(parser):
       help="Print a plot for xmgrace. " + \
           "Interpret the legend using the *log* output")
 
+  parser.add_argument("--s_sortdir", default="/tmp", action="store", \
+      help=argparse.SUPPRESS)
   return
 
 def main(args):
