@@ -406,7 +406,6 @@ def barmap_subopts(_sname, seq, args):
         ener=args.s_ener, 
         temp=args.temperature,
         noLP=args.noLP,
-        opts=args.spatch,
         verb=args.verbose, 
         force=args.force)
     sfiles.append(csfile)
@@ -550,19 +549,6 @@ def add_barmap_args(parser):
       help="Print a plot for xmgrace. " + \
           "Interpret the legend using the *log* output")
 
-  ##############
-  # Depricated:
-  #TODO: need to think whether this is the best way to do it... hidden, for now!
-  parser.add_argument("--spatch", 
-      default='pylands_spatch.py', action = 'store',
-      help=argparse.SUPPRESS)
-      #help="Specify a script to postprocess suboptimals")
-  parser.add_argument("--theo", action="store_true",
-      help=argparse.SUPPRESS)
-      #help="Use *hidden* spatch script to include theophylline contributions")
-  #parser.add_argument("--s_stmp", default='/tmp', action = 'store',
-  #    help="Specify path to a temporary sort directory for unix sort")
-
   return
 
 def main(args):
@@ -594,20 +580,6 @@ def main(args):
         nos=0, maxe=args.s_ener, verb=False)
     print "# Energyrange {:.2f} computes {:d} sequences".format(
         args.s_ener, args.s_maxn)
-
-  # Spatch-Hack to include theophylline binding
-  if which(args.spatch) is None :
-    # TODO: Spatch is a hack, these things can now be done directly in the 
-    # ViennaRNA library.
-    raise ExecError(args.spatch, "pylands_spatch.py")
-
-  spatch = ['|', args.spatch]
-  args.spatch = ''
-  if args.theo:
-    spatch.append('--theo')
-    #spatch.append('-v')
-    name += '_theo'; args.name = name
-    args.spatch=spatch
 
   if not args.tmpdir :
     args.tmpdir = 'BarMap_'+args.name
