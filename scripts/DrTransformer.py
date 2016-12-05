@@ -525,7 +525,7 @@ def add_drtrafo_args(parser):
       help="Write DrForna output into name.drf") 
   parser.add_argument("--pyplot", action="store_true",
       help="Plot the simulation using matplotlib. Interpret the legend \
-          using the *log* output")
+          using the logfile output")
   parser.add_argument("--xmgrace", action="store_true",
       help="Print a plot for xmgrace. " + \
           "Interpret the legend using the *log* output")
@@ -670,7 +670,7 @@ def main(args):
       #print time_inc, iterations
 
       if args.pyplot or args.xmgrace or _drffile :
-        for data in talk_generator(CG, nlist, tfile, args.repl) :
+        for data in talk_generator(CG, nlist, tfile) :
           [id_, tt_, oc_, ss_, en_] = data
           if args.pyplot or args.xmgrace :
             all_courses[id_].append((tt_,oc_))
