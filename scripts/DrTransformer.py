@@ -740,6 +740,10 @@ def main(args):
       #tfile = crnwrapper(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
       #    verb=False)
 
+      # - Simulate with crnsimulator
+      #tfile = crnwrapper(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
+      #    verb=False)
+
       # Get Results
       time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
       #print time_inc, iterations
