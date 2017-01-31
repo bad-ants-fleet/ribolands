@@ -15,4 +15,11 @@
   - replace spatch.py with ViennaRNA 2.2 soft-constraints
   - add crnsimulator
   - add scripts/cofold_barriers.py
+  - write a decorator function to submit sys_jobs to the SGE, 
+      rather than computing them locally
+
+### Projects
+  - finish the binding pocket implementations (XOR, Lucs)
+  - show a folding path with a partiuclar Luck's visualization?
+
 
