@@ -32,7 +32,37 @@ def smart_open(filename=None, mode='w'):
     if fh is not sys.stdout:
       fh.close()
 
-def crnwrapper(CG, _fname, nlist, p0, t0, ti, t8, force, verb = False):
+def scipy_linalg(CG, _fname, nlist, p0, t0, ti, t8, force=False, verb=False):
+  from scipy.sparse.linalg import expm, expm_multiply
+  from scipy import linalg
+  import numpy as np
+  print nlist
+  RM = []
+  OV = []
+  for e, (ni, data) in enumerate(nlist) :
+    OV.append(data['occupancy'])
+    rates = []
+    for (nj, jdata) in nlist :
+      if CG.has_edge(ni,nj) :
+        rates.append(CG[ni][nj]['weight'])
+      else :
+        rates.append(0)
+    RM.append(rates)
+   
+  def exponential(t,X,a):
+    growth = X*np.exp(a*t)
+    return growth
+
+  RM = np.array(RM)
+  print RM
+  OV = np.array(OV)
+  print OV
+  #print np.linalg.solve(RM,OV)
+  print expm_multiply(RM,OV)
+  raise SystemExit
+
+
+def crnwrapper(CG, _fname, nlist, p0, t0, ti, t8, force=False, verb = False):
   from crnsimulator import writeODElib
   from crnsimulator.reactiongraph import DiGraph_to_ODE
   import sympy
@@ -172,6 +202,10 @@ def dump_conformation_graph(CG, seq, name, logf=sys.stdout,verb=False) :
     with open(bfile, 'w') as bar, open(rfile, 'w') as rts :
       bar.write("     {}\n".format(seq))
       for e, (ni, data) in enumerate(sorted_nodes) :
+        # make a mini-barriers: 
+          # see all neighbors, if neighbors seen, connect them...
+          # can it happen that a node changes his color? CID?
+        #print "{:4d} {} {:6.2f}\n".format(e+1, ni[:len(seq)], data['energy'])
         bar.write("{:4d} {} {:6.2f}\n".format(
           e+1, ni[:len(seq)], data['energy']))
         if verb :
@@ -288,6 +322,8 @@ def expand_graph(CG, saddles, args, mfe_only=False):
   ss = ss + future
   #print >> sys.stderr, "{}\n{} {:6.2f}".format(seq, ss, mfe)
 
+  regular_mode = True # TODO: HACK! this is only here to produce any possible graph
+
   # If there is no node bec we are in the beginning, add the node,
   # otherwise, go through all nodes and try to add transition edges
 
@@ -323,11 +359,12 @@ def expand_graph(CG, saddles, args, mfe_only=False):
       if data['active'] == False : continue
       en  = data['energy']
       occ = data['occupancy']
-      if occ < cutoff : continue
+      if regular_mode and occ < cutoff : continue
 
       ss = ni[0:len(seq)]
 
       opened = open_breathing_helices(seq, ss)
+      #print opened
       for onbr in opened :
         nbr = fold_exterior_loop(seq, onbr)
         future = '.' * (len(ni) - len(nbr))
@@ -734,16 +771,17 @@ def main(args):
               treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
               useplusI=True, force=True, verb=True)
         except SubprocessError:
-          raise Exception("Stopping after {} nucleotides: treekin cannot find a solution!".format(tlen))
+          raise Exception("Stopping after {} nucleotides: treekin cannot find a solution!".format(
+              tlen))
 
       # - Simulate with crnsimulator
       #tfile = crnwrapper(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
       #    verb=False)
 
-      # - Simulate with crnsimulator
-      #tfile = crnwrapper(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
+      # - Simulate with scipy.linalg
+      #tfile = scipy_linalg(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
       #    verb=False)
-
+        
       # Get Results
       time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
       #print time_inc, iterations
