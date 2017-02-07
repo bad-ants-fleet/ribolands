@@ -62,9 +62,10 @@ def scipy_linalg(CG, _fname, nlist, p0, t0, ti, t8, force=False, verb=False):
   raise SystemExit
 
 
-def crnwrapper(CG, _fname, nlist, p0, t0, ti, t8, force=False, verb = False):
+def crnwrapper(CG, _fname, _tmpdir, _odename, nlist, p0, t0, ti, t8, force=False, verb = False):
   from crnsimulator import writeODElib
   from crnsimulator.reactiongraph import DiGraph_to_ODE
+  import imp
   import sympy
   import numpy as np
   from scipy.integrate import odeint
@@ -103,27 +104,28 @@ def crnwrapper(CG, _fname, nlist, p0, t0, ti, t8, force=False, verb = False):
     myp0[int(p)-1]=float(f)
 
   ### => SOLVER
-  _libname = 'ode_lib'+str(CG.graph['transcript_length'])
-  odename = _libname
-  if writeODElib(odename, V, M, J, rdict) :
-    _temp = __import__(odename, globals(), locals(), [], -1)
-    odesystem = getattr(_temp, odename)
-    if J :
-      jacobian = getattr(_temp, 'jacobian')
-    else :
-      jacobian = None
+  odefile =  writeODElib(V, M, odename=_odename, path=_tmpdir, jacobian=J, rdict=rdict)
+  print '# Wrote ODE system:', odefile
+  _temp = imp.load_source(_odename, odefile)
 
-    # Set/Adjust Parameters
-    rates = None # default rates from file
-    try :
-      if jacobian :
-        ny = odeint(odesystem, myp0, time, (rates, ), Dfun=jacobian).T
-      else :
-        ny = odeint(odesystem, myp0, time, (rates, )).T
-    except ValueError, e:
-      print 'Fail, rerun!'
-      print 'p0', myp0, 't', time
-      print odeint(odesystem, myp0, time, (rates, ), full_output=True)
+  odesystem = getattr(_temp, _odename)
+  if J :
+    jacobian = getattr(_temp, 'jacobian')
+  else :
+    jacobian = None
+
+  # Set/Adjust Parameters
+  rates = None # default rates from file
+  try :
+    if jacobian :
+      ny = odeint(odesystem, myp0, time, (rates, ), Dfun=jacobian).T
+    else :
+      ny = odeint(odesystem, myp0, time, (rates, )).T
+  except ValueError, e:
+    print 'Fail, rerun!'
+    print 'p0', myp0, 't', time
+    print odeint(odesystem, myp0, time, (rates, ), full_output=True)
+    raise SystemExit
 
   tfile = _fname+'.tkn'
   with open(tfile, 'w') as tf :
@@ -775,8 +777,10 @@ def main(args):
               tlen))
 
       # - Simulate with crnsimulator
-      #tfile = crnwrapper(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
-      #    verb=False)
+      # TODO: CRNSIMULATOR does not correct for loss of population!
+      _odename = name+str(tlen)
+      tfile = crnwrapper(CG, _fname, _tmpdir, _odename, nlist, p0, args.t0, args.ti, _t8, True, 
+          verb=False)
 
       # - Simulate with scipy.linalg
       #tfile = scipy_linalg(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
