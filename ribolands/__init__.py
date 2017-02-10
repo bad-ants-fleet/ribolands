@@ -15,6 +15,8 @@ from syswraps import sys_suboptimals
 from syswraps import sys_barriers
 from syswraps import sys_treekin
 
+from crnwrapper import DiGraphSimulator
+
 #'''
 #def getversion():
 #  v_utils = utils.__version__

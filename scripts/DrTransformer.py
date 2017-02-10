@@ -17,6 +17,7 @@ import contextlib
 
 import ribolands as ril
 from ribolands.syswraps import SubprocessError
+from ribolands.crnwrapper import DiGraphSimulator
 import RNA
 
 @contextlib.contextmanager
@@ -61,79 +62,6 @@ def scipy_linalg(CG, _fname, nlist, p0, t0, ti, t8, force=False, verb=False):
   print expm_multiply(RM,OV)
   raise SystemExit
 
-
-def crnwrapper(CG, _fname, _tmpdir, _odename, nlist, p0, t0, ti, t8, force=False, verb = False):
-  from crnsimulator import writeODElib
-  from crnsimulator.reactiongraph import DiGraph_to_ODE
-  import imp
-  import sympy
-  import numpy as np
-  from scipy.integrate import odeint
-
-  crn, ode, rdict = DiGraph_to_ODE(CG, rate_dict=True)
-
-  M = []
-  V = []
-  for (ss, attr) in nlist:
-    ssid = 'id_' + str(attr['identity'])
-    sfunc = sympy.sympify(' + '.join(
-      ['*'.join(map(str,xp)) for xp in ode[ssid]]))
-    ode[ssid] = sfunc
-    M.append(sfunc)
-    V.append(ssid)
-
-  M = sympy.Matrix(M)
-
-  J = None
-  #try : 
-  #  J = M.jacobian(V)
-  #except ValueError, e :
-  #  print 'Failed to write jacobian! :-/. That may be a bug!'
-  #  print 'ERROR:', e
-  #  J = []
-  #  for f in M :
-  #    for x in V:
-  #      J.append(f.diff(x))
-  #  J = sympy.Matrix(J)
-
-  #print p0
-  time = np.linspace(0, t8, 300)
-  myp0 = [0] * len(nlist)
-  for tup in p0 :
-    p, f = tup.split('=')
-    myp0[int(p)-1]=float(f)
-
-  ### => SOLVER
-  odefile =  writeODElib(V, M, odename=_odename, path=_tmpdir, jacobian=J, rdict=rdict)
-  print '# Wrote ODE system:', odefile
-  _temp = imp.load_source(_odename, odefile)
-
-  odesystem = getattr(_temp, _odename)
-  if J :
-    jacobian = getattr(_temp, 'jacobian')
-  else :
-    jacobian = None
-
-  # Set/Adjust Parameters
-  rates = None # default rates from file
-  try :
-    if jacobian :
-      ny = odeint(odesystem, myp0, time, (rates, ), Dfun=jacobian).T
-    else :
-      ny = odeint(odesystem, myp0, time, (rates, )).T
-  except ValueError, e:
-    print 'Fail, rerun!'
-    print 'p0', myp0, 't', time
-    print odeint(odesystem, myp0, time, (rates, ), full_output=True)
-    raise SystemExit
-
-  tfile = _fname+'.tkn'
-  with open(tfile, 'w') as tf :
-    for i in zip(time, *ny):
-      tf.write(' '.join(map("{:.9e}".format, i))+'\n')
-    tf.write('# of iterations: ' + str(300) + '\n')
-
-  return tfile
 
 def add_transition_edges(CG, saddles, args, s1, s2, ts=None): 
   """ compute the transition rates between two structures: s1 <-> s2, 
@@ -249,9 +177,11 @@ def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
   else :
     time = float(lastlines[0].split()[0])
     iterations = int(lastlines[-1].split()[-1])
+    tot_occ =sum(map(float, lastlines[0].split()[1:]))
     for e, occu in enumerate(lastlines[0].split()[1:]) :
       ss = sorted_nodes[e][0]
-      CG.node[ss]['occupancy'] = float(occu)
+      CG.node[ss]['occupancy'] = float(occu)/tot_occ
+
   return time, iterations
 
 def graph_pruning(CG, sorted_nodes, saddles, args) :
@@ -287,7 +217,7 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
         if always_true is False :
           raise ValueError('Did not add the transition edge!')
 
-      if True: # hack here to keep all nodes
+      if True: # Set to 'False' to keep all nodes
         CG.node[ni]['active']=False
         CG.node[ni]['occupancy']=0.0
         deleted_nodes += 1
@@ -762,29 +692,31 @@ def main(args):
         all_courses[ident].append((CG.graph['total_time'], 1.0))
 
     else :
-      # - Simulate with treekin
       try:
+        # - Simulate with treekin
         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
             treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
             useplusI=False, force=True, verb=(args.verbose > 1))
       except SubprocessError:
         try :
+          # - Simulate with treekin and useplusI
           tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
               treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
-              useplusI=True, force=True, verb=True)
+              useplusI=True, force=True, verb=(args.verbose>0))
         except SubprocessError:
-          raise Exception("Stopping after {} nucleotides: treekin cannot find a solution!".format(
-              tlen))
+          print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
+          # - Simulate with crnsimulator python package (slower)
+          _odename = name+str(tlen)
+          tfile = DiGraphSimulator(CG, _fname, _tmpdir, _odename, nlist, p0, args.t0, _t8, 
+              t_lin = 300,    # default
+              t_log = None,   # default
+              jacobian=False, # faster!
+              force=True,     # not implemented!
+              verb=(args.verbose>0))
 
-      # - Simulate with crnsimulator
-      # TODO: CRNSIMULATOR does not correct for loss of population!
-      _odename = name+str(tlen)
-      tfile = crnwrapper(CG, _fname, _tmpdir, _odename, nlist, p0, args.t0, args.ti, _t8, True, 
-          verb=False)
-
-      # - Simulate with scipy.linalg
-      #tfile = scipy_linalg(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
-      #    verb=False)
+          #TODO: Simulate with scipy.linalg (should be faster, but does not work yet)
+          #tfile = scipy_linalg(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
+          #    verb=False)
         
       # Get Results
       time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
