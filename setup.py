@@ -26,7 +26,7 @@ setup(
     test_suite='tests',
     packages=['ribolands'],
     scripts=['scripts/pylands_spatch.py',
-      'scripts/cofold_kinetics.py', 
+      #'scripts/cofold_kinetics.py', 
       'scripts/BarMap.py',
       'scripts/DrTransformer.py']
 )
