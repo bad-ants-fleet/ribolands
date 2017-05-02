@@ -549,9 +549,9 @@ def cofold_barriers(_name, species,
 
   for e, comp in enumerate(
       sorted(nx.strongly_connected_components(RG), key=len, reverse=True)) :
-    #print comp
+    #print 'e', comp
     if e == 0 : continue
-    print "Discarding connected component!", len(comp), comp
+    print "Discarding connected component!", len(comp)#, comp
     for i in comp: sortednodes[i] = 0
 
   return max(nx.strongly_connected_component_subgraphs(RG), key=len), sortednodes
@@ -582,7 +582,14 @@ def add_edges(RG, bfile, rfile, mode, spe, seq, snodes, hcount):
           print "backward rate missing!!!"
         #The forward rate row => col is in RM[col][row]
         #print "Adding:", row, col, pDF[col][row]
-        RG.add_weighted_edges_from([(row, col, pDF[col][row])])
+        #TODO: Add REACT:
+        hcount[0] += 1
+        hnode = ('HYPER', str(hcount[0]))
+        RG.add_weighted_edges_from([(row, hnode, pDF[col][row])])
+        RG.add_weighted_edges_from([(hnode, col, pDF[col][row])])
+        RG.node[hnode]['rate'] = pDF[col][row]
+        #TODO: OLD
+        #RG.add_weighted_edges_from([(row, col, pDF[col][row])])
         snodes[row]=1
         snodes[col]=1
   elif mode == 'bi' or mode == 'bionly' :
@@ -600,22 +607,34 @@ def add_edges(RG, bfile, rfile, mode, spe, seq, snodes, hcount):
           if mode == 'bi' : continue
           if len(cplR) == 1 :
             """ Dimer to Dimer """
-            RG.add_weighted_edges_from([(row, col, pDF[col][row])])
+            #TODO: add react:
+            hcount[0] += 1
+            hnode = ('HYPER', str(hcount[0]))
+            RG.add_weighted_edges_from([(row, hnode, pDF[col][row])])
+            RG.add_weighted_edges_from([(hnode, col, pDF[col][row])])
+            RG.node[hnode]['rate'] = pDF[col][row]
+            #RG.add_weighted_edges_from([(row, col, pDF[col][row])])
             snodes[row]=1
             snodes[col]=1
           elif len(cplR) == 2 :
             """ 2xMon to 2xMon """
             if cplR[0] != cplC[0] and cplR[1] != cplC[1] : 
-              """ this fucks up simulations, skip it! """
+              print Warning(""" this fucks up simulations, skip it! """)
               continue
             if cplR[0] != cplC[0] :
               #print "adding", cplR[0], cplC[0]
               edict = RG.get_edge_data(cplR[0], cplC[0])
               if edict :
                 if edict[0]['weight'] < pDF[col][row] :
+                  print Warning("loosing update information")
                   edict[0]['weight'] = pDF[col][row]
               else :
-                RG.add_weighted_edges_from([(cplR[0], cplC[0], pDF[col][row])])
+                hcount[0] += 1
+                hnode = ('HYPER', str(hcount[0]))
+                RG.add_weighted_edges_from([(cplR[0], hnode, pDF[col][row])])
+                RG.add_weighted_edges_from([(hnode, cplC[0], pDF[col][row])])
+                RG.node[hnode]['rate'] = pDF[col][row]
+                #RG.add_weighted_edges_from([(cplR[0], cplC[0], pDF[col][row])])
               snodes[cplR[0]]=1
               snodes[cplC[0]]=1
             if cplR[1] != cplC[1] :
@@ -623,9 +642,15 @@ def add_edges(RG, bfile, rfile, mode, spe, seq, snodes, hcount):
               edict = RG.get_edge_data(cplR[1], cplC[1])
               if edict :
                 if edict[0]['weight'] < pDF[col][row] :
+                  print Warning("loosing update information")
                   edict[0]['weight'] = pDF[col][row]
               else :
-                RG.add_weighted_edges_from([(cplR[1], cplC[1], pDF[col][row])])
+                hcount[0] += 1
+                hnode = ('HYPER', str(hcount[0]))
+                RG.add_weighted_edges_from([(cplR[1], hnode, pDF[col][row])])
+                RG.add_weighted_edges_from([(hnode, cplC[1], pDF[col][row])])
+                RG.node[hnode]['rate'] = pDF[col][row]
+                #RG.add_weighted_edges_from([(cplR[1], cplC[1], pDF[col][row])])
               snodes[cplR[1]]=1
               snodes[cplC[1]]=1
           else :
@@ -642,6 +667,7 @@ def add_edges(RG, bfile, rfile, mode, spe, seq, snodes, hcount):
             RG.add_weighted_edges_from([(tup, hnode, pDF[col][row])])
           for tup in cplC :
             RG.add_weighted_edges_from([(hnode, tup, pDF[col][row])])
+          RG.node[hnode]['rate'] = pDF[col][row]
   else :
     print """ specify valid modus (uni/bi) """
   
@@ -770,7 +796,7 @@ def main():
   args = get_interkin_args()
 
   """ Read Input & Update Arguments """
-  name, inseq = ril.parse_vienna_stdin()
+  name, inseq = ril.parse_vienna_stdin(sys.stdin)
 
   if args.name == '' : 
     args.name = name
@@ -818,7 +844,62 @@ def main():
       force=args.force,
       verb=args.verbose)
 
-  dump_graph(RG, nodes, args)
+  ##### NOTE: Hack to check out if crnsimulator works like sundials:
+  from crnsimulator import writeODElib
+  import sympy
+
+  ntv = dict()
+  vtn = dict()
+  oV = []
+  for e, n in enumerate(filter(lambda x : nodes[x] != 0, nodes)):
+    var = n[0].translate(string.maketrans("&", "_"))+'_'+str(e)
+    ntv[n] = var
+    vtn[var] = n
+    oV.append(var)
+
+  NLRG = nx.relabel_nodes(RG, ntv)
+
+  oR = dict()
+  ode = dict()
+  for r in NLRG.nodes_iter() :
+    if r in vtn: continue
+    rate = 'k'+str(len(oR.keys()))
+
+    reactants = []
+    for reac in NLRG.predecessors_iter(r) :
+      for i in range(NLRG.number_of_edges(reac, r)) :
+        reactants.append(str(reac))
+
+    products = []
+    for prod in NLRG.successors_iter(r) :
+      edict = NLRG.get_edge_data(r, prod)
+      oR[rate] = str(edict[0]['weight'])
+      for i in range(NLRG.number_of_edges(r, prod)) :
+        products.append(str(prod))
+
+    for x in reactants: 
+      if x in ode :
+        ode[x].append(['-'+rate] + reactants)
+      else :
+        ode[x]= [['-'+rate] + reactants]
+
+    for x in products: 
+      if x in ode :
+        ode[x].append([rate] + reactants)
+      else :
+        ode[x]= [[rate] + reactants]
+
+  oM = []
+  for dx in oV :
+    sfunc = sympy.sympify(' + '.join(['*'.join(map(str,xp)) for xp in ode[dx]]))
+    ode[dx] = sfunc
+    oM.append(sfunc)
+
+  oM = sympy.Matrix(oM)
+  oJ = None
+
+  odefile, odename = writeODElib(oV, oM, jacobian=oJ, rdict=oR, filename='interkin')
+  print 'Happy simulating: ODE system wrote to File:', odefile
 
   '''
 
@@ -895,13 +976,6 @@ def main():
   # *) calculate the occupancy of an lmin at equilibrium
   # *) return the equilibrium starting population for a simulation ...
   '''
-
-  #if False :
-  #  plt.clf()
-  #  nx.draw_networkx_labels(RG,pos=nx.random(RG))
-  #  plt.savefig(args.name+'_nwx.pdf')
-  #if args.d3server :
-  #  draw_d3_graph(RG)
 
   return
   

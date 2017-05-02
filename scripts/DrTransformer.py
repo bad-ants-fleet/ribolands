@@ -11,12 +11,15 @@ import argparse
 import networkx as nx
 import subprocess as s
 import collections as c
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import tempfile
 import shutil
 import contextlib
 
 import ribolands as ril
-from ribolands.syswraps import SubprocessError
+from ribolands.syswraps import SubprocessError, ExecError
+from ribolands.crnwrapper import DiGraphSimulator
 import RNA
 
 @contextlib.contextmanager
@@ -101,6 +104,10 @@ def dump_conformation_graph(CG, seq, name, logf=sys.stdout,verb=False) :
     with open(bfile, 'w') as bar, open(rfile, 'w') as rts :
       bar.write("     {}\n".format(seq))
       for e, (ni, data) in enumerate(sorted_nodes) :
+        # make a mini-barriers: 
+          # see all neighbors, if neighbors seen, connect them...
+          # can it happen that a node changes his color? CID?
+        #print "{:4d} {} {:6.2f}\n".format(e+1, ni[:len(seq)], data['energy'])
         bar.write("{:4d} {} {:6.2f}\n".format(
           e+1, ni[:len(seq)], data['energy']))
         if verb :
@@ -133,19 +140,20 @@ def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
   """
     Update the occupancy in the Graph and the total simulation time
   """
-
   # http://www.regular-expressions.info/floatingpoint.html
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
 
   lastlines = s.check_output(['tail', '-2', tfile]).strip().split("\n")
   if not reg_flt.match(lastlines[0]):
-    sys.exit('over and out')
+    raise ValueError('Cannot parse simulation output')
   else :
     time = float(lastlines[0].split()[0])
     iterations = int(lastlines[-1].split()[-1])
+    tot_occ =sum(map(float, lastlines[0].split()[1:]))
     for e, occu in enumerate(lastlines[0].split()[1:]) :
       ss = sorted_nodes[e][0]
-      CG.node[ss]['occupancy'] = float(occu)
+      CG.node[ss]['occupancy'] = float(occu)/tot_occ
+
   return time, iterations
 
 def graph_pruning(CG, sorted_nodes, saddles, args) :
@@ -179,9 +187,9 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
       for e, nbr in enumerate(nbrs[1:]) :
         always_true = add_transition_edges(CG, saddles, args, nbr, best, ni)
         if always_true is False :
-          sys.exit('over and out')
+          raise ValueError('Did not add the transition edge!')
 
-      if True: # hack here to keep all nodes
+      if True: # Set to 'False' to keep all nodes
         CG.node[ni]['active']=False
         CG.node[ni]['occupancy']=0.0
         deleted_nodes += 1
@@ -218,6 +226,8 @@ def expand_graph(CG, saddles, args, mfe_only=False):
   ss = ss + future
   #print >> sys.stderr, "{}\n{} {:6.2f}".format(seq, ss, mfe)
 
+  regular_mode = True # TODO: HACK! this is only here to produce any possible graph
+
   # If there is no node bec we are in the beginning, add the node,
   # otherwise, go through all nodes and try to add transition edges
 
@@ -253,11 +263,12 @@ def expand_graph(CG, saddles, args, mfe_only=False):
       if data['active'] == False : continue
       en  = data['energy']
       occ = data['occupancy']
-      if occ < cutoff : continue
+      if regular_mode and occ < cutoff : continue
 
       ss = ni[0:len(seq)]
 
       opened = open_breathing_helices(seq, ss)
+      #print opened
       for onbr in opened :
         nbr = fold_exterior_loop(seq, onbr)
         future = '.' * (len(ni) - len(nbr))
@@ -459,44 +470,72 @@ def plot_xmgrace(all_in, args):
   return 
 
 def plot_simulation(all_in, args):
-  import matplotlib.pyplot as plt
   t8 = args.t8
+  tX = args.tX
   stop = args.stop
+  start= args.start
   cutoff = args.cutoff
+  linlog = (args.t_log or args.pyplot_linlog)
 
   name  = args.name
   title = args.name
 
   fig = plt.figure()
   ax = fig.add_subplot(1,1,1)
-  #ax.set_xscale('log')
+
+  ax.set_ylim([0,1.01])
+  ax.set_xscale('linear')
+
+  # Make the second part of the plot logarithmic
+  if linlog :
+    lin_time = (stop-start)*float(t8)
+    ax.set_xlim((0, lin_time))
+    divider = make_axes_locatable(ax)
+    axLog = divider.append_axes("right", size=2.5, pad=0, sharey=ax)
+    axLog.set_xscale('log')
+    axLog.set_xlim((lin_time+0.00001, tX))
+    axLog.set_ylim([0,1.01])
+    axLog.yaxis.set_visible(False)
+
   for e, course in enumerate(all_in) :
     if course == [] : continue
     t, o = zip(*course)
-    # determine which lines are part of the legend,
+    # Determine which lines are part of the legend:
     # like this, it is only those that are populated 
     # at the end of transcription
     if t[-1] > t8*stop :
-      #print e, t[-1], o[-1]
-      p, = ax.plot(t, o, '--')
-      p.set_label("ID {:d}".format(e))
+      p, = ax.plot(t, o, '-', lw=1.5)
+      if linlog :
+        L, = axLog.plot(t, o, '-', lw=1.5)
+        L.set_label("ID {:d}".format(e))
+      else :
+        p.set_label("ID {:d}".format(e))
     else :
-      p, = ax.plot(t, o, '-')
+      p, = ax.plot(t, o, '-', lw=0.5)
+      if linlog :
+        L, = axLog.plot(t, o, '-', lw=0.5)
 
+  #plt.yticks(list(plt.yticks()[0]) + [cutoff])
   fig.set_size_inches(7,3)
   fig.text(0.5,0.95, title, ha='center', va='center')
-  plt.xlabel('time [seconds]', fontsize=11)
-  plt.ylabel('occupancy [mol/l]', fontsize=11)
+
   for tlen in range(args.start, args.stop) :
-    plt.axvline(x=tlen*t8, linewidth=0.05, color='black', linestyle='-')
+    ax.axvline(x=tlen*t8, linewidth=0.01, color='black', linestyle='-')
 
   # """ Add ticks for 1 minute, 1 hour, 1 day, 1 year """
-  # plt.axvline(x=60, linewidth=1, color='black', linestyle='--')
-  # plt.axvline(x=3600, linewidth=1, color='black', linestyle='--')
-  # plt.axvline(x=86400, linewidth=1, color='black', linestyle='--')
-  # plt.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
+  if linlog:
+    axLog.axvline(x=60, linewidth=1, color='black', linestyle='--')
+    axLog.axvline(x=3600, linewidth=1, color='black', linestyle='--')
+    axLog.axvline(x=86400, linewidth=1, color='black', linestyle='--')
+    axLog.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
   plt.legend()
 
+  ax.set_ylabel('occupancy [mol/l]', fontsize=11)
+  ax.set_xlabel('time [seconds]', ha='center', va='center', fontsize=11)
+  if linlog:
+    ax.xaxis.set_label_coords(.9, -0.15)
+
+  #plt.show()
   pfile = name+'.pdf'
   plt.savefig(pfile, bbox_inches='tight')
 
@@ -513,25 +552,33 @@ def add_drtrafo_args(parser):
       tmpdir=True, name=True, verbose=True, k0=True, tX=True,
       temperature=True, treekin=True)
 
+  # Plotting parameters
+  parser.add_argument("--t-lin", type=int, default=300, metavar='<int>', 
+      help="Evenly space output on a linear time scale --t-lin times.")
+  parser.add_argument("--t-log", type=int, default=None, metavar='<int>', 
+      help="Evenly space output on a logarithmic time scale --t-log times." + \
+              "Overwrites --t-lin!")
   parser.add_argument("--plot_cutoff", type=float, metavar='<flt>', default=0.02,
       help="Occupancy cutoff for final figure")
-  #parser.add_argument("--plot_title", default='')
-  #parser.add_argument("--plot_linlog", action="store_true",
-  #    help="Divide x-axis into lin and log at transcription stop")
 
-  parser.add_argument("--logfile", action="store_true",
-      help="Write verbose information into name.log") 
+
+  # Plotting tools (DrForna, matplotlib, xmgrace)
   parser.add_argument("--drffile", action="store_true",
       help="Write DrForna output into name.drf") 
   parser.add_argument("--pyplot", action="store_true",
       help="Plot the simulation using matplotlib. Interpret the legend \
           using the logfile output")
+  parser.add_argument("--pyplot-linlog", action="store_true",
+      help="Divide x-axis into lin and log at transcription stop")
   parser.add_argument("--xmgrace", action="store_true",
       help="Print a plot for xmgrace. " + \
           "Interpret the legend using the *log* output")
+
+  # Logging and STDOUT 
+  parser.add_argument("--logfile", action="store_true",
+      help="Write verbose information into name.log") 
   parser.add_argument("--stdout", default='log', action = 'store',
       metavar='<str>', help="Choose the stdout format: <log, drf>")
-
   return
 
 def main(args):
@@ -652,21 +699,41 @@ def main(args):
         all_courses[ident].append((CG.graph['total_time'], 1.0))
 
     else :
-      # - Simulate with treekin
-      try:
+      if args.t_log :
+        t_lin, t_log = None, args.t_log
+      else :
+        t_lin, t_log = args.t_lin, None
+      try: # - Simulate with treekin
         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
             treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
             useplusI=False, force=True, verb=(args.verbose > 1))
       except SubprocessError:
-        try :
+        try : # - Simulate with treekin and useplusI
           tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
               treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
-              useplusI=True, force=True, verb=True)
-        except SubprocessError:
-          raise Exception("Stopping after {} nucleotides: treekin cannot find a solution!".format(tlen))
+              useplusI=True, force=True, verb=(args.verbose>0))
+        except SubprocessError: # - Simulate with crnsimulator python package (slower)
+          if args.verbose > 1:
+            print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
+
+          _odename = name+str(tlen)
+          tfile = DiGraphSimulator(CG, _fname, nlist, p0, args.t0, _t8, 
+              t_lin = t_lin,
+              t_log = t_log,
+              jacobian=False, # faster!
+              verb=(args.verbose>0))
+      except ExecError, e:
+        # NOTE: This is a hack to avoid treekin simulations in the first place
+        _odename = name+str(tlen)
+        tfile = DiGraphSimulator(CG, _fname, nlist, p0, args.t0, _t8, 
+            t_lin = t_lin,    # default
+            t_log = t_log,   # default
+            jacobian=False, # faster!
+            verb=(args.verbose>1))
 
       # Get Results
-      time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
+      time_inc, iterations = get_stats_and_update_occupancy(
+          CG, nlist, tfile)
       #print time_inc, iterations
 
       if args.pyplot or args.xmgrace or _drffile :
@@ -684,7 +751,8 @@ def main(args):
       dn,sr = graph_pruning(CG, nlist, saddles, args)
 
     if args.verbose :
-      print "# Deleted {} nodes, {} still reachable.".format(dn, sr)
+      print("# Transcripton length {}.".format(tlen),
+          "Deleted {} nodes, {} still reachable.".format(dn, sr))
 
   if args.logfile or args.stdout == 'log':
     with smart_open(_logfile, 'a') as lfh :

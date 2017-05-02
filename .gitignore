@@ -1,3 +1,8 @@
 .*swp
 *.pyc
 *~
+build/
+dist/
+html/
+docs/_build/
+ribolands.egg-info
