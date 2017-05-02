@@ -20,7 +20,7 @@ setup(
     license=license,
     author='Stefan Badelt',
     author_email='stef@tbi.univie.ac.at',
-    # TODO: url='http://rna.tbi.univie.ac.at/ribolands/', 
+    url='https://github.com/bad-ants-fleet/ribolands',
     install_requires=['matplotlib','networkx', 'argparse'],
         #'math', 'contextlib', 'tempfile'],
     test_suite='tests',

@@ -11,12 +11,14 @@ import argparse
 import networkx as nx
 import subprocess as s
 import collections as c
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import tempfile
 import shutil
 import contextlib
 
 import ribolands as ril
-from ribolands.syswraps import SubprocessError
+from ribolands.syswraps import SubprocessError, ExecError
 from ribolands.crnwrapper import DiGraphSimulator
 import RNA
 
@@ -32,36 +34,6 @@ def smart_open(filename=None, mode='w'):
   finally:
     if fh is not sys.stdout:
       fh.close()
-
-def scipy_linalg(CG, _fname, nlist, p0, t0, ti, t8, force=False, verb=False):
-  from scipy.sparse.linalg import expm, expm_multiply
-  from scipy import linalg
-  import numpy as np
-  print nlist
-  RM = []
-  OV = []
-  for e, (ni, data) in enumerate(nlist) :
-    OV.append(data['occupancy'])
-    rates = []
-    for (nj, jdata) in nlist :
-      if CG.has_edge(ni,nj) :
-        rates.append(CG[ni][nj]['weight'])
-      else :
-        rates.append(0)
-    RM.append(rates)
-   
-  def exponential(t,X,a):
-    growth = X*np.exp(a*t)
-    return growth
-
-  RM = np.array(RM)
-  print RM
-  OV = np.array(OV)
-  print OV
-  #print np.linalg.solve(RM,OV)
-  print expm_multiply(RM,OV)
-  raise SystemExit
-
 
 def add_transition_edges(CG, saddles, args, s1, s2, ts=None): 
   """ compute the transition rates between two structures: s1 <-> s2, 
@@ -498,45 +470,72 @@ def plot_xmgrace(all_in, args):
   return 
 
 def plot_simulation(all_in, args):
-  import matplotlib.pyplot as plt
   t8 = args.t8
+  tX = args.tX
   stop = args.stop
+  start= args.start
   cutoff = args.cutoff
+  linlog = (args.t_log or args.pyplot_linlog)
 
   name  = args.name
   title = args.name
 
   fig = plt.figure()
   ax = fig.add_subplot(1,1,1)
-  ax.set_xscale('log')
-  #ax.xlim([0, 1000])
+
+  ax.set_ylim([0,1.01])
+  ax.set_xscale('linear')
+
+  # Make the second part of the plot logarithmic
+  if linlog :
+    lin_time = (stop-start)*float(t8)
+    ax.set_xlim((0, lin_time))
+    divider = make_axes_locatable(ax)
+    axLog = divider.append_axes("right", size=2.5, pad=0, sharey=ax)
+    axLog.set_xscale('log')
+    axLog.set_xlim((lin_time+0.00001, tX))
+    axLog.set_ylim([0,1.01])
+    axLog.yaxis.set_visible(False)
+
   for e, course in enumerate(all_in) :
     if course == [] : continue
     t, o = zip(*course)
-    # determine which lines are part of the legend,
+    # Determine which lines are part of the legend:
     # like this, it is only those that are populated 
     # at the end of transcription
     if t[-1] > t8*stop :
-      #print e, t[-1], o[-1]
-      p, = ax.plot(t, o, '--')
-      p.set_label("ID {:d}".format(e))
+      p, = ax.plot(t, o, '-', lw=1.5)
+      if linlog :
+        L, = axLog.plot(t, o, '-', lw=1.5)
+        L.set_label("ID {:d}".format(e))
+      else :
+        p.set_label("ID {:d}".format(e))
     else :
-      p, = ax.plot(t, o, '-')
+      p, = ax.plot(t, o, '-', lw=0.5)
+      if linlog :
+        L, = axLog.plot(t, o, '-', lw=0.5)
 
+  #plt.yticks(list(plt.yticks()[0]) + [cutoff])
   fig.set_size_inches(7,3)
   fig.text(0.5,0.95, title, ha='center', va='center')
-  plt.xlabel('time [seconds]', fontsize=11)
-  plt.ylabel('occupancy [mol/l]', fontsize=11)
+
   for tlen in range(args.start, args.stop) :
-    plt.axvline(x=tlen*t8, linewidth=0.05, color='black', linestyle='-')
+    ax.axvline(x=tlen*t8, linewidth=0.01, color='black', linestyle='-')
 
   # """ Add ticks for 1 minute, 1 hour, 1 day, 1 year """
-  # plt.axvline(x=60, linewidth=1, color='black', linestyle='--')
-  # plt.axvline(x=3600, linewidth=1, color='black', linestyle='--')
-  # plt.axvline(x=86400, linewidth=1, color='black', linestyle='--')
-  # plt.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
+  if linlog:
+    axLog.axvline(x=60, linewidth=1, color='black', linestyle='--')
+    axLog.axvline(x=3600, linewidth=1, color='black', linestyle='--')
+    axLog.axvline(x=86400, linewidth=1, color='black', linestyle='--')
+    axLog.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
   plt.legend()
 
+  ax.set_ylabel('occupancy [mol/l]', fontsize=11)
+  ax.set_xlabel('time [seconds]', ha='center', va='center', fontsize=11)
+  if linlog:
+    ax.xaxis.set_label_coords(.9, -0.15)
+
+  #plt.show()
   pfile = name+'.pdf'
   plt.savefig(pfile, bbox_inches='tight')
 
@@ -553,25 +552,33 @@ def add_drtrafo_args(parser):
       tmpdir=True, name=True, verbose=True, k0=True, tX=True,
       temperature=True, treekin=True)
 
+  # Plotting parameters
+  parser.add_argument("--t-lin", type=int, default=300, metavar='<int>', 
+      help="Evenly space output on a linear time scale --t-lin times.")
+  parser.add_argument("--t-log", type=int, default=None, metavar='<int>', 
+      help="Evenly space output on a logarithmic time scale --t-log times." + \
+              "Overwrites --t-lin!")
   parser.add_argument("--plot_cutoff", type=float, metavar='<flt>', default=0.02,
       help="Occupancy cutoff for final figure")
-  #parser.add_argument("--plot_title", default='')
-  #parser.add_argument("--plot_linlog", action="store_true",
-  #    help="Divide x-axis into lin and log at transcription stop")
 
-  parser.add_argument("--logfile", action="store_true",
-      help="Write verbose information into name.log") 
+
+  # Plotting tools (DrForna, matplotlib, xmgrace)
   parser.add_argument("--drffile", action="store_true",
       help="Write DrForna output into name.drf") 
   parser.add_argument("--pyplot", action="store_true",
       help="Plot the simulation using matplotlib. Interpret the legend \
           using the logfile output")
+  parser.add_argument("--pyplot-linlog", action="store_true",
+      help="Divide x-axis into lin and log at transcription stop")
   parser.add_argument("--xmgrace", action="store_true",
       help="Print a plot for xmgrace. " + \
           "Interpret the legend using the *log* output")
+
+  # Logging and STDOUT 
+  parser.add_argument("--logfile", action="store_true",
+      help="Write verbose information into name.log") 
   parser.add_argument("--stdout", default='log', action = 'store',
       metavar='<str>', help="Choose the stdout format: <log, drf>")
-
   return
 
 def main(args):
@@ -692,34 +699,41 @@ def main(args):
         all_courses[ident].append((CG.graph['total_time'], 1.0))
 
     else :
-      try:
-        # - Simulate with treekin
+      if args.t_log :
+        t_lin, t_log = None, args.t_log
+      else :
+        t_lin, t_log = args.t_lin, None
+      try: # - Simulate with treekin
         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
             treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
             useplusI=False, force=True, verb=(args.verbose > 1))
       except SubprocessError:
-        try :
-          # - Simulate with treekin and useplusI
+        try : # - Simulate with treekin and useplusI
           tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
               treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
               useplusI=True, force=True, verb=(args.verbose>0))
-        except SubprocessError:
-          print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
-          # - Simulate with crnsimulator python package (slower)
-          _odename = name+str(tlen)
-          tfile = DiGraphSimulator(CG, _fname, _tmpdir, _odename, nlist, p0, args.t0, _t8, 
-              t_lin = 300,    # default
-              t_log = None,   # default
-              jacobian=False, # faster!
-              force=True,     # not implemented!
-              verb=(args.verbose>0))
+        except SubprocessError: # - Simulate with crnsimulator python package (slower)
+          if args.verbose > 1:
+            print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
 
-          #TODO: Simulate with scipy.linalg (should be faster, but does not work yet)
-          #tfile = scipy_linalg(CG, _fname, nlist, p0, args.t0, args.ti, _t8, True, 
-          #    verb=False)
-        
+          _odename = name+str(tlen)
+          tfile = DiGraphSimulator(CG, _fname, nlist, p0, args.t0, _t8, 
+              t_lin = t_lin,
+              t_log = t_log,
+              jacobian=False, # faster!
+              verb=(args.verbose>0))
+      except ExecError, e:
+        # NOTE: This is a hack to avoid treekin simulations in the first place
+        _odename = name+str(tlen)
+        tfile = DiGraphSimulator(CG, _fname, nlist, p0, args.t0, _t8, 
+            t_lin = t_lin,    # default
+            t_log = t_log,   # default
+            jacobian=False, # faster!
+            verb=(args.verbose>1))
+
       # Get Results
-      time_inc, iterations = get_stats_and_update_occupancy(CG, nlist, tfile)
+      time_inc, iterations = get_stats_and_update_occupancy(
+          CG, nlist, tfile)
       #print time_inc, iterations
 
       if args.pyplot or args.xmgrace or _drffile :
