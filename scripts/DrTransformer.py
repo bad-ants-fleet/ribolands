@@ -41,7 +41,7 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
   """
   maxdG=args.maxdG
   k0 = args.k0
-  fpath = args.findpath
+  fpath = args.findpath_width
   _RT = args._RT
   fullseq = CG.graph['full_sequence']
 
@@ -158,7 +158,7 @@ def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
 
 def graph_pruning(CG, sorted_nodes, saddles, args) :
   """ Delete nodes or report them as still reachable. """
-  cutoff = args.cutoff
+  cutoff = args.occu_cutoff
 
   deleted_nodes = 0
   still_reachables = 0
@@ -212,8 +212,9 @@ def expand_graph(CG, saddles, args, mfe_only=False):
   :return: Number of new nodes
 
   """
-  cutoff= args.cutoff
+  cutoff= args.occu_cutoff
   verb  = args.verbose
+  mfree = args.min_breathing
 
   csid = CG.graph['seqid']
   fseq = CG.graph['full_sequence']
@@ -226,7 +227,7 @@ def expand_graph(CG, saddles, args, mfe_only=False):
   ss = ss + future
   #print >> sys.stderr, "{}\n{} {:6.2f}".format(seq, ss, mfe)
 
-  regular_mode = True # TODO: HACK! this is only here to produce any possible graph
+  regular_mode = True # NOTE: HACK! this is only here to produce any possible graph
 
   # If there is no node bec we are in the beginning, add the node,
   # otherwise, go through all nodes and try to add transition edges
@@ -267,7 +268,7 @@ def expand_graph(CG, saddles, args, mfe_only=False):
 
       ss = ni[0:len(seq)]
 
-      opened = open_breathing_helices(seq, ss)
+      opened = open_breathing_helices(seq, ss, free=mfree)
       #print opened
       for onbr in opened :
         nbr = fold_exterior_loop(seq, onbr)
@@ -470,12 +471,12 @@ def plot_xmgrace(all_in, args):
   return 
 
 def plot_simulation(all_in, args):
-  t8 = args.t8
-  tX = args.tX
   stop = args.stop
   start= args.start
-  cutoff = args.cutoff
-  linlog = (args.t_log or args.pyplot_linlog)
+
+  t8 = args.t8
+  lin_time = (stop-start)*float(t8)
+  tX = lin_time + args.tX if (lin_time + args.tX) >= lin_time * 10 else lin_time * 10
 
   name  = args.name
   title = args.name
@@ -487,15 +488,14 @@ def plot_simulation(all_in, args):
   ax.set_xscale('linear')
 
   # Make the second part of the plot logarithmic
-  if linlog :
-    lin_time = (stop-start)*float(t8)
-    ax.set_xlim((0, lin_time))
-    divider = make_axes_locatable(ax)
-    axLog = divider.append_axes("right", size=2.5, pad=0, sharey=ax)
-    axLog.set_xscale('log')
-    axLog.set_xlim((lin_time+0.00001, tX))
-    axLog.set_ylim([0,1.01])
-    axLog.yaxis.set_visible(False)
+  ax.set_xlim((0, lin_time))
+  divider = make_axes_locatable(ax)
+  axLog = divider.append_axes("right", size=2.5, pad=0, sharey=ax)
+  axLog.set_xscale('log')
+  axLog.set_xlim((lin_time+0.00001, tX))
+  axLog.set_ylim([0,1.01])
+  axLog.yaxis.set_visible(False)
+
 
   for e, course in enumerate(all_in) :
     if course == [] : continue
@@ -503,19 +503,14 @@ def plot_simulation(all_in, args):
     # Determine which lines are part of the legend:
     # like this, it is only those that are populated 
     # at the end of transcription
-    if t[-1] > t8*stop :
+    if t[-1] > lin_time :
       p, = ax.plot(t, o, '-', lw=1.5)
-      if linlog :
-        L, = axLog.plot(t, o, '-', lw=1.5)
-        L.set_label("ID {:d}".format(e))
-      else :
-        p.set_label("ID {:d}".format(e))
+      L, = axLog.plot(t, o, '-', lw=1.5)
+      L.set_label("ID {:d}".format(e))
     else :
       p, = ax.plot(t, o, '-', lw=0.5)
-      if linlog :
-        L, = axLog.plot(t, o, '-', lw=0.5)
+      L, = axLog.plot(t, o, '-', lw=0.5)
 
-  #plt.yticks(list(plt.yticks()[0]) + [cutoff])
   fig.set_size_inches(7,3)
   fig.text(0.5,0.95, title, ha='center', va='center')
 
@@ -523,17 +518,15 @@ def plot_simulation(all_in, args):
     ax.axvline(x=tlen*t8, linewidth=0.01, color='black', linestyle='-')
 
   # """ Add ticks for 1 minute, 1 hour, 1 day, 1 year """
-  if linlog:
-    axLog.axvline(x=60, linewidth=1, color='black', linestyle='--')
-    axLog.axvline(x=3600, linewidth=1, color='black', linestyle='--')
-    axLog.axvline(x=86400, linewidth=1, color='black', linestyle='--')
-    axLog.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
-  plt.legend()
+  axLog.axvline(x=60, linewidth=1, color='black', linestyle='--')
+  axLog.axvline(x=3600, linewidth=1, color='black', linestyle='--')
+  axLog.axvline(x=86400, linewidth=1, color='black', linestyle='--')
+  axLog.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
+  #plt.legend()
 
   ax.set_ylabel('occupancy [mol/l]', fontsize=11)
   ax.set_xlabel('time [seconds]', ha='center', va='center', fontsize=11)
-  if linlog:
-    ax.xaxis.set_label_coords(.9, -0.15)
+  ax.xaxis.set_label_coords(.9, -0.15)
 
   #plt.show()
   pfile = name+'.pdf'
@@ -543,24 +536,36 @@ def plot_simulation(all_in, args):
 
 def add_drtrafo_args(parser):
   """ A collection of arguments that are used by DrTransformer """
-  parser.add_argument("--findpath", type = int, default = 10, metavar='<int>',
+
+  # Common parameters
+  parser.add_argument("--t8", type=float, default=0.02, metavar='<flt>',
+      help="Transcription speed in seconds per nucleotide")
+  parser.add_argument("--tX", type=float, default=60, metavar='<flt>',
+      help="Simulation time after transcription")
+  parser.add_argument("-T","--temperature", type=float, default=37.0,
+      metavar='<flt>', help="The temperature for ViennaRNA computations")
+
+  # Advanced algorithmic parameters
+  parser.add_argument("--occu-cutoff", type=float, default=0.01, metavar='<flt>',
+      help="Occupancy cutoff for secondary structure graph expansion.")
+  parser.add_argument("--min-breathing", type=int, default=6, metavar='<int>', 
+      help="Minimum number of freed bases during helix breathing.")
+  parser.add_argument("--findpath-width", type = int, default = 20, metavar='<int>',
       help="Specify search width for *findpath* heuristic") 
-  parser.add_argument("--minrate", type = float, default = 1e-10, metavar='<flt>',
+  parser.add_argument("--min-rate", type = float, default = 1e-10, metavar='<flt>',
       help="Specify minmum rate to accept a new neighbor")
 
-  ril.argparse_add_arguments(parser, cutoff=True, start=True, stop=True, 
-      tmpdir=True, name=True, verbose=True, k0=True, tX=True,
-      temperature=True, treekin=True)
-
-  # Plotting parameters
+  # Advanced plotting parameters
   parser.add_argument("--t-lin", type=int, default=300, metavar='<int>', 
-      help="Evenly space output on a linear time scale --t-lin times.")
-  parser.add_argument("--t-log", type=int, default=None, metavar='<int>', 
-      help="Evenly space output on a logarithmic time scale --t-log times." + \
-              "Overwrites --t-lin!")
-  parser.add_argument("--plot_cutoff", type=float, metavar='<flt>', default=0.02,
-      help="Occupancy cutoff for final figure")
+      help="Evenly space output *t-lin* times during transcription on a linear time scale.")
+  parser.add_argument("--t-log", type=int, default=300, metavar='<int>', 
+      help="Evenly space output *t-log* times after transription on a logarithmic time scale.")
+  parser.add_argument("--t0", type=float, default=1e-3, metavar='<flt>',
+      help=argparse.SUPPRESS)
 
+  # More supported library parameters
+  ril.argparse_add_arguments(parser, start=True, stop=True, 
+      tmpdir=True, name=True, verbose=True, k0=True)
 
   # Plotting tools (DrForna, matplotlib, xmgrace)
   parser.add_argument("--drffile", action="store_true",
@@ -568,8 +573,6 @@ def add_drtrafo_args(parser):
   parser.add_argument("--pyplot", action="store_true",
       help="Plot the simulation using matplotlib. Interpret the legend \
           using the logfile output")
-  parser.add_argument("--pyplot-linlog", action="store_true",
-      help="Divide x-axis into lin and log at transcription stop")
   parser.add_argument("--xmgrace", action="store_true",
       help="Print a plot for xmgrace. " + \
           "Interpret the legend using the *log* output")
@@ -579,6 +582,12 @@ def add_drtrafo_args(parser):
       help="Write verbose information into name.log") 
   parser.add_argument("--stdout", default='log', action = 'store',
       metavar='<str>', help="Choose the stdout format: <log, drf>")
+
+  # DEPRICATED: treekin parameters
+  parser.add_argument("--treekin", default='treekin', action = 'store',
+      metavar='<str>', help="Specify path to your *treekin* executable")
+  parser.add_argument("--ti", type=float, default=1.02, metavar='<flt>',
+      help="Output-time increment of solver (t1 * ti = t2)")
   return
 
 def main(args):
@@ -627,10 +636,13 @@ def main(args):
   else :
     fullseq = fullseq[0:args.stop-1]
 
+  if args.tX < args.t8 :
+    raise SystemExit('Simulation time after transcription --tX must be >= --t8')
+
   # Minrate specifies the lowest accepted rate for simulations (sec^-1)
   # it can be directly converted into a activation energy that results this rate
-  args.maxdG = -args._RT * math.log(args.minrate)
-  #print args.minrate, '=>', maxdG
+  args.maxdG = -args._RT * math.log(args.min_rate)
+  #print args.min_rate, '=>', maxdG
 
   ############################
   # Start with DrTransformer #
@@ -675,7 +687,9 @@ def main(args):
 
     # Simulate
     _fname = _tmpdir+'/'+name+'-'+str(tlen)
+    _t0 = args.t0 if tlen == args.stop-1 else 0
     _t8 = args.tX if tlen == args.stop-1 else args.t8
+    (t_lin, t_log) = (None, args.t_log) if tlen == args.stop-1 else (args.t_lin, None)
 
     # produce input for treekin simulation
     with smart_open(_logfile, 'a') as lfh :
@@ -699,35 +713,32 @@ def main(args):
         all_courses[ident].append((CG.graph['total_time'], 1.0))
 
     else :
-      if args.t_log :
-        t_lin, t_log = None, args.t_log
-      else :
-        t_lin, t_log = args.t_lin, None
       try: # - Simulate with treekin
         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
-            treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
+            treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
             useplusI=False, force=True, verb=(args.verbose > 1))
       except SubprocessError:
         try : # - Simulate with treekin and useplusI
           tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
-              treekin=args.treekin, p0=p0, t0=args.t0, ti=args.ti, t8=_t8, 
+              treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
               useplusI=True, force=True, verb=(args.verbose>0))
         except SubprocessError: # - Simulate with crnsimulator python package (slower)
           if args.verbose > 1:
             print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
 
           _odename = name+str(tlen)
-          tfile = DiGraphSimulator(CG, _fname, nlist, p0, args.t0, _t8, 
+          tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8, 
               t_lin = t_lin,
               t_log = t_log,
               jacobian=False, # faster!
               verb=(args.verbose>0))
+
       except ExecError, e:
         # NOTE: This is a hack to avoid treekin simulations in the first place
         _odename = name+str(tlen)
-        tfile = DiGraphSimulator(CG, _fname, nlist, p0, args.t0, _t8, 
-            t_lin = t_lin,    # default
-            t_log = t_log,   # default
+        tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8, 
+            t_lin = t_lin,
+            t_log = t_log,
             jacobian=False, # faster!
             verb=(args.verbose>1))
 
