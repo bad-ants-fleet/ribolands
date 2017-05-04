@@ -158,7 +158,7 @@ def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
 
 def graph_pruning(CG, sorted_nodes, saddles, args) :
   """ Delete nodes or report them as still reachable. """
-  cutoff = args.occu_cutoff
+  cutoff = args.occupancy_cutoff
 
   deleted_nodes = 0
   still_reachables = 0
@@ -212,7 +212,7 @@ def expand_graph(CG, saddles, args, mfe_only=False):
   :return: Number of new nodes
 
   """
-  cutoff= args.occu_cutoff
+  cutoff= args.occupancy_cutoff
   verb  = args.verbose
   mfree = args.min_breathing
 
@@ -514,7 +514,7 @@ def plot_simulation(all_in, args):
   fig.set_size_inches(7,3)
   fig.text(0.5,0.95, title, ha='center', va='center')
 
-  for tlen in range(args.start, args.stop) :
+  for tlen in range(args.stop-args.start) :
     ax.axvline(x=tlen*t8, linewidth=0.01, color='black', linestyle='-')
 
   # """ Add ticks for 1 minute, 1 hour, 1 day, 1 year """
@@ -556,11 +556,11 @@ def add_drtrafo_args(parser):
       help="Specify minmum rate to accept a new neighbor")
 
   # Advanced plotting parameters
-  parser.add_argument("--t-lin", type=int, default=300, metavar='<int>', 
+  parser.add_argument("--t-lin", type=int, default=30, metavar='<int>', 
       help="Evenly space output *t-lin* times during transcription on a linear time scale.")
   parser.add_argument("--t-log", type=int, default=300, metavar='<int>', 
       help="Evenly space output *t-log* times after transription on a logarithmic time scale.")
-  parser.add_argument("--t0", type=float, default=1e-3, metavar='<flt>',
+  parser.add_argument("--t0", type=float, default=1e-4, metavar='<flt>',
       help=argparse.SUPPRESS)
 
   # More supported library parameters
@@ -687,7 +687,7 @@ def main(args):
 
     # Simulate
     _fname = _tmpdir+'/'+name+'-'+str(tlen)
-    _t0 = args.t0 if tlen == args.stop-1 else 0
+    _t0 = args.t0 if tlen > args.start else 0
     _t8 = args.tX if tlen == args.stop-1 else args.t8
     (t_lin, t_log) = (None, args.t_log) if tlen == args.stop-1 else (args.t_lin, None)
 
