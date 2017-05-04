@@ -546,7 +546,7 @@ def add_drtrafo_args(parser):
       metavar='<flt>', help="The temperature for ViennaRNA computations")
 
   # Advanced algorithmic parameters
-  parser.add_argument("--occu-cutoff", type=float, default=0.01, metavar='<flt>',
+  parser.add_argument("--occupancy-cutoff", type=float, default=0.01, metavar='<flt>',
       help="Occupancy cutoff for secondary structure graph expansion.")
   parser.add_argument("--min-breathing", type=int, default=6, metavar='<int>', 
       help="Minimum number of freed bases during helix breathing.")
