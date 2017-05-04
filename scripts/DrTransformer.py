@@ -637,7 +637,7 @@ def main(args):
     fullseq = fullseq[0:args.stop-1]
 
   if args.tX < args.t8 :
-    raise SystemExit('Simulation time after transcription --tX must be >= --t8')
+    raise ValueError('Simulation time after transcription --tX must be >= --t8')
 
   # Minrate specifies the lowest accepted rate for simulations (sec^-1)
   # it can be directly converted into a activation energy that results this rate
