@@ -104,7 +104,16 @@ def sys_treekin(name, seq, bfile, rfile,
   if not force and os.path.exists(tfile):
     if verb : print "# {:s} <= Files exist".format(tfile), 
     return tfile, efile
-    
+     
+  # Unfortunately, running treekin with a single state leads to an error that
+  # is printed to STDOUT instead of STDERR. The program, exits with success.
+  # That's why we catch it first:
+  with open(rfile) as rf :
+    for i, _ in enumerate(rf):
+      pass
+  if i == 0 : 
+    raise SubprocessError(None, 'No transition rates found.')
+
   treecall = [treekin, '--method', 'I']
   if useplusI : treecall.extend(['--useplusI'])
   treecall.extend(['--tinc', str(ti)])
@@ -132,12 +141,6 @@ def sys_treekin(name, seq, bfile, rfile,
   # Adapt here to return exact simulation time and number of iterations
   if verb : 
     lastlines = sub.check_output(['tail', '-2', tfile]).strip().split("\n")
-    
-    # Unfortunately, running treekin with a single state leads to an error that
-    # is printed to STDOUT instead of STDERR. The program, exits with success.
-
-    # ** On entry to DGESV parameter number  4 had an illegal value
-
     if not reg_flt.match(lastlines[0]):
       print '# No output from treekin simulation.'
     else :

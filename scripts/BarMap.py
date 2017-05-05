@@ -259,55 +259,56 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
     cname = "{}-t8_{}-len_{}".format(bname,t8,l)
     [bfile, efile, rfile, psfile] = bfiles[e]
 
-    try :
-      ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile, 
-          treekin = args.treekin,
-          repl=None,
-          useplusI=False,
-          p0=p0, 
-          t0=args.t0, 
-          ti=args.ti, 
-          t8=t8, 
-          verb=verb, 
-          force=args.force)
-    except SubprocessError:
-      print "# repeating treekin calculations with --useplusI"
-      ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile, 
-          treekin = args.treekin,
-          repl=None,
-          useplusI=True,
-          p0=p0, 
-          t0=args.t0, 
-          ti=args.ti, 
-          t8=t8, 
-          verb=verb, 
-          force=True)
+    with open(rfile) as rf :
+      for i, _ in enumerate(rf):
+        pass
+    if i > 0 : 
+      try :
+        ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile, 
+            treekin = args.treekin,
+            useplusI=False,
+            p0=p0, 
+            t0=args.t0, 
+            ti=args.ti, 
+            t8=t8, 
+            verb=verb, 
+            force=args.force)
+      except SubprocessError:
+        print "# repeating treekin calculations with --useplusI"
+        ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile, 
+            treekin = args.treekin,
+            useplusI=True,
+            p0=p0, 
+            t0=args.t0, 
+            ti=args.ti, 
+            t8=t8, 
+            verb=verb, 
+            force=True)
 
-    tfiles.append(ctfile)
-
-    lastlines = s.check_output(['tail', '-2', ctfile]).strip().split("\n")
-    if reg_flt.match(lastlines[0]):
-      tt += float(lastlines[0].split()[0])
-      if l < stop :
-        curlmin = np.array(plist)[:,e]
-        newlmin = np.array(plist)[:,e+1]
-        p0 = set_p0(bfile, l, lastlines, curlmin, newlmin,
-            cutoff, verb)
+      lastlines = s.check_output(['tail', '-2', ctfile]).strip().split("\n")
+      if reg_flt.match(lastlines[0]):
+        tt += float(lastlines[0].split()[0])
+        if l < stop :
+          curlmin = np.array(plist)[:,e]
+          newlmin = np.array(plist)[:,e+1]
+          p0 = set_p0(bfile, l, lastlines, curlmin, newlmin,
+              cutoff, verb)
+        else :
+          for (i, pop) in enumerate(lastlines[0].split()):
+            if i != 0 and float(pop) > cutoff :
+              ss, en = get_structure(bfile, i, energy=True)
+              print "{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, i, 
+                  float(pop), ss, float(en))
       else :
-        for (i, pop) in enumerate(lastlines[0].split()):
-          if i != 0 and float(pop) > cutoff :
-            ss, en = get_structure(bfile, i, energy=True)
-            print "{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, i, 
-                float(pop), ss, float(en))
-    else :
-      tt += t8
-      print "{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, 1, 1.0, get_structure(bfile, 1), 0.00)
-      if get_structure(bfile, 2):
-        # This is untested, there used to be these problems, but treekin 0.4
-        # should not have them anymore.
         raise RuntimeError('treekin crashed but returned success:',
             "No valid time-course in {:s}: {:s}".format(ctfile, lastlines[0]))
-
+    else :
+      # Create an empty file
+      ctfile = cname+'.tkn'
+      open(ctfile, 'a').close()
+      tt += t8
+      print "{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, 1, 1.0, get_structure(bfile, 1), 0.00)
+    tfiles.append(ctfile)
   return tfiles
 
 def barmap_mapping(_bname, seq, args):
