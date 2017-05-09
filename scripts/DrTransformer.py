@@ -196,7 +196,7 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
 
   return deleted_nodes, still_reachables
 
-def expand_graph(CG, saddles, args, mfe_only=False):
+def expand_graph(CG, saddles, args, mode='default'):
   """ Find new neighbors and add them to the Conformation Graph
 
   The function is devided into two parts. 1) The current mfe structure
@@ -207,7 +207,9 @@ def expand_graph(CG, saddles, args, mfe_only=False):
   :param saddles: dictionary of all previous findpath runs
   :param args: commandline arguments and other global variables
     (using: cutoff, verbose)
-  :param mfe_only: only use current mfe as potential new neighbor
+  :param mode: choose from (1) mfe-only: only use current mfe as potential new
+    neighbor (2) breathing-only: only use breathing neighborhood, (3) default:
+    do both mfe and breathing.
 
   :return: Number of new nodes
 
@@ -220,6 +222,9 @@ def expand_graph(CG, saddles, args, mfe_only=False):
   fseq = CG.graph['full_sequence']
   tlen = CG.graph['transcript_length']
   seq = fseq[0:tlen]
+
+  if mode not in ['default', 'mfe-only', 'breathing-only']:
+    raise ValueError('unknown expansion mode')
 
   # Add MFE
   ss, mfe = RNA.fold(seq)
@@ -237,7 +242,7 @@ def expand_graph(CG, saddles, args, mfe_only=False):
     CG.add_node(ss, energy=en, occupancy=1.0, 
         identity=CG.graph['seqid'], active=True)
     CG.graph['seqid'] += 1
-  else :
+  elif mode == 'default' or mode == 'mfe-only':
     for ni in CG.nodes() :
       if CG.node[ni]['active'] == False : continue
       if ni == ss or CG.has_edge(ni,ss) : continue
@@ -253,12 +258,7 @@ def expand_graph(CG, saddles, args, mfe_only=False):
         CG.node[ss]['identity'] = CG.graph['seqid']
         CG.graph['seqid'] += 1
 
-  if not CG.has_node(ss) or CG.node[ss]['active'] is False:
-    print "# WARNING: ", ss, "[mfe secondary structure could not be connected]"
-
-  if mfe_only is True :
-    pass
-  else :
+  if mode == 'default' or mode == 'breathing-only':
     """ do the helix breathing graph expansion """
     for ni, data in CG.nodes_iter(data=True):
       if data['active'] == False : continue
@@ -266,9 +266,9 @@ def expand_graph(CG, saddles, args, mfe_only=False):
       occ = data['occupancy']
       if regular_mode and occ < cutoff : continue
 
-      ss = ni[0:len(seq)]
+      sss = ni[0:len(seq)]
 
-      opened = open_breathing_helices(seq, ss, free=mfree)
+      opened = open_breathing_helices(seq, sss, free=mfree)
       #print opened
       for onbr in opened :
         nbr = fold_exterior_loop(seq, onbr)
@@ -290,6 +290,10 @@ def expand_graph(CG, saddles, args, mfe_only=False):
           CG.graph['seqid'] += 1
         else :
           """# WARNING: Could not add transition edge!"""
+
+  if not CG.has_node(ss) or CG.node[ss]['active'] is False:
+    print "# WARNING: ", ss, "[mfe secondary structure not connected]"
+
   return CG.graph['seqid']-csid
 
 def open_breathing_helices(seq, ss, free=6):
@@ -539,27 +543,42 @@ def add_drtrafo_args(parser):
 
   # Common parameters
   parser.add_argument("--t8", type=float, default=0.02, metavar='<flt>',
-      help="Transcription speed in seconds per nucleotide")
+      help="Transcription speed in seconds per nucleotide.")
   parser.add_argument("--tX", type=float, default=60, metavar='<flt>',
-      help="Simulation time after transcription")
+      help="Post-transcriptional simulation time in seconds.")
   parser.add_argument("-T","--temperature", type=float, default=37.0,
-      metavar='<flt>', help="The temperature for ViennaRNA computations")
+      metavar='<flt>', help="The temperature for ViennaRNA computations.")
 
   # Advanced algorithmic parameters
-  parser.add_argument("--occupancy-cutoff", type=float, default=0.01, metavar='<flt>',
+  parser.add_argument("--occupancy-cutoff", type=float, default=0.01, 
+      metavar='<flt>',
       help="Occupancy cutoff for secondary structure graph expansion.")
-  parser.add_argument("--min-breathing", type=int, default=6, metavar='<int>', 
+  parser.add_argument("--findpath-width", type = int, default = 20, 
+      metavar='<int>',
+      help="Search width for *findpath* heuristic.") 
+  parser.add_argument("--min-rate", type = float, default = 1e-10, 
+      metavar='<flt>',
+      help="""Minmum rate to accept a new structure as neighboring
+      conformation.""")
+  parser.add_argument('--structure-search-mode', default = 'default',
+      choices=('default', 'mfe-only', 'breathing-only'),
+      help="""Specify one of three modes: *default*: find new secondary
+      structures using both the current MFE structure and breathing neighbors.
+      *mfe-only*: only find the current MFE structure at every transcription
+      step.  *breathing-only*: only find local breathing neighbors at every
+      transcription step.""")
+  parser.add_argument("--min-breathing", type=int, default=6, 
+      metavar='<int>', 
       help="Minimum number of freed bases during helix breathing.")
-  parser.add_argument("--findpath-width", type = int, default = 20, metavar='<int>',
-      help="Specify search width for *findpath* heuristic") 
-  parser.add_argument("--min-rate", type = float, default = 1e-10, metavar='<flt>',
-      help="Specify minmum rate to accept a new neighbor")
 
   # Advanced plotting parameters
-  parser.add_argument("--t-lin", type=int, default=30, metavar='<int>', 
-      help="Evenly space output *t-lin* times during transcription on a linear time scale.")
-  parser.add_argument("--t-log", type=int, default=300, metavar='<int>', 
-      help="Evenly space output *t-log* times after transription on a logarithmic time scale.")
+  parser.add_argument("--t-lin", type=int, default=30, metavar='<int>',
+      help="""Evenly space output *t-lin* times during transcription on a
+      linear time scale.""")
+  parser.add_argument("--t-log", type=int, default=300, metavar='<int>',
+      help="""Evenly space output *t-log* times after transription on a
+      logarithmic time scale.""")
+  #NOTE: Needs to be adjusted after treekin dependency is gone...
   parser.add_argument("--t0", type=float, default=1e-4, metavar='<flt>',
       help=argparse.SUPPRESS)
 
@@ -569,25 +588,28 @@ def add_drtrafo_args(parser):
 
   # Plotting tools (DrForna, matplotlib, xmgrace)
   parser.add_argument("--drffile", action="store_true",
-      help="Write DrForna output into name.drf") 
+      help="Write DrForna output [{--name}.drf]") 
   parser.add_argument("--pyplot", action="store_true",
-      help="Plot the simulation using matplotlib. Interpret the legend \
-          using the logfile output")
+      help="""Plot the simulation using matplotlib. Interpret the legend using
+      STDOUT or --logfile""")
   parser.add_argument("--xmgrace", action="store_true",
-      help="Print a plot for xmgrace. " + \
-          "Interpret the legend using the *log* output")
+      help="""Plot the simulation for xmgrace visualization. Interpret the
+      legend using STDOUT or --logfile""")
 
   # Logging and STDOUT 
   parser.add_argument("--logfile", action="store_true",
-      help="Write verbose information into name.log") 
+      help="Write verbose information [{--name}.log]") 
   parser.add_argument("--stdout", default='log', action = 'store',
-      metavar='<str>', help="Choose the stdout format: <log, drf>")
+      choices=('log', 'drf'),
+      help="""Choose one of two STDOUT formats: *log*: prints {--verbose}
+      logging information about the cotranscriptional folding progress, *drf*:
+      prints the input format for DrForna to STDOUT.""")
 
   # DEPRICATED: treekin parameters
   parser.add_argument("--treekin", default='treekin', action = 'store',
-      metavar='<str>', help="Specify path to your *treekin* executable")
+      metavar='<str>', help="Path to the *treekin* executable.")
   parser.add_argument("--ti", type=float, default=1.02, metavar='<flt>',
-      help="Output-time increment of solver (t1 * ti = t2)")
+      help="Output-time increment of treekin solver (t1 * ti = t2).")
   return
 
 def main(args):
@@ -675,7 +697,7 @@ def main(args):
     seq = fullseq[0:tlen]
 
     # Expand Graph
-    nn = expand_graph(CG, saddles, args, mfe_only=False)
+    nn = expand_graph(CG, saddles, args, mode=args.structure_search_mode)
     #print """ {} new nodes """.format(nn), CG.graph['seqid'], "total nodes"
 
     if args.pyplot or args.xmgrace:
