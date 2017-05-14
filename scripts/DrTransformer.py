@@ -543,9 +543,9 @@ def add_drtrafo_args(parser):
 
   # Common parameters
   parser.add_argument("--t8", type=float, default=0.02, metavar='<flt>',
-      help="Transcription speed in seconds per nucleotide.")
+      help="Transcription speed [seconds per nucleotide].")
   parser.add_argument("--tX", type=float, default=60, metavar='<flt>',
-      help="Post-transcriptional simulation time in seconds.")
+      help="Post-transcriptional simulation time [seconds].")
   parser.add_argument("-T","--temperature", type=float, default=37.0,
       metavar='<flt>', help="The temperature for ViennaRNA computations.")
 
@@ -569,7 +569,13 @@ def add_drtrafo_args(parser):
       transcription step.""")
   parser.add_argument("--min-breathing", type=int, default=6, 
       metavar='<int>', 
-      help="Minimum number of freed bases during helix breathing.")
+      help="""Minimum number of freed bases during helix breathing.  Breathing
+      helices can vary greatly in length, starting with at least two
+      base-pairs. This parameter defines the minimum amount of bases freed by
+      helix breathing. For example, 6 corresponds to a stack of two base-pairs
+      and a loop region of 2 nucleotides. If less bases are freed and there
+      exists a nested stacked helix, this helix is considered to breathe as
+      well.""")
 
   # Advanced plotting parameters
   parser.add_argument("--t-lin", type=int, default=30, metavar='<int>',
@@ -584,11 +590,16 @@ def add_drtrafo_args(parser):
 
   # More supported library parameters
   ril.argparse_add_arguments(parser, start=True, stop=True, 
-      tmpdir=True, name=True, verbose=True, k0=True)
+      tmpdir=True, name=True, verbose=True)
+
+  parser.add_argument("--k0", type=float, default=2e5, metavar='<flt>',
+      help="""Arrhenius rate constant. Adjust the rate constant k0 of the the
+      Arrhenius equation to match experimentally confirmed folding
+      time-scales.""")
 
   # Plotting tools (DrForna, matplotlib, xmgrace)
   parser.add_argument("--drffile", action="store_true",
-      help="Write DrForna output [{--name}.drf]") 
+      help="Write DrForna output to a file: {--name}.drf") 
   parser.add_argument("--pyplot", action="store_true",
       help="""Plot the simulation using matplotlib. Interpret the legend using
       STDOUT or --logfile""")
@@ -598,7 +609,7 @@ def add_drtrafo_args(parser):
 
   # Logging and STDOUT 
   parser.add_argument("--logfile", action="store_true",
-      help="Write verbose information [{--name}.log]") 
+      help="Write verbose information to a file: {--name}.log") 
   parser.add_argument("--stdout", default='log', action = 'store',
       choices=('log', 'drf'),
       help="""Choose one of two STDOUT formats: *log*: prints {--verbose}
@@ -664,7 +675,7 @@ def main(args):
   # Minrate specifies the lowest accepted rate for simulations (sec^-1)
   # it can be directly converted into a activation energy that results this rate
   args.maxdG = -args._RT * math.log(args.min_rate)
-  #print args.min_rate, '=>', maxdG
+  print args.min_rate, '=>', args.maxdG
 
   ############################
   # Start with DrTransformer #
