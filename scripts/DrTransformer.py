@@ -16,6 +16,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import tempfile
 import shutil
 import contextlib
+from struct import pack
 
 import ribolands as ril
 from ribolands.syswraps import SubprocessError, ExecError
@@ -100,9 +101,12 @@ def dump_conformation_graph(CG, seq, name, logf=sys.stdout,verb=False) :
   if name :
     bfile = name+'.bar'
     rfile = name+'.rts'
+    brfile = rfile+'.bin'
     p0 = []
-    with open(bfile, 'w') as bar, open(rfile, 'w') as rts :
+    
+    with open(bfile, 'w') as bar, open(rfile, 'w') as rts, open(brfile, 'w') as brts :
       bar.write("     {}\n".format(seq))
+      brts.write(pack("i", len(sorted_nodes)))
       for e, (ni, data) in enumerate(sorted_nodes) :
         # make a mini-barriers: 
           # see all neighbors, if neighbors seen, connect them...
@@ -118,14 +122,19 @@ def dump_conformation_graph(CG, seq, name, logf=sys.stdout,verb=False) :
 
         if data['occupancy'] > 0 :
           p0.append("{}={}".format(e+1,data['occupancy']))
+        trates = []
         rates = []
         for (nj, jdata) in sorted_nodes :
           if CG.has_edge(ni,nj) :
             rates.append(CG[ni][nj]['weight'])
+            trates.append(CG[nj][ni]['weight'])
           else :
             rates.append(0)
+            trates.append(0)
         line = "".join(map("{:10.4g}".format, rates))
         rts.write("{}\n".format(line))
+        for r in trates:
+          brts.write(pack("d", r))
   else :
     line = "Distribution of structures at the end:\n"
     for e, (ni, data) in enumerate(sorted_nodes) :
@@ -170,7 +179,7 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
           key=lambda x: CG.node[x]['energy'], reverse=False)
 
       def remove_inactive(CG, snodes) :
-        """ there must be a more beautiful way to do this ... """
+        #there must be a more beautiful way to do this ...
         nnodes = []
         for n in snodes:
           if CG.node[n]['active'] == True :
@@ -585,7 +594,7 @@ def add_drtrafo_args(parser):
       help="""Evenly space output *t-log* times after transription on a
       logarithmic time scale.""")
   #NOTE: Needs to be adjusted after treekin dependency is gone...
-  parser.add_argument("--t0", type=float, default=1e-4, metavar='<flt>',
+  parser.add_argument("--t0", type=float, default=1e-6, metavar='<flt>',
       help=argparse.SUPPRESS)
 
   # More supported library parameters
@@ -619,7 +628,7 @@ def add_drtrafo_args(parser):
   # DEPRICATED: treekin parameters
   parser.add_argument("--treekin", default='treekin', action = 'store',
       metavar='<str>', help="Path to the *treekin* executable.")
-  parser.add_argument("--ti", type=float, default=1.02, metavar='<flt>',
+  parser.add_argument("--ti", type=float, default=1.2, metavar='<flt>',
       help="Output-time increment of treekin solver (t1 * ti = t2).")
   return
 
@@ -747,24 +756,29 @@ def main(args):
 
     else :
       try: # - Simulate with treekin
-        tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
+        tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=False,
             treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
             useplusI=False, force=True, verb=(args.verbose > 1))
-      except SubprocessError:
-        try : # - Simulate with treekin and useplusI
-          tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, 
+      except SubprocessError, e:
+        try : # - Simulate with treekin and --useplusI
+          tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=False,
               treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
               useplusI=True, force=True, verb=(args.verbose>0))
         except SubprocessError: # - Simulate with crnsimulator python package (slower)
-          if args.verbose > 1:
-            print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
+          try : # - Simulate with treekin and --exponent
+            tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=False,
+                treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
+                exponent=True, force=True, verb=(args.verbose>0))
+          except SubprocessError: # - Simulate with crnsimulator python package (slower)
+            if args.verbose > 1:
+              print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
 
-          _odename = name+str(tlen)
-          tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8, 
-              t_lin = t_lin,
-              t_log = t_log,
-              jacobian=False, # faster!
-              verb=(args.verbose>0))
+            _odename = name+str(tlen)
+            tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8, 
+                t_lin = t_lin,
+                t_log = t_log,
+                jacobian=False, # faster!
+                verb=(args.verbose>0))
 
       except ExecError, e:
         # NOTE: This is a hack to avoid treekin simulations in the first place

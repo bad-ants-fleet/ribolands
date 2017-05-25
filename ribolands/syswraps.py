@@ -24,6 +24,7 @@ import sys
 import gzip
 import math
 import subprocess as sub
+from struct import pack, unpack
 
 class SubprocessError(Exception):
   """Raise Error: Commandline call failed."""
@@ -62,9 +63,11 @@ def sys_treekin(name, seq, bfile, rfile,
   treekin = 'treekin',
   p0 = ['1=0.5', '2=0.5'],
   t0 = 1e-6,
-  useplusI=False,
-  ti = 1.02,
-  t8 = 1e10,
+  binrates = False,
+  useplusI = False,
+  exponent = False,
+  ti = 1.2,
+  t8 = 1e6,
   verb = False,
   force=False):
   """ **Perform a system-call of the program ``treekin``.**
@@ -108,9 +111,14 @@ def sys_treekin(name, seq, bfile, rfile,
   # Unfortunately, running treekin with a single state leads to an error that
   # is printed to STDOUT instead of STDERR. The program, exits with success.
   # That's why we catch it first:
-  with open(rfile) as rf :
-    for i, _ in enumerate(rf):
-      pass
+  if binrates:
+    with open(rfile) as rf :
+      i, = unpack('i', rf.read(4)) # unsigned long, little-endian
+    i -= 1
+  else :
+    with open(rfile) as rf :
+      for i, _ in enumerate(rf):
+        pass
   if i == 0 : 
     raise SubprocessError(None, 'No transition rates found.')
 
@@ -122,7 +130,11 @@ def sys_treekin(name, seq, bfile, rfile,
   for p in p0:
     treecall.extend(('--p0', p))
   treecall.extend(('-f', rfile))
-  
+  if binrates :
+    treecall.extend(['--bin'])
+  if exponent :
+    treecall.extend(['--exponent'])
+
   if verb :
     print '#', "{} < {} 2> {} > {}".format(
         ' '.join(treecall), bfile, efile, tfile)
