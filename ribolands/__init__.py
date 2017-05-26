@@ -2,6 +2,10 @@
 
 __version__ = "0.2.0"
 
+_MIN_TREEKIN_VERSION = "0.4.1"
+_MIN_BARRIERS_VERSION = "1.6.0"
+_MIN_VIENNARNA_VERSION = "2.2.0"
+
 from utils import argparse_add_arguments
 from utils import parse_vienna_stdin
 from utils import parse_barfile

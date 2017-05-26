@@ -13,13 +13,13 @@ import subprocess as s
 import collections as c
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-import tempfile
 import shutil
+import tempfile
 import contextlib
 from struct import pack
 
 import ribolands as ril
-from ribolands.syswraps import SubprocessError, ExecError
+from ribolands.syswraps import SubprocessError, ExecError, check_version
 from ribolands.crnwrapper import DiGraphSimulator
 import RNA
 
@@ -515,11 +515,13 @@ def plot_simulation(all_in, args):
     t, o = zip(*course)
     # Determine which lines are part of the legend:
     # like this, it is only those that are populated 
-    # at the end of transcription
-    if t[-1] > lin_time :
+    # at the end of transcription and if they reach 
+    # an occupancy of 10% or higher
+    if t[-1] > lin_time:
       p, = ax.plot(t, o, '-', lw=1.5)
       L, = axLog.plot(t, o, '-', lw=1.5)
-      L.set_label("ID {:d}".format(e))
+      if max(o) >= 0.1 :
+        L.set_label("ID {:d}".format(e))
     else :
       p, = ax.plot(t, o, '-', lw=0.5)
       L, = axLog.plot(t, o, '-', lw=0.5)
@@ -535,7 +537,7 @@ def plot_simulation(all_in, args):
   axLog.axvline(x=3600, linewidth=1, color='black', linestyle='--')
   axLog.axvline(x=86400, linewidth=1, color='black', linestyle='--')
   axLog.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
-  #plt.legend()
+  plt.legend()
 
   ax.set_ylabel('occupancy [mol/l]', fontsize=11)
   ax.set_xlabel('time [seconds]', ha='center', va='center', fontsize=11)
@@ -549,6 +551,11 @@ def plot_simulation(all_in, args):
 
 def add_drtrafo_args(parser):
   """ A collection of arguments that are used by DrTransformer """
+  # Treekin parameters
+  parser.add_argument("--treekin", default='treekin', action = 'store',
+      metavar='<str>', help="Path to the *treekin* executable.")
+  parser.add_argument("--ti", type=float, default=1.2, metavar='<flt>',
+      help="""Output-time increment of treekin solver (t1 * ti = t2).""")
 
   # Common parameters
   parser.add_argument("--t8", type=float, default=0.02, metavar='<flt>',
@@ -594,7 +601,7 @@ def add_drtrafo_args(parser):
       help="""Evenly space output *t-log* times after transription on a
       logarithmic time scale.""")
   #NOTE: Needs to be adjusted after treekin dependency is gone...
-  parser.add_argument("--t0", type=float, default=1e-6, metavar='<flt>',
+  parser.add_argument("--t0", type=float, default=1e-4, metavar='<flt>',
       help=argparse.SUPPRESS)
 
   # More supported library parameters
@@ -625,11 +632,6 @@ def add_drtrafo_args(parser):
       logging information about the cotranscriptional folding progress, *drf*:
       prints the input format for DrForna to STDOUT.""")
 
-  # DEPRICATED: treekin parameters
-  parser.add_argument("--treekin", default='treekin', action = 'store',
-      metavar='<str>', help="Path to the *treekin* executable.")
-  parser.add_argument("--ti", type=float, default=1.2, metavar='<flt>',
-      help="Output-time increment of treekin solver (t1 * ti = t2).")
   return
 
 def main(args):
@@ -684,13 +686,15 @@ def main(args):
   # Minrate specifies the lowest accepted rate for simulations (sec^-1)
   # it can be directly converted into a activation energy that results this rate
   args.maxdG = -args._RT * math.log(args.min_rate)
-  print args.min_rate, '=>', args.maxdG
+  #print args.min_rate, '=>', args.maxdG
 
   ############################
   # Start with DrTransformer #
   ############################
   RNA.cvar.noLonelyPairs = 1
   RNA.cvar.temperature = args.temperature
+
+  check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
 
   if _drffile :
     with smart_open(_drffile, 'w') as dfh :
@@ -701,7 +705,7 @@ def main(args):
 
   if _logfile :
     with smart_open(_logfile, 'w') as lfh :
-      lfh.write(fullseq + "\n")
+      lfh.write("# {} \n".format(fullseq))
       lfh.write("# ID, Structure, Energy, Occupancy\n")
 
   # initialize a directed conformation graph
@@ -712,6 +716,7 @@ def main(args):
       seqid=0)
   saddles = c.defaultdict()
 
+  norm, plusI, expo = 0, 0, 0
   for tlen in range(args.start, args.stop) :
     CG.graph['transcript_length']=tlen
     seq = fullseq[0:tlen]
@@ -721,15 +726,16 @@ def main(args):
     #print """ {} new nodes """.format(nn), CG.graph['seqid'], "total nodes"
 
     if args.pyplot or args.xmgrace:
-      all_courses.extend([[] for i in range(nn)])
-      # Just so that I will remember... 
+      ttt = CG.graph['total_time']
+      if ttt == 0 :
+        all_courses.extend([[] for i in range(nn)])
+      else :
+        all_courses.extend([[(ttt,0)] for i in range(nn)])
       # DO **NOT** DO IT THIS WAY: all_courses.extend([ [] ] * nn )
-      # and if you are a python geek reading this, please tell me when or why
-      # you would ever allocate space like that!
 
     # Simulate
     _fname = _tmpdir+'/'+name+'-'+str(tlen)
-    _t0 = args.t0 if tlen > args.start else 0
+    _t0 = args.t0 if args.t0 > 0 else 1e-6
     _t8 = args.tX if tlen == args.stop-1 else args.t8
     (t_lin, t_log) = (None, args.t_log) if tlen == args.stop-1 else (args.t_lin, None)
 
@@ -758,21 +764,24 @@ def main(args):
       try: # - Simulate with treekin
         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=False,
             treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
-            useplusI=False, force=True, verb=(args.verbose > 1))
+            exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
+        norm += 1
       except SubprocessError, e:
-        try : # - Simulate with treekin and --useplusI
+        try : # - Simulate with treekin and --exponent
           tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=False,
               treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
-              useplusI=True, force=True, verb=(args.verbose>0))
-        except SubprocessError: # - Simulate with crnsimulator python package (slower)
-          try : # - Simulate with treekin and --exponent
+              exponent=True, useplusI=False, force=True, verb=(args.verbose>0))
+          expo += 1
+        except SubprocessError: 
+          try : # - Simulate with treekin and --useplusI
             tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=False,
                 treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
-                exponent=True, force=True, verb=(args.verbose>0))
-          except SubprocessError: # - Simulate with crnsimulator python package (slower)
+                exponent=False, useplusI=True, force=True, verb=(args.verbose>0))
+            plusI += 1
+          except SubprocessError:
             if args.verbose > 1:
               print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
-
+            # - Simulate with crnsimulator python package (slower)
             _odename = name+str(tlen)
             tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8, 
                 t_lin = t_lin,
@@ -809,8 +818,11 @@ def main(args):
       dn,sr = graph_pruning(CG, nlist, saddles, args)
 
     if args.verbose :
-      print("# Transcripton length {}.".format(tlen),
-          "Deleted {} nodes, {} still reachable.".format(dn, sr))
+      print "# Transcripton length: {}. Deleted {} nodes, {} still reachable.".format(tlen, dn, sr)
+
+  #if args.verbose >= 1:
+  #  print "Treekin stats: {} default success, {} expo success, {} plusI success".format(
+  #      norm, expo, plusI)
 
   if args.logfile or args.stdout == 'log':
     with smart_open(_logfile, 'a') as lfh :

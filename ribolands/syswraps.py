@@ -26,6 +26,25 @@ import math
 import subprocess as sub
 from struct import pack, unpack
 
+def check_version(program, rv):
+  if which(program) is None :
+    if 'treekin' in program :
+      raise ExecError(program, 
+          "treekin", 'http://www.tbi.univie.ac.at/RNA/Treekin')
+    elif 'barries' in program:
+      raise ExecError(barriers, "barriers", 
+        'http://www.tbi.univie.ac.at/RNA/Barriers')
+    elif 'RNAsubopt' in program:
+      raise ExecError(RNAsubopt, "RNAsubopt", 
+        'http://www.tbi.univie.ac.at/RNA')
+    else :
+      raise ExecError(program)
+  p, pv = sub.check_output([program, '--version']).split()
+  def versiontuple(rv):
+    return tuple(map(int, (rv.split("."))))
+  if versiontuple(pv) < versiontuple(rv):
+    raise VersionError(program, pv, rv)
+
 class SubprocessError(Exception):
   """Raise Error: Commandline call failed."""
 
@@ -55,6 +74,20 @@ class ExecError(Exception):
 
     super(ExecError, self).__init__(self.message) 
 
+class VersionError(Exception):
+  """Raise Error: Update program to latest version."""
+
+  def __init__(self, var, cv, mv, download=None):
+    self.message = "{} has version {}.\n".format(var, cv)
+    self.message += "|==== \n"
+    self.message += "|You need to install version v{} or higher.\n".format(mv) 
+    if download:
+      self.message += "|Download: {}\n".format(download)
+    self.message += "|====\n"
+
+    super(VersionError, self).__init__(self.message) 
+
+#
 # **************** #
 # public functions #
 # ................ #
