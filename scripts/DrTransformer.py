@@ -83,20 +83,23 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
 
   return valid
 
-def dump_conformation_graph(CG, seq, name, logf=sys.stdout,verb=False) :
-  """ Make a barriers + rates output from the current conformation graph """
+def dump_conformation_graph(CG, seq, saddles, name, logf=sys.stdout,verb=False) :
+  """ Make a barriers + rates output from the current conformation graph.
 
-  sorted_nodes = sorted(CG.nodes(data=True), 
-      key=lambda x: x[1]['energy'], reverse=False)
+  The printed files are input files for treekin. *.bar files contain the energy
+  barriers to transition between local minima. Although every path eventually
+  leads to the MFE structure, it can proceed via an energetically worse
+  structure first. This is in contrast to files produced by `barriers`, where
+  local minima are always *directly* connected to energetically better local
+  minima.   
+  """
 
-  def remove_inactive(snodes) :
-    nnodes = []
-    for (n,d) in snodes:
-      if d['active'] == True :
-        nnodes.append((n,d))
-    return nnodes
+  sorted_nodes = filter(lambda (n,d): d['active'], 
+      sorted(CG.nodes(data=True), 
+      key=lambda x: x[1]['energy'], reverse=False))
 
-  sorted_nodes = remove_inactive(sorted_nodes)
+  barfile_nodes = filter(lambda d: CG.node[d]['active'], 
+      sorted(CG.nodes(data=False), key=lambda x: CG.node[x]['energy'], reverse=False))
 
   if name :
     bfile = name+'.bar'
@@ -107,21 +110,49 @@ def dump_conformation_graph(CG, seq, name, logf=sys.stdout,verb=False) :
     with open(bfile, 'w') as bar, open(rfile, 'w') as rts, open(brfile, 'w') as brts :
       bar.write("     {}\n".format(seq))
       brts.write(pack("i", len(sorted_nodes)))
-      for e, (ni, data) in enumerate(sorted_nodes) :
-        # make a mini-barriers: 
-          # see all neighbors, if neighbors seen, connect them...
-          # can it happen that a node changes his color? CID?
-        #print "{:4d} {} {:6.2f}\n".format(e+1, ni[:len(seq)], data['energy'])
-        bar.write("{:4d} {} {:6.2f}\n".format(
-          e+1, ni[:len(seq)], data['energy']))
+      for e, (ni, data) in enumerate(sorted_nodes, 1) :
+
+        # Calculate barrier heights to next basin.
+        nextmin = 0
+        barrier = 0
+        saddleE = None
+        for ee, be in enumerate(barfile_nodes, 1):
+          if e == 1:
+            break
+          elif e == ee and saddleE is not None: 
+            # Successfully connected to a better lmin with minimal barrier
+            break
+          elif e == ee :
+            # The node could not be connected to a better lmin:
+            #   1) remove the node such that future paths don't end there
+            #   2) connect the node to a higher energy minimum with mimimal barrier.
+            barfile_nodes[ee-1] = None
+            continue
+          if (ni, be) in saddles :
+            sE = saddles[(ni,be)]
+          elif (be, ni) in saddles :
+            sE = saddles[(be,ni)]
+          else :
+            sE = None
+
+          if (sE is not None) and (saddleE is None or sE < saddleE):
+            nextmin = ee
+            saddleE = sE
+        
+        if saddleE :
+          barrier = saddleE-data['energy']
+
+        bar.write("{:4d} {} {:6.2f} {:3d} {:6.2f}\n".format(e, ni[:len(seq)], data['energy'], 
+          nextmin, barrier))
+
         if verb :
           line = "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
-              CG.graph['transcript_length'], e+1, ni[:len(seq)], 
+              CG.graph['transcript_length'], e, ni[:len(seq)], 
               data['energy'], data['occupancy'], data['identity'])
           logf.write(line)
 
         if data['occupancy'] > 0 :
-          p0.append("{}={}".format(e+1,data['occupancy']))
+          p0.append("{}={}".format(e,data['occupancy']))
         trates = []
         rates = []
         for (nj, jdata) in sorted_nodes :
@@ -137,8 +168,8 @@ def dump_conformation_graph(CG, seq, name, logf=sys.stdout,verb=False) :
           brts.write(pack("d", r))
   else :
     line = "Distribution of structures at the end:\n"
-    for e, (ni, data) in enumerate(sorted_nodes) :
-      line += "LAST {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(e+1, 
+    for e, (ni, data) in enumerate(sorted_nodes, 1) :
+      line += "LAST {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(e, 
           ni[:len(seq)], data['energy'], data['occupancy'], data['identity'])
     logf.write(line)
 
@@ -175,18 +206,9 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
   for ni, data in reversed(sorted_nodes) :
     #print ni, data
     if data['occupancy'] < cutoff :
-      nbrs = sorted(CG.successors(ni), 
-          key=lambda x: CG.node[x]['energy'], reverse=False)
 
-      def remove_inactive(CG, snodes) :
-        #there must be a more beautiful way to do this ...
-        nnodes = []
-        for n in snodes:
-          if CG.node[n]['active'] == True :
-            nnodes.append((n))
-        return nnodes
-      nbrs = remove_inactive(CG, nbrs)
-
+      nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ni), 
+          key=lambda x: CG.node[x]['energy'], reverse=False))
       best, been = nbrs[0], CG.node[nbrs[0]]['energy']
 
       if been > data['energy'] :
@@ -741,7 +763,7 @@ def main(args):
 
     # produce input for treekin simulation
     with smart_open(_logfile, 'a') as lfh :
-      [bfile, rfile, p0, nlist] = dump_conformation_graph(CG, seq, _fname, 
+      [bfile, rfile, p0, nlist] = dump_conformation_graph(CG, seq, saddles, _fname, 
           logf=lfh, verb=(False or _logfile))
 
     dn,sr = 0,0
@@ -826,7 +848,7 @@ def main(args):
 
   if args.logfile or args.stdout == 'log':
     with smart_open(_logfile, 'a') as lfh :
-      dump_conformation_graph(CG, CG.graph['full_sequence'], None,
+      dump_conformation_graph(CG, CG.graph['full_sequence'], saddles, None,
           logf=lfh, verb=True)
 
   # CLEANUP the /tmp/directory
