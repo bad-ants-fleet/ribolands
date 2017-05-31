@@ -205,6 +205,7 @@ def sys_barriers(name, seq, sfile,
     moves='single-base-pair',
     gzip=True,
     rates=True,
+    binrates = False,
     bsize=False,
     circ=False,
     saddle=False,
@@ -224,13 +225,11 @@ def sys_barriers(name, seq, sfile,
   :param sfile: Input filename for ``barriers`` as produced by ``RNAsubopt``.
   :param force: Overwrite existing files with the same name.
   :param verb: Print the current system-call to ``stderr``.
-  :param k0: Adjust the prefactor for the Metropolis rule when calculating rates.
   :param temp: Specify temperature in Celsius.
   :type name: string
   :type seq: string
   :type sfile: string
   :type temp: float
-  :type k0: float
   :type force: bool
   :type verb: bool
 
@@ -305,15 +304,36 @@ def sys_barriers(name, seq, sfile,
 
   if rates :
     if k0 != 1.0:
-      with open('rates.out') as prerates, open(rfile, 'w') as rates:
-        for line in prerates:
-          newline = "".join(map(
-            "{:10.4g}".format, [float(x)*k0 for x in line.strip().split()]))
-          rates.write(newline+"\n")
-      os.remove('rates.out')
+      if binrates:
+        with open('rates.bin') as rf, open(rfile, 'w') as new :
+          dim, = unpack('i', rf.read(4))
+          new.write(pack("i", dim))
+          for e in range(dim*dim):
+            r, = unpack('d', rf.read(8))
+            new.write(pack("d", r*k0))
+        os.rename('rates.out', rfile+'2')
+      else :
+        with open('rates.bin') as rf, open(rfile, 'w') as new :
+          dim, = unpack('i', rf.read(4))
+          rm = []
+          for e in range(dim):
+            col = []
+            for e in range(dim):
+              r, = unpack('d', rf.read(8))
+              col.append(r*k0)
+            rm.append(col)
+          for line in zip(*rm):
+            newline = "".join(map("{:10.4g}".format, line))
+            new.write(newline+"\n")
+        os.remove('rates.out')
+      os.remove('rates.bin')
     else :
-      os.rename('rates.out', rfile)
-    os.remove('rates.bin')
+      if binrates :
+        os.rename('rates.bin', rfile)
+        os.rename('rates.out', rfile+'2')
+      else :
+        os.remove('rates.bin')
+        os.rename('rates.out', rfile)
     os.remove('treeR.ps')
   os.rename('tree.ps', psfile)
 
