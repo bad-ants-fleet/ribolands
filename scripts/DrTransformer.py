@@ -174,7 +174,7 @@ def dump_conformation_graph(CG, seq, saddles, name, logf=sys.stdout,verb=False) 
     logf.write(line)
 
     return 
-  return [bfile, rfile, p0, sorted_nodes]
+  return [bfile, brfile, p0, sorted_nodes]
 
 def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
   """
@@ -784,19 +784,19 @@ def main(args):
 
     else :
       try: # - Simulate with treekin
-        tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=False,
+        tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
             treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
             exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
         norm += 1
       except SubprocessError, e:
         try : # - Simulate with treekin and --exponent
-          tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=False,
+          tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
               treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
               exponent=True, useplusI=False, force=True, verb=(args.verbose>0))
           expo += 1
         except SubprocessError: 
           try : # - Simulate with treekin and --useplusI
-            tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=False,
+            tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
                 treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
                 exponent=False, useplusI=True, force=True, verb=(args.verbose>0))
             plusI += 1
