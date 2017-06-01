@@ -22,23 +22,36 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import ribolands as ril
 from ribolands.syswraps import which, ExecError, SubprocessError
 
+class LostPopulationError(Exception):
+  """Raise Error: Lost significant population."""
+
+  def __init__(self, var):
+    self.message = "{}".format(var)
+    super(LostPopulationError, self).__init__(self.message) 
+
 def get_plot_data(tfiles, plist, args):
+  """
+
+  """
   verb = args.verbose
   start= args.start
   stop = args.stop
-  plim = args.plot_cutoff
   t8   = args.t8
   tX   = args.tX
+  plim = 0.02 # former argument plot-cutoff, seems unnecessary
+  # NOTE: setting plim to a very small number leads to vertical lines in the plot. Why? 
+  # Because sometimes low populated minima merge into a high populated minimum, and then
+  # this will be visible.
 
   tot_time = 0.
+  # List of trajectories
   tlist = [[] for i in range(len(plist)+1)]
 
   reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
   # http://www.regular-expressions.info/floatingpoint.html
 
-  for e, l in enumerate(range(start,stop+1)):
-    tfile = tfiles[e]
-    #print tfile
+  for el, l in enumerate(range(start,stop+1)):
+    tfile = tfiles[el]
 
     # Get raw data => nxy
     #  t 1 2 3 4 
@@ -50,10 +63,10 @@ def get_plot_data(tfiles, plist, args):
         if re.match('#', line): 
           continue
         elif not reg_flt.match(line):
-          #print "# WARNING:", tfile, "does not contain data!"
-          nxy.append([t8, 1.0])
-          break
+          raise Exception(tfile, "neither comment nor time course!")
         nxy.append(map(float, line.strip().split()))
+    if nxy == [] :
+      nxy.append([t8, 1.0])
 
     # Make list of trajectories
     # t [x x x x x]
@@ -73,10 +86,8 @@ def get_plot_data(tfiles, plist, args):
     # to replace every lmin at the current transcription step with the
     # trajectory (or None) => avoid duplicates with seen=set()!
 
-    traject = list(map(list, zip(*nxy)))
-    timeline = map(lambda x : x+tot_time, list(traject[0]))
-
-    lin_time = tot_time
+    traject = map(list, zip(*nxy))
+    timeline = map(lambda x : x+tot_time, traject[0])
     tot_time = timeline[-1]
 
     tlist[0].extend([timeline])
@@ -87,15 +98,20 @@ def get_plot_data(tfiles, plist, args):
 
     seen = set() # Remove seen from this part to get all trajectries from start to end.
     pmapping = zip(*plist)[l-start]
-    for e, idx in enumerate(pmapping):
-      #print start, l, pmapping,  traject, idx
+    for e, idx in enumerate(pmapping, 1):
+      #print start, l, pmapping, idx # traject, idx
       # Make sure that we are above the limit of detection
-      if idx != 0 and (idx not in seen) and max(traject[idx]) > plim :
-        line = traject[idx]
-        seen.add(idx)
-      else :
+      if (idx == 0) or (idx in seen):
         line = [None]# for i in range(len(timeline))]
-      tlist[e+1].extend([line])
+      else :
+        seen.add(idx)
+        if max(traject[idx]) > plim :
+          line = traject[idx]
+        elif el > 1 and tlist[e][-1][-1] is not None :
+          line = traject[idx]
+        else :
+          line = [None]# for i in range(len(timeline))]
+      tlist[e].extend([line])
 
   return tlist
 
@@ -164,36 +180,30 @@ def plot_xmgrace(all_in, plist, args):
 
 def plot_matplotlib(name, seq, tlist, plist, args):
   """ Description """
-  verb = args.verbose
   start= args.start
   stop = args.stop
-  title= args.plot_title if args.plot_title else name
-  plim = args.plot_cutoff
 
-  t8   = args.t8
-  tX   = args.tX
-  linlog= args.plot_linlog
+  t8 = args.t8
+  lin_time = (stop-start)*float(t8)
+  tX = lin_time + args.tX if (lin_time + args.tX) >= lin_time * 10 else lin_time * 10
 
-  lin_time = 0.0
-  tot_time = tlist[0][-1][-1]
-  lin_time = (stop-start)*float(t8)*2
-
-  print "# Total simulation time:", tot_time
+  name  = args.name
+  title = args.name
 
   fig = plt.figure()
   ax = fig.add_subplot(1,1,1)
-  #ax.set_ylim([0,1.01])
+
+  ax.set_ylim([0,1.01])
   ax.set_xscale('linear')
 
-  ''' Make the second part of the plot logarithmic'''
-  if linlog :
-    ax.set_xlim((0, lin_time))
-    divider = make_axes_locatable(ax)
-    axLog = divider.append_axes("right", size=2.5, pad=0.0, sharey=ax)
-    axLog.set_ylim([0,1.01])
-    #axLog.set_yticklabels([''])
-    axLog.set_xlim((lin_time, tX))
-    axLog.set_xscale('log')
+  # Make the second part of the plot logarithmic
+  ax.set_xlim((0, lin_time))
+  divider = make_axes_locatable(ax)
+  axLog = divider.append_axes("right", size=2.5, pad=0, sharey=ax)
+  axLog.set_xscale('log')
+  axLog.set_xlim((lin_time+0.00001, tX))
+  axLog.set_ylim([0,1.01])
+  axLog.yaxis.set_visible(False)
 
   best = ['black', 'red', 'green', 'blue', 'yellow', 'brown', 'grey', 'violet', 
       'magenta', 'orange', 'indigo', 'maroon', 'cyan']
@@ -201,7 +211,7 @@ def plot_matplotlib(name, seq, tlist, plist, args):
   for e, traject in enumerate(tlist):
     if e==0: 
       for i in range(len(traject)) :
-        plt.axvline(x=traject[i][-1], linewidth=0.1, color='black', linestyle='--')
+        ax.axvline(x=traject[i][-1], linewidth=0.1, color='black', linestyle='--')
       continue
 
     fulltime = []
@@ -215,24 +225,27 @@ def plot_matplotlib(name, seq, tlist, plist, args):
 
     color = best[finalmin-1] if len(best) > finalmin else best[-1]
     lin, = ax.plot(fulltime, fulltrajectory, '-', color=color)
-
-    if linlog :
-      log, = axLog.plot(fulltime, fulltrajectory, color=color)
+    log, = axLog.plot(fulltime, fulltrajectory, color=color)
 
     if finalmin not in seen :
-      if linlog :
-        log.set_label("lmin {:d}".format(finalmin))
-      else :
-        lin.set_label("lmin {:d}".format(finalmin))
       seen.add(finalmin)
+      #NOTE: Adjust here for legend
+      if traject[-1] and max(traject[-1]) > 0.1:
+      #if fulltrajectory and max(fulltrajectory) > 0.1:
+        log.set_label("lmin {:d}".format(finalmin))
 
+  fig.set_size_inches(7,3)
+  fig.text(0.5,0.95, title, ha='center', va='center')
 
   plt.legend()
-  fig.text(0.5,0.95, title, ha='center', va='center')
-  fig.text(0.5,0.04, 'time [seconds]', ha='center', va='center')
-  fig.text(0.06,0.5, 'occupancy', ha='center', va='center', rotation='vertical')
-  pfile = "{}.pdf".format(name)
-  plt.savefig(pfile)
+
+  ax.set_ylabel('occupancy [mol/l]', fontsize=11)
+  ax.set_xlabel('time [seconds]', ha='center', va='center', fontsize=11)
+  ax.xaxis.set_label_coords(.9, -0.15)
+
+  #plt.show()
+  pfile = name+'.pdf'
+  plt.savefig(pfile, bbox_inches='tight')
 
   return pfile
 
@@ -259,14 +272,16 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
     cname = "{}-t8_{}-len_{}".format(bname,t8,l)
     [bfile, efile, rfile, psfile] = bfiles[e]
 
-    with open(rfile) as rf :
-      for i, _ in enumerate(rf):
+    with open(bfile) as bf :
+      for i, _ in enumerate(bf):
         pass
-    if i > 0 : 
+    if i >= 2 : 
       try :
         ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile, 
             treekin = args.treekin,
+            exponent=False,
             useplusI=False,
+            binrates=True,
             p0=p0, 
             t0=args.t0, 
             ti=args.ti, 
@@ -274,10 +289,12 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
             verb=verb, 
             force=args.force)
       except SubprocessError:
-        print "# repeating treekin calculations with --useplusI"
+        print "# repeating treekin calculations with --exponent"
         ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile, 
             treekin = args.treekin,
-            useplusI=True,
+            exponent=True,
+            useplusI=False,
+            binrates=True,
             p0=p0, 
             t0=args.t0, 
             ti=args.ti, 
@@ -379,12 +396,13 @@ def barmap_barriers(_bname, seq, sfiles, args):
         barriers=args.barriers,
         minh=args.b_minh,
         maxn=args.b_maxn,
-        k0=args.k0,
+        k0 = args.k0,
         temp=args.temperature,
         noLP=args.noLP,
         moves='single-base-pair',
         gzip=True,
         rates=True,
+        binrates=True,
         bsize=False,
         saddle=False,
         mfile=mfile,
@@ -434,7 +452,7 @@ def set_p0(bfile, l, lastlines, curlmin, newlmin, cutoff, verb):
         print "{:3d} {:3d} {:f} {:s} {:6.2f} {:4d} => {:d}".format(
             l, i, float(pop), ss, float(en), i, lminmap[i])
         if lminmap[i] == 0:
-          raise Exception('Lost significant population!')
+          raise LostPopulationError('Lost significant population!')
 
   p0 = [] 
   p0sum = 0.0
@@ -539,10 +557,7 @@ def add_barmap_args(parser):
       tmpdir=True, name=True, force=True, verbose=True,
       start=True, stop=True, k0=True, tX=True, cutoff=True)
 
-  parser.add_argument("--plot_cutoff", type=float, default=0.02)
   parser.add_argument("--plot_title", default='')
-  parser.add_argument("--plot_linlog", action="store_true",
-      help="Divide x-axis into lin and log at transcription stop")
 
   parser.add_argument("--pyplot", action="store_true",
       help="Plot the simulation using matplotlib. Interpret the legend \
@@ -612,11 +627,12 @@ def main(args):
     try :
       tfiles = barmap_treekin(bname, seq, bfiles, plist, args)
       break
-    except Exception, e:
-      # Hack here to raise energy and repeat!
-      raise RuntimeError(e)
+    except LostPopulationError, e:
       args.s_ener += 2
-
+      print Warning('repeating caluclations with higher energy:', args.s_ener)
+    except SubprocessError, e:
+      args.s_ener += 2
+      print Warning('repeating caluclations with higher energy:', args.s_ener)
 
   if args.xmgrace or args.pyplot :
     print """# Processing treekin results for plotting ... """
