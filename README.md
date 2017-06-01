@@ -1,38 +1,44 @@
 # ribolands 
 energy landscapes and folding kinetics of nucleic acids
 
-**ribolands** is a python package to compute folding kinetics on dynamic or
-bimolecular energy landscapes. First of all, it provides an interface to the
-programs `RNAsubopt`, `barriers` and `treekin`, which have to installed
-separately. See below for an example workflow.
+**ribolands** is a package to compute folding kinetics on dynamic or
+bimolecular energy landscapes. It provides wrapper functions for the programs
+`RNAsubopt`, `barriers` and `treekin`, which have to installed separately. See
+below for an example workflow.
 
-Two scripts for cotranscriptional folding are part of the `ribolands` package: 
+Two scripts for cotranscriptional folding are part of `ribolands`: 
+
+  * **DrTransformer**: Short for "DNA-to-RNA Transformer", the program
+    computes cotranscriptional folding of larger RNAs by generating a
+    heuristic energy landscape at every transcription step.  `DrTransformer`
+    uses the `ViennaRNA package` to calculate transition rates and `treekin` to
+    simulate folding kinetics.
+    ```sh
+    echo "CUGCGGCUUUGGCUCUAGCC" | DrTransformer.py --pyplot
+    ```
 
   * **BarMap**: folding kinetics on dynamic energy landscapes. For each
     sequence length, the coarse-grained barriers landscape is computed. During
     kinetic simulations, a mapping between subsequent landscapes is used to
     transfer occupancy from one landscape to the next. This is mostly a
-    reimplementation of `BarMap` by [Hofacker et al. (2010)].
+    reimplementation of `BarMap` by [Hofacker et al. (2010)], but it makes use
+    of more recent functionality of `barriers` and `treekin`.
     ```sh
-    echo "CUGCGGCUUUGGCUCUAGCC" | BarMap.py -v --plot_linlog 
-    ```
-
-  * **DrTransformer**: Short for "DNA-to-RNA Transformer", the program
-    computes cotranscriptional folding of larger RNAs by generating a
-    conformation graph of local-minimum conformations at every transcription
-    step. Importantly, only conformations reachable from the previous
-    conformation graph are included, rates between these conformations are
-    computed using the `findpath` direct path heuristic, see [Flamm et al.
-    (2001)]. `DrTransformer` uses `treekin` to calculate folding kinetics.
-    ```sh
-    echo "CUGCGGCUUUGGCUCUAGCC" | DrTransformer.py -v --pyplot
+    echo "CUGCGGCUUUGGCUCUAGCC" | BarMap.py --pyplot
     ```
 
 ## ViennaRNA dependencies
 `ribolands` uses [RNAsubopt] from the [ViennaRNA package], [barriers] and
 [treekin] for landscape computations. Make sure that you have the latest
-versions installed, i.e. `treekin-v0.4`, `barriers-v1.6` and, recommended,
+versions installed, i.e. `treekin-v0.4.1`, `barriers-v1.6` and, recommended,
 `ViennaRNA-v2.2` or later.
+
+## Python dependencies
+- RNA (installed with the ViennaRNA package)
+- pandas
+- networkx
+- matplotlib
+- crnsimulator (https://github.com/bad-ants-fleet/crnsimulator)
 
 ### Examples
 ```
@@ -55,14 +61,9 @@ If you are using `BarMap` or `DrTransformer` please cite:
 ```sh
   python setup.py install
 ```
-
-### local installation
-```sh
-  python setup.py install --user
-```
  
 ## Version
-0.2.0
+0.3.0
 
 ## Development / Unittests
   python setup.py test
