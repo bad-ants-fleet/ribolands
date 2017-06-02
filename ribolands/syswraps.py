@@ -184,15 +184,19 @@ def sys_treekin(name, seq, bfile, rfile,
         raise SubprocessError(proc.returncode, call)
 
   # Adapt here to return exact simulation time and number of iterations
-  if verb : 
+  if exponent or verb : 
     lastlines = sub.check_output(['tail', '-2', tfile]).strip().split("\n")
     if not reg_flt.match(lastlines[0]):
-      print '# No output from treekin simulation.'
+      raise SubprocessError(None, "No output from treekin simulation")
     else :
       time = float(lastlines[0].split()[0])
       iterations = int(lastlines[-1].split()[-1])
-      print "# Treekin stopped after {:d} iterations at time {:f}".format(
-          iterations, time)
+      if (abs(float(time) - t8) > t8/1000):
+        raise SubprocessError(None, "Treekin terminated at the wrong time.")
+      if verb: 
+        print "# Treekin stopped after {:d} iterations at time {:f}".format(
+            iterations, time)
+
   return tfile, efile
  
 def sys_barriers(name, seq, sfile,
