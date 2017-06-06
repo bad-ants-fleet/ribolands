@@ -169,19 +169,33 @@ def sys_treekin(name, seq, bfile, rfile,
     treecall.extend(['--exponent'])
 
   if verb :
-    print '#', "{} < {} 2> {} > {}".format(
-        ' '.join(treecall), bfile, efile, tfile)
+    if bfile :
+      print '#', "{} < {} 2> {} > {}".format(
+          ' '.join(treecall), bfile, efile, tfile)
+    else:
+      print '#', "echo "" | {} 2> {} > {}".format(
+          ' '.join(treecall), efile, tfile)
 
   # Do the simulation (catch treekin errors)
-  with open(bfile, 'r') as bar, \
-    open(tfile, 'w') as tkn, \
-    open(efile, 'w') as err:
-      proc = sub.Popen(treecall,stdin=bar,stdout=tkn,stderr=err)
-      proc.communicate(None)
-      if proc.returncode :
-        call = "{} < {} 2> {} > {}".format(
-            ' '.join(treecall), bfile, efile, tfile)
-        raise SubprocessError(proc.returncode, call)
+  if bfile :
+    with open(bfile, 'r') as bar, \
+      open(tfile, 'w') as tkn, \
+      open(efile, 'w') as err:
+        proc = sub.Popen(treecall,stdin=bar,stdout=tkn,stderr=err)
+        proc.communicate(None)
+        if proc.returncode :
+          call = "{} < {} 2> {} > {}".format(
+              ' '.join(treecall), bfile, efile, tfile)
+          raise SubprocessError(proc.returncode, call)
+  else :
+    with open(tfile, 'w') as tkn, \
+      open(efile, 'w') as err:
+        proc = sub.Popen(treecall,stdin=sub.PIPE,stdout=tkn,stderr=err)
+        proc.communicate('\n')
+        if proc.returncode :
+          call = "echo "" | {} 2> {} > {}".format(
+              ' '.join(treecall), efile, tfile)
+          raise SubprocessError(proc.returncode, call)
 
   # Adapt here to return exact simulation time and number of iterations
   if exponent or verb : 
