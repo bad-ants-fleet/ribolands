@@ -185,7 +185,7 @@ def get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
 
   lastlines = s.check_output(['tail', '-2', tfile]).strip().split("\n")
   if not reg_flt.match(lastlines[0]):
-    raise ValueError('Cannot parse simulation output')
+    raise ValueError('Cannot parse simulation output', tfile)
   else :
     time = float(lastlines[0].split()[0])
     iterations = int(lastlines[-1].split()[-1])
@@ -551,8 +551,8 @@ def plot_simulation(all_in, args):
   fig.set_size_inches(7,3)
   fig.text(0.5,0.95, title, ha='center', va='center')
 
-  for tlen in range(args.stop-args.start) :
-    ax.axvline(x=tlen*t8, linewidth=0.01, color='black', linestyle='-')
+  #for tlen in range(args.stop-args.start) :
+  #  ax.axvline(x=tlen*t8, linewidth=0.01, color='black', linestyle='--')
 
   # """ Add ticks for 1 minute, 1 hour, 1 day, 1 year """
   axLog.axvline(x=60, linewidth=1, color='black', linestyle='--')
@@ -783,12 +783,13 @@ def main(args):
         all_courses[ident].append((CG.graph['total_time'], 1.0))
 
     else :
+      bfile = None # sometimes bfile causes a segfault, so let's leave it out.
       try: # - Simulate with treekin
         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
             treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
             exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
         norm += 1
-      except SubprocessError, e:
+      except SubprocessError: 
         try : # - Simulate with treekin and --exponent
           tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
               treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
@@ -840,7 +841,8 @@ def main(args):
       dn,sr = graph_pruning(CG, nlist, saddles, args)
 
     if args.verbose :
-      print "# Transcripton length: {}. Deleted {} nodes, {} still reachable.".format(tlen, dn, sr)
+      print "# Transcripton length: {}. Initial graph size: {}. ".format(tlen, len(nlist)), 
+      print "Deleted {} nodes, {} still reachable.".format(dn, sr)
 
   #if args.verbose >= 1:
   #  print "Treekin stats: {} default success, {} expo success, {} plusI success".format(
