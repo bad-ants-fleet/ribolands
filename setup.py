@@ -25,9 +25,7 @@ setup(
     dependency_links=['https://github.com/bad-ants-fleet/crnsimulator/tarball/master#egg=crnsimulator-0.1'],
     test_suite='tests',
     packages=['ribolands'],
-    scripts=['scripts/pylands_spatch.py',
-      'scripts/cofold_kinetics.py', 
-      'scripts/BarMap.py',
+    scripts=['scripts/BarMap.py',
       'scripts/DrTransformer.py']
 )
 

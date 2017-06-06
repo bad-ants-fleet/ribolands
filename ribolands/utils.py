@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-
+#
 #  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
 #  University of Vienna, Department of Theoretical Chemistry
 #
@@ -19,14 +18,11 @@
 
 import re
 import sys
+from struct import pack, unpack
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 class ProgressBar(object):
-  # prog = MyProgress(clockmax=135):
-  #   for i in range(0, 135) :
-  #     prog.inc()
-  #
   def __init__(self, clockmax):
     if clockmax < 1:
       raise Exception("Imporper input.")
@@ -49,25 +45,20 @@ class ProgressBar(object):
     if self.clock == self.clockmax:
       sys.stdout.write("| 100%\n")
 
-
 def argparse_add_arguments(parser, 
     RNAsubopt=False, barriers=False, treekin=False,
     noLP=False, temperature=False, circ=False,
     tmpdir=False, name=False, force=False, verbose=False,
     start=False, stop=False, k0=False, tX=False, cutoff=False):
   """Commonly used argparse arguments when using the ribolands library. 
-
-  Paramters: 
-    parser <argparse.ArgumentParser()>: Standard object provided by argparse.
-    flags=(False): selectively choose which arguments to include. 
+  
+  Args:
+    parser (:obj:`argparse.ArgumentParser()`): Standard object provided by argparse.
+    ``flags`` (bool): selectively choose which arguments to include. 
 
   Returns:
-    This function modifies the specified parser object.
+    Modifies the first argument: parser.
   """
-
-  #parser = argparse.ArgumentParser(
-  #  formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-  #  description='echo sequence | %(prog)s [options]')
 
   # ViennaRNA suboptimal structures:
   if RNAsubopt :
@@ -75,12 +66,12 @@ def argparse_add_arguments(parser,
         metavar='<str>',
         help="Specify path to your *RNAsubopt* executable")
     # TODO: old version allows '-e' and sets default=0
-    parser.add_argument("--s_ener", type=float, default=None, metavar='<flt>',
+    parser.add_argument("--s-ener", type=float, default=None, metavar='<flt>',
         help="Set the energy range for suboptimal structure computation." + 
-          " This will overwrite the options --s_maxe and --s_maxn.")
-    parser.add_argument("--s_maxe", type=float, default=20, metavar='<flt>',
-        help="Set a the maximum subopt range in combination with --s_maxn.")
-    parser.add_argument("--s_maxn", type=int, default=7100000, metavar='<int>',
+          " This will overwrite the options --s-maxe and --s-maxn.")
+    parser.add_argument("--s-maxe", type=float, default=20, metavar='<flt>',
+        help="Set a the maximum subopt range in combination with --s-maxn.")
+    parser.add_argument("--s-maxn", type=int, default=7100000, metavar='<int>',
         help="Specify the number of suboptimal structures. The corresponding" +
           " energy range is computed form the full length molecule.")
 
@@ -89,9 +80,9 @@ def argparse_add_arguments(parser,
     parser.add_argument("--barriers", default='barriers', action = 'store',
         metavar='<str>',
         help="Specify path to your *barriers* executable") 
-    parser.add_argument("--b_minh", type=float, default=0.001, metavar='<flt>',
+    parser.add_argument("--b-minh", type=float, default=0.001, metavar='<flt>',
         help="Set the minimum barrier height (i.e. barriers --minh)")
-    parser.add_argument("--b_maxn", type=int, default=100, metavar='<int>',
+    parser.add_argument("--b-maxn", type=int, default=100, metavar='<int>',
         help="Set the maximum number of local minima (i.e. barriers --max)")
 
   # *treekin* arguments using argparse
@@ -102,7 +93,7 @@ def argparse_add_arguments(parser,
     # TODO: (--t0) set an appropriate default value, or None!
     parser.add_argument("--t0", type=float, default=0, metavar='<flt>',
         help="First time point of the printed time-course")
-    parser.add_argument("--ti", type=float, default=1.02, metavar='<flt>',
+    parser.add_argument("--ti", type=float, default=1.2, metavar='<flt>',
         help="Output-time increment of solver (t1 * ti = t2)")
     parser.add_argument("--t8", type=float, default=0.02, metavar='<flt>',
         help="Transcription speed in seconds per nucleotide")
@@ -156,25 +147,27 @@ def argparse_add_arguments(parser,
         help="Simulation time after transcription")
 
   if cutoff :
-    parser.add_argument("--cutoff", type=float, default=0.01, metavar='<flt>',
+    parser.add_argument("--occupancy-cutoff", type=float, default=0.01, metavar='<flt>',
         help="Occupancy cutoff for population transfer.")
 
 
 def make_pair_table(ss, base=0, chars=['.']):
-  """Return a secondary struture in form of pair table:
+  """Return a secondary struture in form of pair table.
 
-  :param ss: secondary structure in dot-bracket format
-  :param base: choose between a pair-table with base 0 or 1
-  :param chars: a list of characters that are ignored, default: ['.']
+  Args:
+    ss (str): secondary structure in dot-bracket format 
+    base (int, optional): choose between a pair-table with base 0 or 1
+    chars (list, optional): a list of characters to be are ignored, default:
+      ['.']
 
-  :exmaple:
+  **Example:**
      base=0: ((..)). => [5,4,-1,-1,1,0,-1]
       i.e. start counting from 0, unpaired = -1
      base=1: ((..)). => [7,6,5,0,0,2,1,0]
       i.e. start counting from 1, unpaired = 0, pt[0]=len(ss)
 
-  :return: a pair-table
-  :return-type: list
+  Returns:
+    [list]: A pair-table
   """
   stack=[];
 
@@ -204,12 +197,17 @@ def make_pair_table(ss, base=0, chars=['.']):
     raise RuntimeError("Too many opening brackets in secondary structure")
   return pt
 
-def parse_vienna_stdin(stdin):
-  """ Read STDIN in fasta format
-  Read a Sequence and its Name in Fasta Format. Only one Input-Sequence is
-  allowed at a time. The Characters must be A, C, G, U, &
+def parse_vienna_stdin(stdin, chars=['A','C','U','G','&']):
+  """Parse name and sequence information from file with fasta format.
+  
+  Only one Input-Sequence is allowed at a time. 
 
-  :return: (name, sequence)
+  Args:
+    stdin (list): Input to parse, ususally :obj:`sys.stdin`
+    chars (list, optional): Allowed characters in a sequence.
+
+  Returns:
+    [(str, str)]: A tuple containing name and sequence.
   """
   name = 'NoName'
   seq  = ''
@@ -222,15 +220,27 @@ def parse_vienna_stdin(stdin):
     else:
       seq += line.strip()
 
-  m = re.search('[^AUCG&]', seq) 
+  m = re.search('[^'+''.join(chars)+']', seq) 
   if m :
     raise ValueError("Does not look like RNA: ('{}' in '{}')".format(m.string[m.span()[0]], seq))
   return (name, seq)
 
-# make sure that you use args in order to name every column correctly
-# maybe even return a pandas.DataFrame (?)
 def parse_barfile(bfile, seq=''):
-  """ return the content of a barriers output-file """
+  """Return the content of a barriers output-file. 
+
+  Args:
+    bfile (str): Filename of a barriers output file.
+    seq (str, optional): Raises an error if the sequence is provided and
+      different than the one in the barfile.
+  
+  Raises:
+    ValueError: Wrong sequence.
+
+  Returns:
+    [list of lists]: The content of the barfile.
+  """
+  # NOTE: This function would make more sense if it returns an object that
+  # stores barriers info in a consistent way.
   output = []
   with open(bfile) as bar :
     for e, line in enumerate(bar) :
@@ -243,29 +253,58 @@ def parse_barfile(bfile, seq=''):
         #output.append([idx, lmin, en, father, bar])
   return output
 
-def parse_ratefile(rfile):
-  """ return the content of a barriers rates-file """
-  RM = []
-  with open(rfile) as rates :
-    for line in rates :
-      RM.append((map(float, line.strip().split())))
+def parse_ratefile(rfile, binary=False):
+  """Return the content of a barriers rates-file. 
+
+  Args:
+    rfile (str): Filename of a barriers rates file.
+    binary (bool, optional): Set to True if the rates file is in binary format.
+      Defaults to False.
+  
+  Returns:
+    [[flt],[flt]]: A rate matrix.
+  """
+  if binary :
+    with open(rfile) as rf:
+      dim, = unpack('i', rf.read(4))
+      rm = []
+      for e in range(dim):
+        col = []
+        for e in range(dim):
+          r, = unpack('d', rf.read(8))
+          col.append(r)
+        rm.append(col)
+      RM = map(list, zip(*rm))
+  else :
+    RM = []
+    with open(rfile) as rates :
+      for line in rates :
+        RM.append((map(float, line.strip().split())))
+
   return RM
 
-def plot_simulation(name, seq, tfile, 
+def plot_nxy(name, tfile, 
     title='',
     plim=1e-2,
     lines=[],
     ylim=(None,None),
     xlim=(None,None), 
-    verb=True, 
-    lilog=None,
-    force=True):
-  """ Plot a (particular) list of trajectories
-  t [x x x x x]
-  1 [y y y y y]
-  2 [y y y y y]
-  3 [y y y y y]
-  4 [y y y y y]
+    lilog=None):
+  """ Plot a list of trajectories.
+
+  Args:
+    name (str): Name of the pdf file.
+    tfile (str): Filename of a treekin `nxy` output file.
+    title (str, optional): Name of the title for the plot.
+    plim (float, optional): Minimal occupancy to plot a trajectory. Defaults to 0.01
+    lines ([int,..], optional): Selected list of lines to be plotted.
+    ylim ((float,float), optional): matplotlib ylim.
+    xlim ((float,float), optional): matplotlib xlim.
+    lilog (float, optional): Set a divider of the x-axis into a linear and
+      logarithmic part. Requires xlim and ylim to be specified.
+
+  Returns:
+    [str]: Name of the output file.
   """
   lines=set(lines)
   title = title if title else name
@@ -283,14 +322,20 @@ def plot_simulation(name, seq, tfile,
   if None not in xlim : ax.set_xlim(xlim) 
 
   if lilog :
-    ''' Make the second part of the plot logarithmic'''
+    if None in xlim : 
+      raise ValueError('Specify xlim')
+    if None in ylim : 
+      raise ValueError('Specify ylim')
+
+    # Make the second part of the plot logarithmic
     ax.set_xscale('linear')
-    ax.set_xlim((0, lilog))
+    ax.set_xlim((xlim[0], lilog))
     divider = make_axes_locatable(ax)
+
     axLog = divider.append_axes("right", size=2, pad=0.0, sharey=ax)
-    axLog.set_xlim((lilog, 1e5))
     axLog.set_xscale('log')
-    #axLog.set_yticklabels([''])
+    axLog.set_xlim((lilog+0.00001, xlim[1]))
+    axLog.set_ylim(ylim)
   else :
     ax.set_xscale('log')
 
@@ -319,8 +364,6 @@ def plot_simulation(name, seq, tfile,
   # plt.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
   plt.legend()
 
-  pfile = name+'.pdf'
-  plt.savefig(pfile, bbox_inches='tight')
-
-  return pfile
+  plt.savefig(name, bbox_inches='tight')
+  return name
 

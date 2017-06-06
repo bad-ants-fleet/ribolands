@@ -257,7 +257,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
   verb  = args.verbose
   tX    = args.tX
   t8    = args.t8
-  cutoff= args.cutoff
+  cutoff= args.occupancy_cutoff
 
   p0 = args.p0
   tt = 0
@@ -317,8 +317,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
               print "{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, i, 
                   float(pop), ss, float(en))
       else :
-        raise RuntimeError('treekin crashed but returned success:',
-            "No valid time-course in {:s}: {:s}".format(ctfile, lastlines[0]))
+        raise SubprocessError('found crashed treekin trajectory.', ctfile)
     else :
       # Create an empty file
       ctfile = cname+'.tkn'
@@ -566,6 +565,9 @@ def add_barmap_args(parser):
       help="Print a plot for xmgrace. " + \
           "Interpret the legend using the *log* output")
 
+  parser.add_argument("--adaptive", action="store_true",
+      help="Automatically raise suboptimal energy range if computations fail.")
+
   parser.add_argument("--s_sortdir", default="/tmp", action="store", \
       help=argparse.SUPPRESS)
   return
@@ -628,11 +630,19 @@ def main(args):
       tfiles = barmap_treekin(bname, seq, bfiles, plist, args)
       break
     except LostPopulationError, e:
-      args.s_ener += 2
-      print Warning('repeating caluclations with higher energy:', args.s_ener)
+      if args.adaptive :
+        args.s_ener += 2
+        print Warning('repeating caluclations with higher energy:', args.s_ener)
+      else:
+        print Warning('caluclations failed with current suboptimal energy range:', args.s_ener)
+        break
     except SubprocessError, e:
-      args.s_ener += 2
-      print Warning('repeating caluclations with higher energy:', args.s_ener)
+      if args.adaptive :
+        args.s_ener += 2
+        print Warning('repeating caluclations with higher energy:', args.s_ener)
+      else:
+        print Warning('caluclations failed with current suboptimal energy range:', args.s_ener)
+        break
 
   if args.xmgrace or args.pyplot :
     print """# Processing treekin results for plotting ... """

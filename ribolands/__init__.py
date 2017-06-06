@@ -11,7 +11,7 @@ from utils import parse_vienna_stdin
 from utils import parse_barfile
 from utils import parse_ratefile
 from utils import make_pair_table
-from utils import plot_simulation
+from utils import plot_nxy
 from utils import ProgressBar
 
 from syswraps import sys_subopt_range
@@ -20,10 +20,4 @@ from syswraps import sys_barriers
 from syswraps import sys_treekin
 
 from crnwrapper import DiGraphSimulator
-
-#'''
-#def getversion():
-#  v_utils = utils.__version__
-#  print v_utils
-#'''
 

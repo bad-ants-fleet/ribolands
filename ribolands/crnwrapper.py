@@ -1,15 +1,21 @@
+#
+#  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
+#  University of Vienna, Department of Theoretical Chemistry
+#
+#  -*- Style -*- 
+#  Use double quotes or '#' for comments, such that single quotes are available
+#  for uncommenting large parts during testing
+#
+#  *) do not exceed 80 characters per line
+#  *) indents: 2x whitespace, no tab characters!
+#
+#  -*- VIM config -*- 
+#  set textwidth=80
+#  set ts=2 et sw=2 sts=2
+#
 
 import subprocess as sub
-
 from ribolands.syswraps import SubprocessError
-
-def module_exists(module_name):
-  try:
-    __import__(module_name)
-  except ImportError:
-    return False
-  else:
-    return True
 
 def DiGraphSimulator(CG, fname, nlist, p0, t0, t8, 
     t_lin = 300,
@@ -18,31 +24,30 @@ def DiGraphSimulator(CG, fname, nlist, p0, t0, t8,
     #force=False, # <= not implemented
     verb = False):
   """A wrapper function for the python module: crnsimulator
+
   Args:
-    CG <>:  A "networkx" conformation graph, where nodes are secondary structures and 
-            edges are transition rates.
-    fname <str>: Name of the file
-    nlist <lol>: A list of nodes in the system (redundant?)
-    p0 <list>: vector of initial concentrations
-    t0 <float>: start of simulation
-    t8 <float>: end of simulation
-    t_lin <int> : evenly return output on a lin-scale from t0 to t8 (*t_lin* times)
-    t_log <int> : evenly return output on a log-scale from t0 to t8 (*t_log* times)
-    jacobian <bool>: Calculate the Jacobi-Matrix for differentiation. Not recommended, 
-                      as it slows down the computations quite a bit.
-    verb <bool>: print a commandline call to run the simulation (debugging)
+    CG (:obj:`networkx.DiGraph`): A networkx conformation graph, where nodes
+      are secondary structures and edges have weights in form of transition rates.
+    fname (str): Name of the file.
+    nlist (list): A list of nodes in the system.
+    p0 (list): vector of initial concentrations.
+    t0 (float): start of simulation.
+    t8 (float): end of simulation.
+    t_lin (int, optional) : evenly return output on a lin-scale from t0 to t8 (*t_lin* times)
+    t_log (int, optional) : evenly return output on a log-scale from t0 to t8 (*t_log* times)
+    jacobian (bool, optional): Calculate the Jacobi-Matrix for differentiation.
+      Not recommended, as it slows down the computations quite a bit.
+    verb (bool, optional): verbose information. Defaults to False.
     
+  Raises:
+    SubprocessError: Subprocess failed with returncode: ...
+
+  Returns:
+    [str]: The name of a treekin-like nxy file.
   """
 
   tfile = fname+'.tkn'
   xfile = fname+'.py'
-
-  if module_exists('crnsimulator'):
-    from crnsimulator import ReactionGraph
-    from crnsimulator.odelib_template import add_integrator_args
-  else :
-    raise RuntimeError('Need to install Module: "crnsimulator"', 
-        'Download from https://github.com/bad-ants-fleet/crnsimulator')
 
   crn = []
   for e in CG.edges_iter() :

@@ -1,19 +1,19 @@
 #!/usr/bin/env python
-
+#
 #  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
 #  University of Vienna, Department of Theoretical Chemistry
-
+#
 #  -*- Content -*-
 #  *) systemcalls of RNAsubopt, barriers and treekin 
-#  *) tested under linux
-
+#  *) most likely requires linux
+#
 #  -*- Style -*- 
 #  Use double quotes or '#' for comments, such that single quotes are available
 #  for uncommenting large parts during testing
 #
 #  *) do not exceed 80 characters per line
 #  *) indents: 2x whitespace, no tabs!
-
+#
 #  -*- VIM config -*- 
 #  set textwidth=80
 #  set ts=2 et sw=2 sts=2
@@ -96,35 +96,41 @@ def sys_treekin(name, seq, bfile, rfile,
   treekin = 'treekin',
   p0 = ['1=0.5', '2=0.5'],
   t0 = 1e-6,
+  ti = 1.2,
+  t8 = 1e6,
   binrates = False,
   useplusI = False,
   exponent = False,
-  ti = 1.2,
-  t8 = 1e6,
-  verb = False,
-  force=False):
-  """ **Perform a system-call of the program ``treekin``.**
+  force=False,
+  verb = False):
+  """Perform a system-call of the program ``treekin``.
 
   Prints the results into files and returns the respective filenames. This
   wrapper will produce two files, one from ``STDIN`` and ``STDERR`` output.
 
-  .. note:: This wrapper is written for ``treekin v0.4``. 
+  Args:
+    name (str): Name of the sequence used to name the output file.
+    seq (str): Nucleic acid sequence.
+    bfile (str): Input filename for ``treekin`` as produced by ``barriers``.
+    rfile (str): Input filename for ``treekin`` to specify a rate-matrix as
+      produced by ``barriers``.
+    p0 ([str,...], optional): A list to specify an initial occupancy vector. Defaults to:
+      ['1=0.5', '2=0.5']
+    t0 (float, optional): Start time of simulation.
+    ti (float, optional): Time increment of the treekin solver.
+    t8 (float, optional): Stop time for the solver.
+    binrates (bool): Ratefile is in binary format. Defaults to False.
+    useplusI (bool): Use treekin method --useplusI. Defaults to False.
+    exponent (bool): Use treekin method --exponent. Defaults to False.
+    force (bool): Overwrite existing files. Defaults to False.
+    verb (bool): Print verbose information. Defaults to False.
 
-  :param name: Name of the sequence used to name the output file
-  :param seq: Nucleic acid sequence 
-  :param bfile: input filename for ``treekin`` as produced by ``barriers``
-  :param rfile: input filename for ``treekin`` to specify a rate-matrix as \
-      produced by ``barriers``
-  :type name: string
-  :type seq: string
-  :type bfile: string
-  :type rfile: string
+  Raises:
+    ExecError: Program does not exist.
+    SuboprocessError: Program terminated with exit code: ...
 
-  :param p0: A list to specify an initial occupancy vector 
-  :type p0: list
-
-  :return: The name of the file containing ``treekin`` results. 
-  :rtype: string
+  Returns:
+    [str, str]: The name of the file containing STDOUT and STDERR of ``treekin`` call.
   """
 
   if which(treekin) is None :
@@ -230,30 +236,26 @@ def sys_barriers(name, seq, sfile,
     mfile='',
     force=False,
     verb=False):
-  """ **Perform a system-call of the program ``barriers``.**
+  """Perform a system-call of the program ``barriers``.
 
   The print the results into a file and return the respective filename. This
   wrapper will return the output files, including ``STDIN`` and ``STDERR``.
 
-  .. note:: This wrapper is written for ``barriers v1.6.0``, \
-      previous implementations do not have the ``--mapstruc`` option.
+  Args:
+    name (str): Name of the sequence used to name the output file.
+    seq (str): Nucleic acid sequence.
+    sfile (str): Input filename for ``barriers`` as produced by ``RNAsubopt``.
+    temp (float, optional): Specify temperature in Celsius.
+    force (bool, optional): Overwrite existing files with the same name.
+    verb (bool, optional): Print the current system-call to ``stderr``.
 
-  :param name: Name of the sequence used to name the output file.
-  :param seq: Nucleic acid sequence.
-  :param sfile: Input filename for ``barriers`` as produced by ``RNAsubopt``.
-  :param force: Overwrite existing files with the same name.
-  :param verb: Print the current system-call to ``stderr``.
-  :param temp: Specify temperature in Celsius.
-  :type name: string
-  :type seq: string
-  :type sfile: string
-  :type temp: float
-  :type force: bool
-  :type verb: bool
+  Raises:
+    ExecError: Program does not exist.
+    SuboprocessError: Program terminated with exit code: ...
 
-  :return: A list of produced files containing ``barriers`` results. \
-      [sfile, bfile, rfile, efile, pfile]
-  :rtype: list
+  Returns:
+    [sfile, bfile, rfile, efile, pfile]: A list of produced files containing
+      ``barriers`` results.  
   """
 
   if which(barriers) is None :
@@ -445,23 +447,24 @@ def sys_subopt_range(seq,
     noLP=False,
     circ=False,
     verb=False):
-  """ Compute an energy range that computes a given number of structures.
+  """Compute an energy range that computes a given number of structures.
   
   .. note:: If your RAM is big enough, ``barriers`` can be compiled to read \
     billions of structures, however computations with more than 10.000.000 \
-    structures may take a looong time.
+    structures may take a very long time.
 
-  :param seq: nucleic acid sequence
-  :param RNAsubopt: path to executable
-  :param nos: number of structures
-  :param maxe: an upper bound of the energy range
-  :param temp: temperature in Celsius
-  :param noLP: exclude lonely-base-pairs in suboptimal structures
-  :param circ: compute density of states
-  :param verb: Print verbose information as a comment '#'.
+  Args:
+    seq (str): nucleic acid sequence.
+    RNAsubopt (str, optional): path to executable.
+    nos (int, optional): number of structures.
+    maxe (float, optional): an upper bound of the energy range.
+    temp (float, optional): temperature in Celsius.
+    noLP (bool): exclude lonely-base-pairs in suboptimal structures. Defaults to False.
+    circ (bool): compute density of states. Defaults to False.
+    verb (bool): Print verbose information as a comment '#'. Defaults to False.
   
-  :return: (energy-range, number-of-structures)
-  :rtype: tuple
+  Returns:
+    [tuple]: (energy-range, number-of-structures)
   """
 
   if which(RNAsubopt) is None :
@@ -578,7 +581,7 @@ def main():
   import ribolands.utils as rnu
   
   # Quick set test model params """
-  name, seq = rnu.parse_vienna_stdin()
+  name, seq = rnu.parse_vienna_stdin(sys.stdin)
   print name, seq
 
   #param='RNA'
@@ -596,6 +599,7 @@ def main():
   noLP=True
   verb=True
   force=True
+  binrates=True
 
   if s_ener is None :
     s_ener, s_nos = sys_subopt_range(seq, nos=s_nos, maxe=s_maxe, verb=verb)
@@ -607,14 +611,15 @@ def main():
       force=force)
 
   [sfile, bfile, efile, rfile, psfile] = sys_barriers(name, seq, sfile, 
-      minh=b_minh, maxn=b_maxn, rates=True, verb=verb, noLP=noLP, force=force)
-  tfile, _ = sys_treekin(name, seq, bfile, rfile, 
+      minh=b_minh, maxn=b_maxn, rates=True, binrates=binrates, 
+      verb=verb, noLP=noLP, force=force)
+  tfile, _ = sys_treekin(name, seq, bfile, rfile, binrates=binrates,
       p0=['2=1'], t0=1e-6, ti=1.02, t8=1e10, verb=verb, force=force)
-  pfile = rnu.plot_simulation(name, seq, tfile, 
-      ylim=(0,1), xlim=(1e-2, 1e10), lines=[], force=force)
+  pfile = rnu.plot_nxy(name+'.pdf', tfile, 
+      ylim=(0,1), xlim=(1e-2, 1e10), lines=[])
 
   # BCG = barriersCG(mfile, efile)
-  RM = rnu.parse_ratefile(rfile)
+  RM = rnu.parse_ratefile(rfile, binary=binrates)
   BT = rnu.parse_barfile(bfile, seq=seq)
 
   print RM, BT
