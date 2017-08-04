@@ -68,13 +68,15 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
     e1 = CG.node[s1]['energy']
     e2 = round(RNA.energy_of_structure(fullseq, s2, 0), 2)
 
+    saddleE = max(saddleE, max(e1,e2)) # ensure saddle is not lower than s1, s2
+
     # Energy barrier
-    dG_1s = round(saddleE-e1, 2)
-    dG_2s = round(saddleE-e2, 2)
+    dG_1s = saddleE-e1
+    dG_2s = saddleE-e2
 
     # Metropolis Rule
-    k_12 = k0 * math.e**(-dG_1s/_RT) if dG_1s > 0 else k0
-    k_21 = k0 * math.e**(-dG_2s/_RT) if dG_2s > 0 else k0
+    k_12 = k0 * math.exp(-dG_1s/_RT)
+    k_21 = k0 * math.exp(-dG_2s/_RT)
 
     CG.add_weighted_edges_from([(s1, s2, k_12)])
     CG.add_weighted_edges_from([(s2, s1, k_21)])
@@ -786,7 +788,7 @@ def main(args):
       bfile = None # sometimes bfile causes a segfault, so let's leave it out.
       try: # - Simulate with treekin
         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
-            treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
+            treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, mpack=True,
             exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
         norm += 1
       except SubprocessError: 

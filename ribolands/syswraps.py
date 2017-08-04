@@ -101,6 +101,7 @@ def sys_treekin(name, seq, bfile, rfile,
   binrates = False,
   useplusI = False,
   exponent = False,
+  mpack = False,
   force=False,
   verb = False):
   """Perform a system-call of the program ``treekin``.
@@ -122,6 +123,7 @@ def sys_treekin(name, seq, bfile, rfile,
     binrates (bool): Ratefile is in binary format. Defaults to False.
     useplusI (bool): Use treekin method --useplusI. Defaults to False.
     exponent (bool): Use treekin method --exponent. Defaults to False.
+    mpack (bool): Use treekin method --mpack-method=FLOAT128. Defaults to False.
     force (bool): Overwrite existing files. Defaults to False.
     verb (bool): Print verbose information. Defaults to False.
 
@@ -163,6 +165,7 @@ def sys_treekin(name, seq, bfile, rfile,
 
   treecall = [treekin, '--method', 'I']
   if useplusI : treecall.extend(['--useplusI'])
+  if mpack : treecall.extend(['--mpack-method=FLOAT128'])
   treecall.extend(['--tinc', str(ti)])
   treecall.extend(['--t0', str(t0)])
   treecall.extend(('--t8', str(t8)))
