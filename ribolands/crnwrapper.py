@@ -16,6 +16,7 @@
 
 import subprocess as sub
 from ribolands.syswraps import SubprocessError
+from crnsimulator import ReactionGraph
 
 def DiGraphSimulator(CG, fname, nlist, p0, t0, t8, 
     t_lin = 300,
