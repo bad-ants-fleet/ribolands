@@ -10,7 +10,6 @@ import math
 import argparse
 import networkx as nx
 import subprocess as s
-import collections as c
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import shutil
@@ -39,13 +38,15 @@ def smart_open(filename=None, mode='w'):
 def add_transition_edges(CG, saddles, args, s1, s2, ts=None): 
   """ compute the transition rates between two structures: s1 <-> s2, 
     where s2 is always the new, energetically better structure.
+    NOTE: actually, that is not always the case if you use exterior_folding,
+    then, s1 is always the conformation that is already present in the confomration
+    graph...
   """
   maxdG=args.maxdG
   k0 = args.k0
   fpath = args.findpath_width
   _RT = args._RT
   fullseq = CG.graph['full_sequence']
-
 
   saddleE = None
   if (s1, s2) in saddles :
@@ -55,12 +56,13 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
 
   # Minimum between direct and in-direct path barriers
   if ts : # then we know that the indirect path has to be part of saddles
-    tsE1 = saddles[(s1,ts)] if (s1,ts) in saddles else saddles[(ts,s1)]
-    tsE2 = saddles[(s2,ts)] if (s2,ts) in saddles else saddles[(ts,s2)]
+    tsE1 = saddles[(s1,ts)] #if (s1,ts) in saddles else saddles[(ts,s1)]
+    tsE2 = saddles[(s2,ts)] #if (s2,ts) in saddles else saddles[(ts,s2)]
     tsE = max(tsE1, tsE2)
     saddleE = min(tsE, saddleE)
 
   saddles[(s1,s2)] = saddleE
+  saddles[(s2,s1)] = saddleE
 
   valid = (ts is not None or saddleE-CG.node[s1]['energy'] <= maxdG)
 
@@ -114,38 +116,26 @@ def dump_conformation_graph(CG, seq, saddles, name, logf=sys.stdout,verb=False) 
       brts.write(pack("i", len(sorted_nodes)))
       for e, (ni, data) in enumerate(sorted_nodes, 1) :
 
-        # Calculate barrier heights to next basin.
+        # Calculate barrier heights to all other basins.
         nextmin = 0
         barrier = 0
         saddleE = None
+        nMsE = set()
         for ee, be in enumerate(barfile_nodes, 1):
-          if e == 1:
-            break
-          elif e == ee and saddleE is not None: 
-            # Successfully connected to a better lmin with minimal barrier
-            break
-          elif e == ee :
-            # The node could not be connected to a better lmin:
-            #   1) remove the node such that future paths don't end there
-            #   2) connect the node to a higher energy minimum with mimimal barrier.
-            barfile_nodes[ee-1] = None
+          if e == ee :
             continue
           if (ni, be) in saddles :
             sE = saddles[(ni,be)]
-          elif (be, ni) in saddles :
-            sE = saddles[(be,ni)]
+            assert sE == saddles[(be,ni)]
+            nMsE.add((ee, sE))
           else :
             sE = None
 
-          if (sE is not None) and (saddleE is None or sE < saddleE):
-            nextmin = ee
-            saddleE = sE
-        
-        if saddleE :
-          barrier = saddleE-data['energy']
+        mystr = ' '.join(map(lambda(x,y):'({:3d} {:6.2f})'.format(x,y-data['energy']), 
+            sorted(list(nMsE), key=lambda x:x[0])))
 
-        bar.write("{:4d} {} {:6.2f} {:3d} {:6.2f}\n".format(e, ni[:len(seq)], data['energy'], 
-          nextmin, barrier))
+        bar.write("{:4d} {} {:6.2f} {}\n".format(e, ni[:len(seq)], data['energy'], 
+          mystr))
 
         if verb :
           line = "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
@@ -216,14 +206,25 @@ def graph_pruning(CG, sorted_nodes, saddles, args) :
       if been > data['energy'] :
         still_reachables += 1
         continue
-
+      
+      multibest = {best : been}
+      #epsilon = 10 # kcal/mol
+    
+      (transfer, minbar) = (best, None)
       for e, nbr in enumerate(nbrs[1:]) :
-        always_true = add_transition_edges(CG, saddles, args, nbr, best, ni)
+        for mb in multibest.keys():
+          always_true = add_transition_edges(CG, saddles, args, nbr, mb, ni)
+          msE = saddles[(nbr, mb)]
+          if minbar is None or minbar < (msE - CG.node[ni]['energy']):
+            (transfer, minbar) = (nbr, msE - CG.node[ni]['energy'])
+        #if CG.node[nbr]['energy'] <= been + epsilon:
+        multibest[nbr] = CG.node[nbr]['energy']
         if always_true is False :
           raise ValueError('Did not add the transition edge!')
 
       if True: # Set to 'False' to keep all nodes
         CG.node[ni]['active']=False
+        CG.node[transfer]['occupancy'] += CG.node[ni]['occupancy']
         CG.node[ni]['occupancy']=0.0
         deleted_nodes += 1
 
@@ -276,6 +277,7 @@ def expand_graph(CG, saddles, args, mode='default'):
         identity=CG.graph['seqid'], active=True)
     CG.graph['seqid'] += 1
   elif mode == 'default' or mode == 'mfe-only':
+    # Try to connect MFE to every existing state
     for ni in CG.nodes() :
       if CG.node[ni]['active'] == False : continue
       if ni == ss or CG.has_edge(ni,ss) : continue
@@ -292,7 +294,10 @@ def expand_graph(CG, saddles, args, mode='default'):
         CG.graph['seqid'] += 1
 
   if mode == 'default' or mode == 'breathing-only':
-    """ do the helix breathing graph expansion """
+    # Do the helix breathing graph expansion
+    ext_moves = dict()
+    # ext_moves[sequence] = [set((con,paren),...), structure]
+    # sequence = exterior-loop sequence with NNN replacing constrained elements
     for ni, data in CG.nodes_iter(data=True):
       if data['active'] == False : continue
       en  = data['energy']
@@ -302,9 +307,9 @@ def expand_graph(CG, saddles, args, mode='default'):
       sss = ni[0:len(seq)]
 
       opened = open_breathing_helices(seq, sss, free=mfree)
-      #print opened
+      #print 'opened', opened
       for onbr in opened :
-        nbr = fold_exterior_loop(seq, onbr)
+        nbr, ext = fold_exterior_loop(seq, onbr, ext_moves)
         future = '.' * (len(ni) - len(nbr))
         nbr += future
 
@@ -323,6 +328,47 @@ def expand_graph(CG, saddles, args, mode='default'):
           CG.graph['seqid'] += 1
         else :
           """# WARNING: Could not add transition edge!"""
+
+        # TODO: figure out if this is exact before merging into master
+        if ext_moves[ext][0] :
+          for (parent, child) in ext_moves[ext][0] :
+            assert parent != ni # Parents may never be the same
+            # Children can be the same, if the change is within the helix-breathing-move-set
+            # p1 .((((((((.(((.......))).))).)))))......................
+            # p2 ..(((((((.(((.......))).))).)))).......................
+            # c1 .((((((((.(((.......))).))).)))))......(((......)))....
+            # c2 .((((((((.(((.......))).))).)))))......(((......)))....
+            if child == nbr : continue
+            if CG.has_edge(parent, ni) :
+              if CG.has_node(child) and CG.has_node(nbr):
+                if CG.has_edge(nbr, child): 
+                  continue
+                # Calculate saddleE from saddleE of parents?
+                sP = saddles[(parent, ni)] if (parent, ni) in saddles else saddles[(ni, parent)]
+                sC1 = round(CG.node[child]['energy'] + sP - CG.node[parent]['energy'], 2)
+                sC2 = round(CG.node[nbr]['energy'] + sP - CG.node[ni]['energy'], 2)
+
+                if sC1 == sC2 and (nbr, child) not in saddles:
+                    saddles[(nbr,child)] = sC1
+                    saddles[(child,nbr)] = sC1
+                #else :
+                #  print CG.node[child]['energy'], sP, CG.node[parent]['energy']
+                #  print CG.node[nbr]['energy'], sP, CG.node[ni]['energy']
+
+                if add_transition_edges(CG, saddles, args, nbr, child):
+                  CG.node[nbr]['active'] = True # in case it was there but inactive
+                  CG.node[child]['active'] = True # in case it was there but inactive
+                #else :
+                #  print ext
+                #  print 'sad', saddles[(nbr,child)]
+                #  print nbr, CG.node[nbr]['energy']
+                #  print child, CG.node[child]['energy']
+                #  print saddles[(nbr,child)], CG[nbr][child]['weight'], CG[nbr][child]['weight']
+                #  raise Exception("didn't add an expected neighbor")
+                  
+        # Track the final structure, every new identical ext-change will be
+        # connected, if the parents were connected.
+        ext_moves[ext][0].add((ni, nbr))
 
   if not CG.has_node(ss) or CG.node[ss]['active'] is False:
     print "# WARNING: ", ss, "[mfe secondary structure not connected]"
@@ -399,7 +445,7 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, (n, m), free):
 
   return 
 
-def fold_exterior_loop(seq, con, exterior_only=True):
+def fold_exterior_loop(seq, con, ext_moves, exterior_only=True):
   """ Constrained folding 
   
   The default behavior is "exterior_only", which replaces all constrained
@@ -418,7 +464,7 @@ def fold_exterior_loop(seq, con, exterior_only=True):
     pt = ril.make_pair_table(con, base=0)
     ext = ''
 
-    # shrink the sequcnes
+    # shrink the sequences
     skip = 0
     for i, j in enumerate(pt):
       if i < skip : continue
@@ -427,7 +473,14 @@ def fold_exterior_loop(seq, con, exterior_only=True):
       else :
         ext += spacer
         skip = j+1
-    css, cfe = RNA.fold(ext)
+
+    # If we have seen this exterior loop before, then we don't need to 
+    # calculate again, and we have to trace back if the parents are connected.
+    if ext in ext_moves :
+      css = ext_moves[ext][1]
+    else :
+      css, cfe = RNA.fold(ext)
+      ext_moves[ext] = [set(), css]
     
     # replace characters in constraint
     c, skip = 0, 0
@@ -440,15 +493,16 @@ def fold_exterior_loop(seq, con, exterior_only=True):
         c += len(spacer)
         skip = j+1
     ss = con
-
+    
   else :
+    raise DeprecationWarning('This mode is deprecated, it ignores stuff')
     # Force copy of string for ViennaRNA swig interface bug
     tmp = (con + '.')[:-1]
     RNA.cvar.fold_constrained = 1
     ss, mfe = RNA.fold(seq, tmp)
     RNA.cvar.fold_constrained = 0
 
-  return ss
+  return ss, ext
 
 def talk_generator(CG, sorted_nodes, tfile):
   """ Generator function that yields the time course information from the
@@ -576,6 +630,7 @@ def plot_simulation(all_in, args):
 def add_drtrafo_args(parser):
   """ A collection of arguments that are used by DrTransformer """
   # Treekin parameters
+  parser.add_argument('--version', action='version', version='%(prog)s ' + ril.__version__)
   parser.add_argument("--treekin", default='treekin', action = 'store',
       metavar='<str>', help="Path to the *treekin* executable.")
   parser.add_argument("--ti", type=float, default=1.2, metavar='<flt>',
@@ -738,7 +793,7 @@ def main(args):
       transcript_length=None,
       total_time=0,
       seqid=0)
-  saddles = c.defaultdict()
+  saddles = dict()
 
   norm, plusI, expo = 0, 0, 0
   for tlen in range(args.start, args.stop) :
