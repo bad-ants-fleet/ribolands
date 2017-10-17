@@ -20,11 +20,14 @@ from struct import pack
 import ribolands as ril
 from ribolands.syswraps import SubprocessError, ExecError, check_version
 from ribolands.crnwrapper import DiGraphSimulator
+from ribolands.trafo import fold_exterior_loop
+
 import RNA
 
 @contextlib.contextmanager
 def smart_open(filename=None, mode='w'):
   if filename and filename != '-':
+
     fh = open(filename, mode)
   else:
     fh = sys.stdout
@@ -47,12 +50,15 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
   fpath = args.findpath_width
   _RT = args._RT
   fullseq = CG.graph['full_sequence']
+  md = CG.graph['model_details']
+  fc = CG.graph['fold_compound']
 
   saddleE = None
   if (s1, s2) in saddles :
     saddleE = saddles[(s1,s2)]
   else :
-    saddleE = float(RNA.find_saddle(fullseq, s1, s2, fpath))/100
+    saddleE = float(fc.path_findpath_saddle(s1, s2, fpath))/100
+    #saddleE = float(RNA.find_saddle(fullseq, s1, s2, fpath))/100
 
   # Minimum between direct and in-direct path barriers
   if ts : # then we know that the indirect path has to be part of saddles
@@ -68,7 +74,8 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
 
   if valid :
     e1 = CG.node[s1]['energy']
-    e2 = round(RNA.energy_of_structure(fullseq, s2, 0), 2)
+    e2 = round(fc.eval_structure(s2), 2)
+    #e2 = round(RNA.energy_of_structure(fullseq, s2, 0), 2)
 
     saddleE = max(saddleE, max(e1,e2)) # ensure saddle is not lower than s1, s2
 
@@ -255,13 +262,17 @@ def expand_graph(CG, saddles, args, mode='default'):
   csid = CG.graph['seqid']
   fseq = CG.graph['full_sequence']
   tlen = CG.graph['transcript_length']
+  md = CG.graph['model_details']
+  fc_full = CG.graph['fold_compound']
   seq = fseq[0:tlen]
 
   if mode not in ['default', 'mfe-only', 'breathing-only']:
     raise ValueError('unknown expansion mode')
 
   # Add MFE
-  ss, mfe = RNA.fold(seq)
+  fc_tmp = RNA.fold_compound(seq, md)
+  ss, mfe = fc_tmp.mfe()
+  #ss, mfe = RNA.fold(seq)
   future = '.' * (len(fseq)-tlen)
   ss = ss + future
   #print >> sys.stderr, "{}\n{} {:6.2f}".format(seq, ss, mfe)
@@ -272,7 +283,8 @@ def expand_graph(CG, saddles, args, mode='default'):
   # otherwise, go through all nodes and try to add transition edges
 
   if nx.number_of_nodes(CG) == 0 :
-    en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
+    en = round(fc_full.eval_structure(ss), 2)
+    #en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
     CG.add_node(ss, energy=en, occupancy=1.0, 
         identity=CG.graph['seqid'], active=True)
     CG.graph['seqid'] += 1
@@ -286,7 +298,8 @@ def expand_graph(CG, saddles, args, mode='default'):
         if add_transition_edges(CG, saddles, args, ni, ss):
           CG.node[ss]['active'] = True # in case it was there but inactive
       elif add_transition_edges(CG, saddles, args, ni, ss) :
-        en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
+        en = round(fc_full.eval_structure(ss), 2)
+        #en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
         CG.node[ss]['active'] = True
         CG.node[ss]['energy'] = en
         CG.node[ss]['occupancy'] = 0.0
@@ -309,7 +322,7 @@ def expand_graph(CG, saddles, args, mode='default'):
       opened = open_breathing_helices(seq, sss, free=mfree)
       #print 'opened', opened
       for onbr in opened :
-        nbr, ext = fold_exterior_loop(seq, onbr, ext_moves)
+        nbr, ext = fold_exterior_loop(md, seq, onbr, ext_moves)
         future = '.' * (len(ni) - len(nbr))
         nbr += future
 
@@ -320,7 +333,8 @@ def expand_graph(CG, saddles, args, mode='default'):
           if add_transition_edges(CG, saddles, args, ni, nbr):
             CG.node[nbr]['active'] = True # in case it was there but inactive
         elif add_transition_edges(CG, saddles, args, ni, nbr) :
-          enbr = round(RNA.energy_of_structure(fseq, nbr, 0), 2)
+          enbr = round(fc_full.eval_structure(nbr), 2)
+          #enbr = round(RNA.energy_of_structure(fseq, nbr, 0), 2)
           CG.node[nbr]['energy'] = enbr
           CG.node[nbr]['active'] = True
           CG.node[nbr]['occupancy'] = 0.0
@@ -423,12 +437,12 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, (n, m), free):
         rec_fill_nbrs(nbrs, ''.join(nb), mb, pt, (p,q), free-o)
         add = False
         break
-      else :
-        # remove the base-pairs
-        pt[p] = pt[q] = -1
-        nb[p] = nb[q] = '.'
-        mb[p] = mb[q] = '.'
-        o += 2 # one base-pair deleted, two bases freed
+
+      # remove the base-pairs
+      pt[p] = pt[q] = -1
+      nb[p] = nb[q] = '.'
+      mb[p] = mb[q] = '.'
+      o += 2 # one base-pair deleted, two bases freed
 
       l = 0 # reset interior-loop size
       while (p < q and pt[p+1] == -1):
@@ -444,65 +458,6 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, (n, m), free):
     skip = j+1
 
   return 
-
-def fold_exterior_loop(seq, con, ext_moves, exterior_only=True):
-  """ Constrained folding 
-  
-  The default behavior is "exterior_only", which replaces all constrained
-  helices with short 'NNN' stretches at the sequence level. This reduces 
-  the sequence length (n) and therefore the runtime O(n^3)
-  
-  :param seq: RNA sequence
-  :param con: constraint
-  :param exterior_only: only fold the extior loop region
-
-  :return: secondary structure
-  """
-
-  if exterior_only :
-    spacer = 'NNN'
-    pt = ril.make_pair_table(con, base=0)
-    ext = ''
-
-    # shrink the sequences
-    skip = 0
-    for i, j in enumerate(pt):
-      if i < skip : continue
-      if j == -1 : 
-        ext += seq[i]
-      else :
-        ext += spacer
-        skip = j+1
-
-    # If we have seen this exterior loop before, then we don't need to 
-    # calculate again, and we have to trace back if the parents are connected.
-    if ext in ext_moves :
-      css = ext_moves[ext][1]
-    else :
-      css, cfe = RNA.fold(ext)
-      ext_moves[ext] = [set(), css]
-    
-    # replace characters in constraint
-    c, skip = 0, 0
-    for i, j in enumerate(pt):
-      if i < skip : continue
-      if j == -1 : 
-        con = con[:i] + css[c] + con[i+1:]
-        c += 1
-      else :
-        c += len(spacer)
-        skip = j+1
-    ss = con
-    
-  else :
-    raise DeprecationWarning('This mode is deprecated, it ignores stuff')
-    # Force copy of string for ViennaRNA swig interface bug
-    tmp = (con + '.')[:-1]
-    RNA.cvar.fold_constrained = 1
-    ss, mfe = RNA.fold(seq, tmp)
-    RNA.cvar.fold_constrained = 0
-
-  return ss, ext
 
 def talk_generator(CG, sorted_nodes, tfile):
   """ Generator function that yields the time course information from the
@@ -770,8 +725,19 @@ def main(args):
   ############################
   # Start with DrTransformer #
   ############################
-  RNA.cvar.noLonelyPairs = 1
-  RNA.cvar.temperature = args.temperature
+
+  # Set model details.
+  vrna_md = RNA.md()
+  vrna_md.noLP = 1
+  vrna_md.temperature = args.temperature
+  #vrna_md.circ = 2
+  #vrna_md.dangles = 2
+
+  #RNA.cvar.noLonelyPairs = 1
+  #RNA.cvar.temperature = args.temperature
+
+  vrna_fc = RNA.fold_compound(fullseq, vrna_md)
+  #fc.contraints_add('.....(..)', RNA.CONSTRAINT_DB_DEFAULT | RNA.CONSTRAINT_DB_ENFORCE_BP)
 
   check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
 
@@ -789,10 +755,12 @@ def main(args):
 
   # initialize a directed conformation graph
   CG = nx.DiGraph(
-      full_sequence=fullseq, 
-      transcript_length=None,
-      total_time=0,
-      seqid=0)
+      full_sequence = fullseq, 
+      model_details = vrna_md,
+      fold_compound = vrna_fc,
+      transcript_length = None,
+      total_time = 0,
+      seqid = 0)
   saddles = dict()
 
   norm, plusI, expo = 0, 0, 0
