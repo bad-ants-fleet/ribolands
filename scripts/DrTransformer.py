@@ -17,12 +17,11 @@ import tempfile
 import contextlib
 from struct import pack
 
+import RNA
 import ribolands as ril
-from ribolands.syswraps import SubprocessError, ExecError, check_version
+from ribolands.syswraps import SubprocessError, ExecError, check_version, VersionError
 from ribolands.crnwrapper import DiGraphSimulator
 from ribolands.trafo import fold_exterior_loop
-
-import RNA
 
 @contextlib.contextmanager
 def smart_open(filename=None, mode='w'):
@@ -58,7 +57,6 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
     saddleE = saddles[(s1,s2)]
   else :
     saddleE = float(fc.path_findpath_saddle(s1, s2, fpath))/100
-    #saddleE = float(RNA.find_saddle(fullseq, s1, s2, fpath))/100
 
   # Minimum between direct and in-direct path barriers
   if ts : # then we know that the indirect path has to be part of saddles
@@ -75,7 +73,6 @@ def add_transition_edges(CG, saddles, args, s1, s2, ts=None):
   if valid :
     e1 = CG.node[s1]['energy']
     e2 = round(fc.eval_structure(s2), 2)
-    #e2 = round(RNA.energy_of_structure(fullseq, s2, 0), 2)
 
     saddleE = max(saddleE, max(e1,e2)) # ensure saddle is not lower than s1, s2
 
@@ -255,6 +252,10 @@ def expand_graph(CG, saddles, args, mode='default'):
   :return: Number of new nodes
 
   """
+  # TODO: coarse grain results... that means if a rate is much faster than
+  # 1/t8 it will equilibrate, so lets just distribute the occupancy there upfront.
+  # This reduces the output for visualization as well...
+  #
   cutoff= args.occupancy_cutoff
   verb  = args.verbose
   mfree = args.min_breathing
@@ -272,7 +273,6 @@ def expand_graph(CG, saddles, args, mode='default'):
   # Add MFE
   fc_tmp = RNA.fold_compound(seq, md)
   ss, mfe = fc_tmp.mfe()
-  #ss, mfe = RNA.fold(seq)
   future = '.' * (len(fseq)-tlen)
   ss = ss + future
   #print >> sys.stderr, "{}\n{} {:6.2f}".format(seq, ss, mfe)
@@ -284,7 +284,6 @@ def expand_graph(CG, saddles, args, mode='default'):
 
   if nx.number_of_nodes(CG) == 0 :
     en = round(fc_full.eval_structure(ss), 2)
-    #en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
     CG.add_node(ss, energy=en, occupancy=1.0, 
         identity=CG.graph['seqid'], active=True)
     CG.graph['seqid'] += 1
@@ -299,7 +298,6 @@ def expand_graph(CG, saddles, args, mode='default'):
           CG.node[ss]['active'] = True # in case it was there but inactive
       elif add_transition_edges(CG, saddles, args, ni, ss) :
         en = round(fc_full.eval_structure(ss), 2)
-        #en = round(RNA.energy_of_structure(fseq, ss, 0), 2)
         CG.node[ss]['active'] = True
         CG.node[ss]['energy'] = en
         CG.node[ss]['occupancy'] = 0.0
@@ -334,7 +332,6 @@ def expand_graph(CG, saddles, args, mode='default'):
             CG.node[nbr]['active'] = True # in case it was there but inactive
         elif add_transition_edges(CG, saddles, args, ni, nbr) :
           enbr = round(fc_full.eval_structure(nbr), 2)
-          #enbr = round(RNA.energy_of_structure(fseq, nbr, 0), 2)
           CG.node[nbr]['energy'] = enbr
           CG.node[nbr]['active'] = True
           CG.node[nbr]['occupancy'] = 0.0
@@ -722,6 +719,13 @@ def main(args):
   args.maxdG = -args._RT * math.log(args.min_rate)
   #print args.min_rate, '=>', args.maxdG
 
+  check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
+
+  def versiontuple(rv):
+    return tuple(map(int, (rv.split("."))))
+  if versiontuple(RNA.__version__) < versiontuple(ril._MIN_VIENNARNA_VERSION):
+    raise VersionError('ViennaRNA', RNA.__version__, ril._MIN_VIENNARNA_VERSION)
+
   ############################
   # Start with DrTransformer #
   ############################
@@ -730,16 +734,8 @@ def main(args):
   vrna_md = RNA.md()
   vrna_md.noLP = 1
   vrna_md.temperature = args.temperature
-  #vrna_md.circ = 2
-  #vrna_md.dangles = 2
-
-  #RNA.cvar.noLonelyPairs = 1
-  #RNA.cvar.temperature = args.temperature
 
   vrna_fc = RNA.fold_compound(fullseq, vrna_md)
-  #fc.contraints_add('.....(..)', RNA.CONSTRAINT_DB_DEFAULT | RNA.CONSTRAINT_DB_ENFORCE_BP)
-
-  check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
 
   if _drffile :
     with smart_open(_drffile, 'w') as dfh :
