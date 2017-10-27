@@ -86,7 +86,7 @@ class ConformationGraph(nx.DiGraph):
     
     """
     active = filter(lambda (n,d): d['active'], self.nodes(data=True))
-    return sorted(active, key=lambda x: x[1]['energy'], reverse=descending)
+    return sorted(active, key=lambda x: (x[1]['energy'], x[0]), reverse=descending)
 
   def get_saddle(self, s1, s2):
     if self.has_edge(s1,s2) :
