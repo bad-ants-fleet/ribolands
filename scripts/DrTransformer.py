@@ -23,8 +23,6 @@ from ribolands.syswraps import SubprocessError, ExecError, check_version, Versio
 from ribolands.crnwrapper import DiGraphSimulator
 from ribolands.trafo import ConformationGraph
 
-import statprof
-
 @contextlib.contextmanager
 def smart_open(filename=None, mode='w'):
   if filename and filename != '-':
@@ -38,24 +36,6 @@ def smart_open(filename=None, mode='w'):
   finally:
     if fh is not sys.stdout:
       fh.close()
-
-def xxx_add_transition_edges(CG, saddles, args, s1, s2, ts=None): 
-  pass
-
-def xxx_dump_conformation_graph(CG, seq, saddles, name, logf=sys.stdout,verb=False) :
-  pass
-
-def xxx_get_stats_and_update_occupancy(CG, sorted_nodes, tfile) :
-  pass
-
-def xxx_graph_pruning(CG, sorted_nodes, saddles, args) :
-  pass
-
-def xxx_expand_graph(CG, saddles, args, mode='default'):
-  pass
-
-def xxx_talk_generator(CG, sorted_nodes, tfile):
-  pass
 
 def plot_xmgrace(all_in, args):
   head = """
@@ -154,10 +134,15 @@ def add_drtrafo_args(parser):
   parser.add_argument('--version', action='version', version='%(prog)s ' + ril.__version__)
   parser.add_argument("--treekin", default='treekin', action = 'store',
       metavar='<str>', help="Path to the *treekin* executable.")
-  parser.add_argument("--ti", type=float, default=1.2, metavar='<flt>',
-      help="""Output-time increment of treekin solver (t1 * ti = t2).""")
+
+  parser.add_argument("--mpack-method", metavar='<str>', action='store',
+      choices=(['FLOAT128', 'LD', 'QD', 'DD']),
+      help="""Increase the precision of treekin simulations. Requires a development
+      version of treekin with mpack support.""")
 
   # Common parameters
+  parser.add_argument("--ti", type=float, default=1.2, metavar='<flt>',
+      help="""Output-time increment of treekin solver (t1 * ti = t2).""")
   parser.add_argument("--t8", type=float, default=0.02, metavar='<flt>',
       help="Transcription speed [seconds per nucleotide].")
   parser.add_argument("--tX", type=float, default=60, metavar='<flt>',
@@ -172,10 +157,25 @@ def add_drtrafo_args(parser):
   parser.add_argument("--findpath-width", type = int, default = 20, 
       metavar='<int>',
       help="Search width for *findpath* heuristic.") 
-  #parser.add_argument("--min-rate", type = float, default = 1e-10, 
-  #    metavar='<flt>',
-  #    help="""Minmum rate to accept a new structure as neighboring
-  #    conformation.""")
+
+  parser.add_argument("--minh", type=float, default=0.01, metavar='<flt>',
+      help="Merge structures separated by a barrier smaller than minh.")
+
+  parser.add_argument("--soft-minh", type=float, default=0, metavar='<flt>',
+      help="""Merge structures separated by a barrier smaller than minh *for
+      visualzation only*. The dynamics will still be caculated based on the
+      more detailed network. This parameter will only have an effect if it is
+      higher than --minh.""")
+
+  parser.add_argument("--min-rate", type = float, default = None, metavar='<flt>',
+      help="""Minmum rate to accept a new structure as neighboring
+      conformation.""")
+
+  parser.add_argument("--maxh", type=float, default=None, metavar='<flt>',
+      help=argparse.SUPPRESS)
+      #help="""Do *not* merge structures separated by a barrier higher than maxh
+      #during graph pruning!""")
+
   parser.add_argument('--structure-search-mode', default = 'default',
       choices=('default', 'mfe-only', 'breathing-only'),
       help="""Specify one of three modes: *default*: find new secondary
@@ -270,10 +270,10 @@ def main(args):
     _tmpdir = tempfile.mkdtemp(prefix='DrTrafo')
 
   # Adjust simulation parameters
-  args._RT=0.61632077549999997
+  _RT=0.61632077549999997
   if args.temperature != 37.0 :
     kelvin = 273.15 + args.temperature
-    args._RT = (args._RT/310.15)*kelvin
+    _RT = (_RT/310.15)*kelvin
 
   if args.stop is None : 
     args.stop = len(fullseq)+1
@@ -283,10 +283,65 @@ def main(args):
   if args.tX < args.t8 :
     raise ValueError('Simulation time after transcription --tX must be >= --t8')
 
-  # Minrate specifies the lowest accepted rate for simulations (sec^-1)
-  # it can be directly converted into a activation energy that results this rate
-  #args.maxdG = -args._RT * math.log(args.min_rate)
-  #print args.min_rate, '=>', args.maxdG
+  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+  # Adjust the simulation window for treekin:
+  #
+  #   k0           
+  #   2e5  /s       50 nuc/s               1e-inf /s
+  #   4000 /t8      1  nuc/t8              1e-inf /t8
+  #   |------$------|-------------------$----------->
+  #          k-fast                     k-slow
+  #          --minh                     --maxh
+  #          |------|---------------|--->
+  #          t0     t8 0.02 s       tX = 86400 s
+  #   <----->    simulation             <---------->
+  #   instant                             rate = 0
+  #
+  # (1) The rate of a spontaneous folding event 
+  # (>= k-fast) has to be much faster than the 
+  # rate of chain elongation (kx).
+  #
+  # (2) The rate of an effectively 0 folding 
+  # event (< k-slow) has to be much slower than 
+  # the rate of chain elongation (kx), it 
+  # should also be much slower than the 
+  # post-transcriptional simulation time --tX
+  #
+  # Parameters:
+  # k0 = maximum folding rate /s
+  # t8 = time for chain elongation 
+  # tX = post-transcriptional simulation time
+  # t0 = first simulation output time (<< t8)
+  # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+
+  if args.min_rate is not None:
+    args.maxdG = -_RT * math.log(args.min_rate/args.k0)
+  else :
+    args.maxdG = 0 # off
+
+  mhrate = args.k0 * math.exp(-args.minh/_RT)
+
+  # Compare --minh, --min-rate, --t8 and --tX :
+  if args.verbose:
+    print '{} dG minh => {} /s rate and {} s time at k0 = {}'.format(
+        args.minh, mhrate, 1/mhrate, args.k0)
+
+    if args.min_rate is not None:
+      print '{} /s min-rate => {} dG barrier and {:g} s time at k0 = {}'.format(
+          args.min_rate, args.maxdG, 1/args.min_rate, args.k0)
+
+    # Minrate specifies the lowest accepted rate for simulations (sec^-1)
+    # it can be directly converted into a activation energy that results this rate
+    print 'Settings correspond to potential new paramters:'
+    print '--t-fast: {} s, --t-ext {} s, --t-end {} s, --t-slow {} s'.format(
+        1/mhrate, args.t8, args.tX, 1/args.min_rate if args.min_rate is not None else 'inf')
+
+  if 1/mhrate * 10 > args.t8 :
+    raise Exception('Conflicting Settings: rate for equilibration must be much faster than for nucleotide extension.')
+    
+  if args.min_rate is not None and args.tX * 100 > 1/args.min_rate :
+    raise Exception('Conflicting Settings: 1/--min-rate should be much longer than the simulation time --tX.')
+
 
   check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
 
@@ -317,125 +372,151 @@ def main(args):
       lfh.write("# ID, Structure, Energy, Occupancy\n")
 
   # initialize a directed conformation graph
-  CG = ConformationGraph(fullseq, vrna_md, args._RT)
-  CG.logfile = sys.stdout
+  CG = ConformationGraph(fullseq, vrna_md)
   CG.occupancy_cutoff = args.occupancy_cutoff
   CG.findpath_width = args.findpath_width
-  #CG._maxdG = args.maxdG
+  CG._maxdG = args.maxdG
   CG._k0 = args.k0
 
-  statprof.start()
+  #import statprof
+  #statprof.start()
 
-  norm, plusI, expo = 0, 0, 0
-  for tlen in range(args.start, args.stop) :
+  CG._transcript_length = args.start
 
-    nn = CG.expand(exp_mode=args.structure_search_mode)
-    #print """ {} new nodes """.format(nn), CG.graph['seqid'], "total nodes"
+  with smart_open(_logfile, 'w') as lfh :
+    CG.logfile = lfh
+    norm, plusI, expo, fail = 0, 0, 0, 0
+    for tlen in range(args.start, args.stop) :
+      nn = CG.expand(exp_mode=args.structure_search_mode)
+      #print """ {} new nodes """.format(nn), CG._nodeid, "total nodes"
 
-    if args.pyplot or args.xmgrace:
-      ttt = CG.graph['total_time']
-      if ttt == 0 :
-        all_courses.extend([[] for i in range(nn)])
-      else :
-        all_courses.extend([[(ttt,0)] for i in range(nn)])
-      # DO **NOT** DO IT THIS WAY: all_courses.extend([ [] ] * nn )
-
-    # Simulate
-    _fname = _tmpdir+'/'+name+'-'+str(tlen)
-    _t0 = args.t0 if args.t0 > 0 else 1e-6
-    _t8 = args.tX if tlen == args.stop-1 else args.t8
-    (t_lin, t_log) = (None, args.t_log) if tlen == args.stop-1 else (args.t_lin, None)
-
-    # produce input for treekin simulation
-    # MYCG.simulate(_fname, logf=lfh, verb=(False or _logfile))
-    [bfile, rfile, p0, nlist] = CG.get_simulation_files_tkn(_fname)
-
-    dn,sr = 0,0
-    if len(nlist) == 1 :
-      # Fake Results for DrForna
-      CG._total_time += _t8
-      if _drffile :
-        with smart_open(_drffile, 'a') as dfh:
-          ss = nlist[0][0]
-          line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
-              CG._total_time, 1.0, ss[:len(seq)], CG.node[ss]['energy'])
-          dfh.write(line + '\n')
+      mn = CG.coarse_grain(minh = args.minh)
+      if args.verbose :
+        print "Merged {} nodes after expanding {} new nodes.".format(len(mn), nn)
 
       if args.pyplot or args.xmgrace:
-        ss = nlist[0][0]
-        ident = CG.node[ss]['identity']
-        all_courses[ident].append((CG._total_time, 1.0))
+        ttt = CG._total_time
+        if ttt == 0 :
+          all_courses.extend([[] for i in range(nn)])
+        else :
+          all_courses.extend([[(ttt,0)] for i in range(nn)])
+        # DO **NOT** DO IT THIS WAY: all_courses.extend([ [] ] * nn )
 
-    else :
-      seq = ''
-      bfile = None # sometimes bfile causes a segfault, so let's leave it out.
-      try: # - Simulate with treekin
-        tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
-            treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, mpack=False,
-            exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
-        norm += 1
-      except SubprocessError: 
-        try : # - Simulate with treekin and --exponent
+      ############
+      # Simulate #
+      ############
+      _fname = _tmpdir+'/'+name+'-'+str(tlen)
+      _t0 = args.t0 if args.t0 > 0 else 1e-6
+      _t8 = args.tX if tlen == args.stop-1 else args.t8
+      (t_lin, t_log) = (None, args.t_log) if tlen == args.stop-1 else (args.t_lin, None)
+
+      # produce input for treekin simulation
+      [bfile, rfile, p0, nlist] = CG.get_simulation_files_tkn(_fname)
+
+      for e, (ni, data) in enumerate(nlist, 1) :
+          lfh.write("{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
+              tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity']))
+
+      dn, sr, rj = 0, 0, 0
+      if len(nlist) == 1 :
+        # Fake simulation results for DrForna
+        CG._total_time += _t8
+        if _drffile :
+          with smart_open(_drffile, 'a') as dfh:
+            ss = nlist[0][0]
+            line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'], 
+                CG._total_time, 1.0, ss[:len(seq)], CG.node[ss]['energy'])
+            dfh.write(line + '\n')
+
+        if args.pyplot or args.xmgrace:
+          ss = nlist[0][0]
+          ident = CG.node[ss]['identity']
+          all_courses[ident].append((CG._total_time, 1.0))
+
+      else :
+        seq = ''
+        bfile = None # sometimes bfile causes a segfault, so let's leave it out.
+        try: # - Simulate with treekin
           tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
               treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
-              exponent=True, useplusI=False, force=True, verb=(args.verbose>0))
-          expo += 1
+              mpack_method=args.mpack_method,
+              exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
+          norm += 1
         except SubprocessError: 
-          try : # - Simulate with treekin and --useplusI
+          try : # - Simulate with treekin and --exponent
             tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
+                mpack_method=args.mpack_method,
                 treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
-                exponent=False, useplusI=True, force=True, verb=(args.verbose>0))
-            plusI += 1
-          except SubprocessError:
-            if args.verbose > 1:
-              print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
-            # - Simulate with crnsimulator python package (slower)
-            _odename = name+str(tlen)
-            tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8, 
-                t_lin = t_lin,
-                t_log = t_log,
-                jacobian=False, # faster!
-                verb=(args.verbose>0))
+                exponent=True, useplusI=False, force=True, verb=(args.verbose>0))
+            expo += 1
+          except SubprocessError: 
+            try : # - Simulate with treekin and --useplusI
+              tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
+                  mpack_method=args.mpack_method,
+                  treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8, 
+                  exponent=False, useplusI=True, force=True, verb=(args.verbose>0))
+              plusI += 1
+            except SubprocessError:
+              if args.verbose > 1:
+                print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
+              # - Simulate with crnsimulator python package (slower)
+              _odename = name+str(tlen)
+              tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8, 
+                  t_lin = t_lin,
+                  t_log = t_log,
+                  jacobian=False, # faster!
+                  verb=(args.verbose>0))
+              fail += 1
 
-      except ExecError, e:
-        # NOTE: This is a hack to avoid treekin simulations in the first place
-        _odename = name+str(tlen)
-        tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8, 
-            t_lin = t_lin,
-            t_log = t_log,
-            jacobian=False, # faster!
-            verb=(args.verbose>1))
+        except ExecError, e:
+          # NOTE: This is a hack to avoid treekin simulations in the first place
+          _odename = name+str(tlen)
+          tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8, 
+              t_lin = t_lin,
+              t_log = t_log,
+              jacobian=False, # faster!
+              verb=(args.verbose>1))
 
-      # Get Results
-      time_inc, iterations = CG.update_occupancies_tkn(tfile, nlist)
-      #print time_inc, iterations
+        # Get Results
+        time_inc, iterations = CG.update_occupancies_tkn(tfile, nlist)
+        #print time_inc, iterations
 
-      if args.pyplot or args.xmgrace or _drffile :
-        for data in CG.sorted_trajectories_iter(nlist, tfile) :
-          [id_, tt_, oc_, ss_, en_] = data
-          if args.pyplot or args.xmgrace :
-            all_courses[id_].append((tt_,oc_))
-          if _drffile :
-            with smart_open(_drffile, 'a') as dfh:
-              dfh.write("{} {} {} {:s} {:6.2f}\n".format(*data))
+        softmap = dict()
+        if args.soft_minh and args.soft_minh > args.minh :
+          copyCG = CG.graph_copy()
+          softmap = copyCG.coarse_grain(minh=10)
+          del copyCG
 
-      CG._total_time += time_inc
-      
-      # Prune
-      dn,sr = CG.prune(nlist)
+        if args.pyplot or args.xmgrace or _drffile :
+          for data in CG.sorted_trajectories_iter(nlist, tfile, softmap) :
+            [id_, tt_, oc_, ss_, en_] = data
+            if args.pyplot or args.xmgrace :
+              all_courses[id_].append((tt_,oc_))
+            if _drffile :
+              with smart_open(_drffile, 'a') as dfh:
+                dfh.write("{} {} {} {:s} {:6.2f}\n".format(*data))
 
-    if args.verbose :
-      print "# Transcripton length: {}. Initial graph size: {}. ".format(tlen, len(nlist)), 
-      print "Deleted {} nodes, {} still reachable.".format(dn, sr)
+        CG._total_time += time_inc
+        
+        # Prune
+        dn, sr, rj = CG.prune(maxh=args.maxh)
 
-  statprof.stop()
-  statprof.display()
-  #if args.verbose >= 1:
-  #  print "Treekin stats: {} default success, {} expo success, {} plusI success".format(
-  #      norm, expo, plusI)
+      if args.verbose :
+        print "# Transcripton length: {}. Initial graph size: {}. ".format(tlen, len(nlist)), 
+        print "Deleted {} nodes, {} still reachable, {} rejected deletions.".format(dn, sr, rj)
 
-  if args.logfile or args.stdout == 'log':
-    CG.get_simulation_files_tkn(None)
+    if args.verbose >= 1:
+      print "Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format(
+          norm, expo, plusI, fail)
+
+    lfh.write("Distribution of structures at the end:\n")
+    lfh.write("          {}\n".format(CG.transcript))
+    for e, (ni, data) in enumerate(CG.sorted_nodes(), 1) :
+        lfh.write("{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
+            tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity']))
+
+  #statprof.stop()
+  #statprof.display()
 
   # CLEANUP the /tmp/directory
   if not args.tmpdir :

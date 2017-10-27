@@ -101,7 +101,7 @@ def sys_treekin(name, seq, bfile, rfile,
   binrates = False,
   useplusI = False,
   exponent = False,
-  mpack = False,
+  mpack_method = '',
   force=False,
   verb = False):
   """Perform a system-call of the program ``treekin``.
@@ -112,20 +112,19 @@ def sys_treekin(name, seq, bfile, rfile,
   Args:
     name (str): Name of the sequence used to name the output file.
     seq (str): Nucleic acid sequence.
-    bfile (str): Input filename for ``treekin`` as produced by ``barriers``.
-    rfile (str): Input filename for ``treekin`` to specify a rate-matrix as
-      produced by ``barriers``.
+    bfile (str): Input filename for ``treekin``. Fileformat as produced by ``barriers``.
+    rfile (str): Input rate matrix for ``treekin``. Fileformat as produced by ``barriers``.
     p0 ([str,...], optional): A list to specify an initial occupancy vector. Defaults to:
       ['1=0.5', '2=0.5']
     t0 (float, optional): Start time of simulation.
     ti (float, optional): Time increment of the treekin solver.
     t8 (float, optional): Stop time for the solver.
-    binrates (bool): Ratefile is in binary format. Defaults to False.
-    useplusI (bool): Use treekin method --useplusI. Defaults to False.
-    exponent (bool): Use treekin method --exponent. Defaults to False.
-    mpack (bool): Use treekin method --mpack-method=FLOAT128. Defaults to False.
-    force (bool): Overwrite existing files. Defaults to False.
-    verb (bool): Print verbose information. Defaults to False.
+    binrates (bool, optional): Ratefile is in binary format. Defaults to False.
+    useplusI (bool, optional): Use treekin method --useplusI. Defaults to False.
+    exponent (bool, optional): Use treekin method --exponent. Defaults to False.
+    mpack_method (str, optional): Set treekin parameter --mpack-method. Defaults to ''.
+    force (bool, optional): Overwrite existing files. Defaults to False.
+    verb (bool, optional): Print verbose information. Defaults to False.
 
   Raises:
     ExecError: Program does not exist.
@@ -165,7 +164,7 @@ def sys_treekin(name, seq, bfile, rfile,
 
   treecall = [treekin, '--method', 'I']
   if useplusI : treecall.extend(['--useplusI'])
-  if mpack : treecall.extend(['--mpack-method=FLOAT128'])
+  if mpack_method : treecall.extend(['--mpack-method='+mpack_method])
   treecall.extend(['--tinc', str(ti)])
   treecall.extend(['--t0', str(t0)])
   treecall.extend(('--t8', str(t8)))
