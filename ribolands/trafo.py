@@ -417,7 +417,7 @@ class ConformationGraph(nx.DiGraph):
     merged_to = dict()
 
     # sort by energy (high to low)
-    for ni, data in sorted(self.nodes(data=True), key=lambda x: x[1]['energy'], reverse=True):
+    for ni, data in sorted(self.nodes(data=True), key=lambda x: (x[1]['energy'], x), reverse=True):
       if data['active'] == False : continue
       en  = data['energy']
 
