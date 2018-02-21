@@ -8,6 +8,9 @@ from struct import pack
 import RNA
 import ribolands as ril
 
+PROFILE = { 'findpath-calls' : 0,
+            'findpath-distance' : 0}
+
 class TrafoUsageError(Exception):
   pass
 
@@ -43,6 +46,14 @@ class ConformationGraph(nx.DiGraph):
     self._fpath = 20
     self._maxdG = 0 # switched off
     self._k0 = 2e5
+
+    ## New parameters:
+    #self._p_min = 0.01
+    #self._t_fast = 0
+    #self._t_slow = 0 
+
+    #self._t_step = 0 
+    #self._t_last = 0 
 
   @property
   def full_sequence(self):
@@ -100,7 +111,7 @@ class ConformationGraph(nx.DiGraph):
     else :
       return None
 
-  def add_transition_edge(self, s1, s2, ts = None, fpath = None, maxdG = None):
+  def add_transition_edge(self, s1, s2, ts = None, fpath = None, maxdG = None, mbar = None):
     """ Calculates transition rates from direct path barrier heights.
 
     Uses the *findpath* direct path heuristic to find the lowest energy barrier
@@ -151,26 +162,55 @@ class ConformationGraph(nx.DiGraph):
 
     saddleE = self.get_saddle(s1,s2)
 
+    #print 'inside', fpath, (mbar == None), (ts == None)
+
     # Now this is the computationally heavy part ...
     if saddleE is None :
-      #if ts:
-      #  # Unfortunately, find_path_once returns MAX_INT if no path has been found.
-      #  sE = float(fc.find_path_once(s1, s2, int(round(tsE * 100)), fpath))/100
-      #  saddleE = min(tsE, sE)
-      #  sE = float(fc.find_path_once(s2, s1, int(round(saddleE * 100)), fpath))/100
-      #  saddleE = min(saddleE, sE)
-      #else :
-        saddleE = float(fc.path_findpath_saddle(s1, s2, fpath))/100
-
-    if ts :
+      if ts:
+        # Unfortunately, find_path_once returns MAX_INT if no path has been found.
+        sE = float(fc.find_path_once(s1, s2, int(round(tsE * 100)), fpath))/100
+        saddleE = min(tsE, sE)
+        sE = float(fc.find_path_once(s2, s1, int(round(saddleE * 100)), fpath))/100
+        saddleE = min(saddleE, sE)
+      else :
+        if mbar:
+          sE1 = float(fc.find_path_once(s1, s2, int(round(mbar * 100))+100, fpath))/100
+          sE2 = float(fc.find_path_once(s2, s1, int(round(mbar * 100))+100, fpath))/100
+          sE = min(sE1, sE2)
+          saddleE = sE if sE <= mbar else None
+        else :
+          saddleE = float(fc.path_findpath_saddle(s1, s2, fpath))/100
+    elif ts :
       saddleE = min(saddleE, tsE)
+
+    #if ts :
+    #  saddleE = min(saddleE, tsE)
  
     # invalid neighbor saddle energies are not stored for future calls.
-    if maxdG :
+    if saddleE is None:
+      valid = False
+    elif maxdG :
       valid = (ts is not None or saddleE-self.node[s1]['energy'] <= maxdG)
     else :
       valid = True
+
+    if mbar:
+      assert saddleE <= mbar
   
+    dist = RNA.bp_distance(s1, s2)
+    PROFILE['findpath-calls'] += 1 
+    PROFILE['findpath-distance'] += dist
+    if dist in PROFILE:
+      PROFILE[dist][valid] += 1
+    else :
+      PROFILE[dist] = [0,0] 
+      PROFILE[dist][valid] += 1
+
+    #if ts is not None: 
+    #  print 'out', tsE, saddleE, tsE-saddleE
+    #else :
+    #  print 'out', saddleE
+
     if valid : # Add the edge.
       e1 = self.node[s1]['energy']
       e2 = self.node[s2]['energy'] if self.has_node(s2) else round(fc.eval_structure(s2), 2)
@@ -247,18 +287,39 @@ class ConformationGraph(nx.DiGraph):
 
     elif exp_mode == 'default' or exp_mode == 'mfe-only':
       # Try to connect MFE to every existing state
-      for ni in self.nodes() :
-        if self.node[ni]['active'] == False : continue
+      mbar = None
+      for ni in sorted(self.nodes(), key=lambda x: RNA.bp_distance(ss,x)) :
+        #print 'a', RNA.bp_distance(ss,ni), mbar
         if ni == ss : continue
+
+        if self.node[ni]['active'] == False : 
+            continue
+          #if mbar is None:
+          #  nbrs = filter(lambda x: self.node[x]['active'], 
+          #            sorted(self.successors(ni), 
+          #              key=lambda x: (self.node[x]['energy'], x), reverse=False))
+
+          #  if nbrs:
+          #    self.node[ni]['active'] = True
+          #  else:
+          #    print "missing potential good connection!"
+          #    continue
+          #else:
+          #  continue
+          ## Are there any active first neighbors?
+
         if self.has_edge(ni,ss) :
           self.node[ss]['active'] = True # in case it was there but inactive
+          assert self.get_saddle(ss,ni) is not None
+          mbar = self.get_saddle(ss,ni) if mbar is None or self.get_saddle(ss,ni) < mbar else mbar
+          #print 'c', RNA.bp_distance(ss,ni), mbar
           continue
-
+        
         if self.has_node(ss): # from a previous iteration
-          if self.add_transition_edge(ni, ss):
+          if self.add_transition_edge(ni, ss, mbar=mbar):
             self.node[ss]['active'] = True # in case it was there but inactive
 
-        elif self.add_transition_edge(ni, ss):
+        elif self.add_transition_edge(ni, ss, mbar=mbar):
           en = round(fc_full.eval_structure(ss), 2)
           self.node[ss]['active'] = True
           self.node[ss]['last_seen'] = 0
@@ -266,6 +327,13 @@ class ConformationGraph(nx.DiGraph):
           self.node[ss]['occupancy'] = 0.0
           self.node[ss]['identity'] = self._nodeid
           self._nodeid += 1
+
+        if self.get_saddle(ss,ni) is not None:
+          if mbar is None:
+            mbar = self.get_saddle(ss,ni) 
+          else :
+            mbar = self.get_saddle(ss,ni) if self.get_saddle(ss,ni) < mbar else mbar
+        print 'e', RNA.bp_distance(ss,ni), mbar
 
     if exp_mode == 'default' or exp_mode == 'breathing-only':
       # Do the helix breathing graph expansion
@@ -577,7 +645,7 @@ class ConformationGraph(nx.DiGraph):
 
     return time, iterations
 
-  def prune(self, cutoff = None, maxh = None) :
+  def prune(self, cutoff = None, maxh = None):
     """ Delete nodes or report them as still reachable. 
 
     Use the occupancy cutoff to choose which nodes to keep and which ones to

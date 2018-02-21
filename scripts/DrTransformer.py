@@ -378,8 +378,8 @@ def main(args):
   CG._maxdG = args.maxdG
   CG._k0 = args.k0
 
-  #import statprof
-  #statprof.start()
+  import statprof
+  statprof.start()
 
   CG._transcript_length = args.start
 
@@ -484,7 +484,7 @@ def main(args):
         softmap = dict()
         if args.soft_minh and args.soft_minh > args.minh :
           copyCG = CG.graph_copy()
-          softmap = copyCG.coarse_grain(minh=10)
+          softmap = copyCG.coarse_grain(minh=args.soft_minh)
           del copyCG
 
         if args.pyplot or args.xmgrace or _drffile :
@@ -515,8 +515,17 @@ def main(args):
         lfh.write("{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
             tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity']))
 
-  #statprof.stop()
-  #statprof.display()
+  statprof.stop()
+  statprof.display()
+  print ril.trafo.PROFILE['findpath-calls'], ril.trafo.PROFILE['findpath-distance'], 
+  print float(ril.trafo.PROFILE['findpath-calls'])/ril.trafo.PROFILE['findpath-distance']
+
+  for x,y in sorted(ril.trafo.PROFILE.items()):
+    if x == 'findpath-calls':
+      continue
+    elif x == 'findpath-distance':
+      continue
+    print x, y
 
   # CLEANUP the /tmp/directory
   if not args.tmpdir :
