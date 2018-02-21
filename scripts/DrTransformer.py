@@ -484,7 +484,7 @@ def main(args):
         softmap = dict()
         if args.soft_minh and args.soft_minh > args.minh :
           copyCG = CG.graph_copy()
-          softmap = copyCG.coarse_grain(minh=10)
+          softmap = copyCG.coarse_grain(minh=args.soft_minh)
           del copyCG
 
         if args.pyplot or args.xmgrace or _drffile :
