@@ -323,17 +323,17 @@ def main(args):
 
   # Compare --minh, --min-rate, --t8 and --tX :
   if args.verbose:
-    print '{} dG minh => {} /s rate and {} s time at k0 = {}'.format(
+    print '# {} dG minh => {} /s rate and {} s time at k0 = {}'.format(
         args.minh, mhrate, 1/mhrate, args.k0)
 
     if args.min_rate is not None:
-      print '{} /s min-rate => {} dG barrier and {:g} s time at k0 = {}'.format(
+      print '# {} /s min-rate => {} dG barrier and {:g} s time at k0 = {}'.format(
           args.min_rate, args.maxdG, 1/args.min_rate, args.k0)
 
     # Minrate specifies the lowest accepted rate for simulations (sec^-1)
     # it can be directly converted into a activation energy that results this rate
-    print 'Settings correspond to potential new paramters:'
-    print '--t-fast: {} s, --t-ext {} s, --t-end {} s, --t-slow {} s'.format(
+    print '# Settings correspond to potential new paramters:'
+    print '# --t-fast: {} s, --t-ext {} s, --t-end {} s, --t-slow {} s'.format(
         1/mhrate, args.t8, args.tX, 1/args.min_rate if args.min_rate is not None else 'inf')
 
   if 1/mhrate * 10 > args.t8 :
@@ -378,10 +378,10 @@ def main(args):
   CG._maxdG = args.maxdG
   CG._k0 = args.k0
 
-  import statprof
-  statprof.start()
-
   CG._transcript_length = args.start
+
+  from datetime import datetime
+  mytime = datetime.now()
 
   with smart_open(_logfile, 'w') as lfh :
     CG.logfile = lfh
@@ -392,7 +392,7 @@ def main(args):
 
       mn = CG.coarse_grain(minh = args.minh)
       if args.verbose :
-        print "Merged {} nodes after expanding {} new nodes.".format(len(mn), nn)
+        print "# Merged {} nodes after expanding {} new nodes.".format(len(mn), nn)
 
       if args.pyplot or args.xmgrace:
         ttt = CG._total_time
@@ -499,14 +499,25 @@ def main(args):
         CG._total_time += time_inc
         
         # Prune
-        dn, sr, rj = CG.prune(maxh=args.maxh)
+        dn, sr, rj = CG.prune(maxh=args.maxh, mocca=2)
 
       if args.verbose :
-        print "# Transcripton length: {}. Initial graph size: {}. ".format(tlen, len(nlist)), 
-        print "Deleted {} nodes, {} still reachable, {} rejected deletions.".format(dn, sr, rj)
+        print "# Transcripton length: {}. Initial graph size: {}. ".format(tlen, len(nlist)) 
+        print "#  Deleted {} nodes, {} still reachable, {} rejected deletions.".format(dn, sr, rj)
+        print "#  Computation time: {}".format(datetime.now()-mytime)
+        print tlen, (datetime.now()-mytime).total_seconds(), len(nlist), dn, sr, rj, ril.trafo.PROFILE['findpath-calls'],
+        print ril.trafo.PROFILE['mfe'], ril.trafo.PROFILE['hb'], ril.trafo.PROFILE['feature'], ril.trafo.PROFILE['cogr'], ril.trafo.PROFILE['prune']
+
+        mytime = datetime.now()
+        ril.trafo.PROFILE['findpath-calls'] = 0
+        ril.trafo.PROFILE['mfe'] = 0
+        ril.trafo.PROFILE['hb'] = 0
+        ril.trafo.PROFILE['feature'] = 0
+        ril.trafo.PROFILE['cogr'] = 0
+        ril.trafo.PROFILE['prune'] = 0
 
     if args.verbose >= 1:
-      print "Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format(
+      print "# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format(
           norm, expo, plusI, fail)
 
     lfh.write("Distribution of structures at the end:\n")
@@ -514,18 +525,6 @@ def main(args):
     for e, (ni, data) in enumerate(CG.sorted_nodes(), 1) :
         lfh.write("{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
             tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity']))
-
-  statprof.stop()
-  statprof.display()
-  print ril.trafo.PROFILE['findpath-calls'], ril.trafo.PROFILE['findpath-distance'], 
-  print float(ril.trafo.PROFILE['findpath-calls'])/ril.trafo.PROFILE['findpath-distance']
-
-  for x,y in sorted(ril.trafo.PROFILE.items()):
-    if x == 'findpath-calls':
-      continue
-    elif x == 'findpath-distance':
-      continue
-    print x, y
 
   # CLEANUP the /tmp/directory
   if not args.tmpdir :
