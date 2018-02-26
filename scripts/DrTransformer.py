@@ -16,6 +16,7 @@ import shutil
 import tempfile
 import contextlib
 from struct import pack
+from datetime import datetime
 
 import RNA
 import ribolands as ril
@@ -66,9 +67,9 @@ def plot_simulation(all_in, args):
   stop = args.stop
   start= args.start
 
-  t8 = args.t8
+  t8 = args.t_ext
   lin_time = (stop-start)*float(t8)
-  tX = lin_time + args.tX if (lin_time + args.tX) >= lin_time * 10 else lin_time * 10
+  tX = lin_time + args.t_end if (lin_time + args.t_end) >= lin_time * 10 else lin_time * 10
 
   name  = args.name
   title = args.name
@@ -143,38 +144,37 @@ def add_drtrafo_args(parser):
   # Common parameters
   parser.add_argument("--ti", type=float, default=1.2, metavar='<flt>',
       help="""Output-time increment of treekin solver (t1 * ti = t2).""")
-  parser.add_argument("--t8", type=float, default=0.02, metavar='<flt>',
-      help="Transcription speed [seconds per nucleotide].")
-  parser.add_argument("--tX", type=float, default=60, metavar='<flt>',
+  parser.add_argument("--t-ext", type=float, default=0.02, metavar='<flt>',
+      help="""Transcription speed, i.e. time per nucleotide extension [seconds
+      per nucleotide].""")
+  parser.add_argument("--t-end", type=float, default=60, metavar='<flt>',
       help="Post-transcriptional simulation time [seconds].")
   parser.add_argument("-T","--temperature", type=float, default=37.0,
       metavar='<flt>', help="The temperature for ViennaRNA computations.")
 
   # Advanced algorithmic parameters
-  parser.add_argument("--occupancy-cutoff", type=float, default=0.01, 
-      metavar='<flt>',
-      help="Occupancy cutoff for secondary structure graph expansion.")
-  parser.add_argument("--findpath-width", type = int, default = 20, 
-      metavar='<int>',
-      help="Search width for *findpath* heuristic.") 
+  parser.add_argument("--p-min", type=float, default=0.01, metavar='<flt>',
+      help="Probability threshold for secondary structure graph expansion.")
+  parser.add_argument("--findpath-search-width", type = int, default = 20, 
+      metavar='<int>', 
+      help="""Search width for the *findpath* heuristic. Higher values increase
+      the chances to find energetically better transition state energies.""")
 
-  parser.add_argument("--minh", type=float, default=0.01, metavar='<flt>',
-      help="Merge structures separated by a barrier smaller than minh.")
+  parser.add_argument("--t-fast", type=float, default=1e-6, metavar='<flt>',
+      help="""Folding times faster than --t-fast are considered instantaneous.
+      Structures that refold faster than --t-fast are considerd part of the
+      same macrostate. Directly translates to an energy barrier separating
+      conforations.""")
 
   parser.add_argument("--soft-minh", type=float, default=0, metavar='<flt>',
       help="""Merge structures separated by a barrier smaller than minh *for
       visualzation only*. The dynamics will still be caculated based on the
       more detailed network. This parameter will only have an effect if it is
-      higher than --minh.""")
+      a stronger coarse-graining than --t-fast.""")
 
-  parser.add_argument("--min-rate", type = float, default = None, metavar='<flt>',
-      help="""Minmum rate to accept a new structure as neighboring
-      conformation.""")
-
-  parser.add_argument("--maxh", type=float, default=None, metavar='<flt>',
-      help=argparse.SUPPRESS)
-      #help="""Do *not* merge structures separated by a barrier higher than maxh
-      #during graph pruning!""")
+  parser.add_argument("--t-slow", type = float, default = None, metavar='<flt>',
+      help="""Only accept new structures as neighboring conformations if the
+      transition is faster than --t-slow.""")
 
   parser.add_argument('--structure-search-mode', default = 'default',
       choices=('default', 'mfe-only', 'breathing-only'),
@@ -201,7 +201,7 @@ def add_drtrafo_args(parser):
       help="""Evenly space output *t-log* times after transription on a
       logarithmic time scale.""")
   #NOTE: Needs to be adjusted after treekin dependency is gone...
-  parser.add_argument("--t0", type=float, default=1e-4, metavar='<flt>',
+  parser.add_argument("--t0", type=float, default=0, metavar='<flt>',
       help=argparse.SUPPRESS)
 
   # More supported library parameters
@@ -280,8 +280,8 @@ def main(args):
   else :
     fullseq = fullseq[0:args.stop-1]
 
-  if args.tX < args.t8 :
-    raise ValueError('Simulation time after transcription --tX must be >= --t8')
+  if args.t_end < args.t_ext :
+    raise ValueError('Simulation time after transcription --t-end must be >= --t-ext')
 
   # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
   # Adjust the simulation window for treekin:
@@ -314,33 +314,21 @@ def main(args):
   # t0 = first simulation output time (<< t8)
   # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
-  if args.min_rate is not None:
-    args.maxdG = -_RT * math.log(args.min_rate/args.k0)
-  else :
-    args.maxdG = 0 # off
-
-  mhrate = args.k0 * math.exp(-args.minh/_RT)
-
   # Compare --minh, --min-rate, --t8 and --tX :
   if args.verbose:
-    print '# {} dG minh => {} /s rate and {} s time at k0 = {}'.format(
-        args.minh, mhrate, 1/mhrate, args.k0)
+    dG_min = -_RT * math.log(1/args.t_fast/args.k0)
+    print '# --t-fast: {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
+        args.t_fast, dG_min, 1/args.t_fast, args.k0)
+    if args.t_slow is not None:
+      dG_max = -_RT * math.log(1/args.t_slow/args.k0)
+      print '# --t-slow {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
+          args.t_slow, dG_max, 1/args.t_slow, args.k0)
 
-    if args.min_rate is not None:
-      print '# {} /s min-rate => {} dG barrier and {:g} s time at k0 = {}'.format(
-          args.min_rate, args.maxdG, 1/args.min_rate, args.k0)
-
-    # Minrate specifies the lowest accepted rate for simulations (sec^-1)
-    # it can be directly converted into a activation energy that results this rate
-    print '# Settings correspond to potential new paramters:'
-    print '# --t-fast: {} s, --t-ext {} s, --t-end {} s, --t-slow {} s'.format(
-        1/mhrate, args.t8, args.tX, 1/args.min_rate if args.min_rate is not None else 'inf')
-
-  if 1/mhrate * 10 > args.t8 :
+  if args.t_fast * 10 > args.t_ext :
     raise Exception('Conflicting Settings: rate for equilibration must be much faster than for nucleotide extension.')
     
-  if args.min_rate is not None and args.tX * 100 > 1/args.min_rate :
-    raise Exception('Conflicting Settings: 1/--min-rate should be much longer than the simulation time --tX.')
+  if args.t_slow is not None and args.t_end * 100 > args.t_slow :
+    raise Exception('Conflicting Settings: 1/--min-rate should be much longer than the simulation time --t_end.')
 
 
   check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
@@ -373,15 +361,17 @@ def main(args):
 
   # initialize a directed conformation graph
   CG = ConformationGraph(fullseq, vrna_md)
-  CG.occupancy_cutoff = args.occupancy_cutoff
-  CG.findpath_width = args.findpath_width
-  CG._maxdG = args.maxdG
+  CG.p_min = args.p_min
   CG._k0 = args.k0
+  CG.t_fast = args.t_fast
+  CG.t_slow = args.t_slow
+
+  CG.findpath_search_width = args.findpath_search_width
 
   CG._transcript_length = args.start
-
-  from datetime import datetime
-  mytime = datetime.now()
+    
+  if args.verbose:
+    mytime = datetime.now()
 
   with smart_open(_logfile, 'w') as lfh :
     CG.logfile = lfh
@@ -390,7 +380,7 @@ def main(args):
       nn = CG.expand(exp_mode=args.structure_search_mode)
       #print """ {} new nodes """.format(nn), CG._nodeid, "total nodes"
 
-      mn = CG.coarse_grain(minh = args.minh)
+      mn = CG.coarse_grain()
       if args.verbose :
         print "# Merged {} nodes after expanding {} new nodes.".format(len(mn), nn)
 
@@ -406,8 +396,8 @@ def main(args):
       # Simulate #
       ############
       _fname = _tmpdir+'/'+name+'-'+str(tlen)
-      _t0 = args.t0 if args.t0 > 0 else 1e-6
-      _t8 = args.tX if tlen == args.stop-1 else args.t8
+      _t0 = args.t0 #if args.t0 > 0 else 1e-6
+      _t8 = args.t_end if tlen == args.stop-1 else args.t_ext
       (t_lin, t_log) = (None, args.t_log) if tlen == args.stop-1 else (args.t_lin, None)
 
       # produce input for treekin simulation
@@ -499,14 +489,21 @@ def main(args):
         CG._total_time += time_inc
         
         # Prune
-        dn, sr, rj = CG.prune(maxh=args.maxh, mocca=2)
+        dn, sr, rj = CG.prune(mocca=2)
 
       if args.verbose :
         print "# Transcripton length: {}. Initial graph size: {}. ".format(tlen, len(nlist)) 
         print "#  Deleted {} nodes, {} still reachable, {} rejected deletions.".format(dn, sr, rj)
-        print "#  Computation time: {}".format(datetime.now()-mytime)
-        print tlen, (datetime.now()-mytime).total_seconds(), len(nlist), dn, sr, rj, ril.trafo.PROFILE['findpath-calls'],
-        print ril.trafo.PROFILE['mfe'], ril.trafo.PROFILE['hb'], ril.trafo.PROFILE['feature'], ril.trafo.PROFILE['cogr'], ril.trafo.PROFILE['prune']
+        print("#  Computation time at current nucleotide: {} s".format(
+                (datetime.now()-mytime).total_seconds()))
+        print("{} {} {} {} {} {} {} {} {} {} {} {}".format(tlen, len(nlist), dn, sr, rj, 
+                (datetime.now()-mytime).total_seconds(),
+                ril.trafo.PROFILE['findpath-calls'],
+                ril.trafo.PROFILE['mfe'], 
+                ril.trafo.PROFILE['hb'], 
+                ril.trafo.PROFILE['feature'], 
+                ril.trafo.PROFILE['cogr'], 
+                ril.trafo.PROFILE['prune']))
 
         mytime = datetime.now()
         ril.trafo.PROFILE['findpath-calls'] = 0

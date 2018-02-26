@@ -8,6 +8,7 @@ from struct import pack
 import RNA
 import ribolands as ril
 
+# Tracks findpath calls for profiling output.
 PROFILE = { 'findpath-calls' : 0,
             'mfe' : 0,
             'hb' : 0,
@@ -46,19 +47,12 @@ class ConformationGraph(nx.DiGraph):
     self._nodeid = 0
 
     # Default parameters:
-    self._cutoff = 0.01
-    self._fpath = 20
-    self._maxdG = 0 # switched off
-    self._k0 = 2e5
+    self._p_min = 0.01  # probability threshold
+    self._fpath = 20    # findpath_search_width
 
-    ## New parameters:
-    #self._p_min = 0.01
-
-    #self._t_fast = 0 #minh
-    #self._t_slow = 0 #maxdG
-
-    #self._t_ext = 0  #t8
-    #self._t_end = 0  #tX
+    self._k0 = 2e5    # set directly
+    self._dG_max = 0  # set using t_slow
+    self._dG_min = 0  # set using t_fast
 
   @property
   def full_sequence(self):
@@ -69,19 +63,54 @@ class ConformationGraph(nx.DiGraph):
     return self._full_sequence[0:self._transcript_length]
 
   @property
-  def occupancy_cutoff(self):
-    return self._cutoff
+  def t_slow(self):
+    """
+    k_slow = _k0 * exp(-dG_max/_RT) 
+    t_slow = 1/k_slow
+    """
+    if self._dG_max == 0:
+      return None
+    else :
+      return 1 / (self._k0 * exp(-self._dG_max/self._RT)) 
 
-  @occupancy_cutoff.setter
-  def occupancy_cutoff(self, occu):
-    self._occupancy_cutoff = occu
+  @t_slow.setter
+  def t_slow(self, value):
+    if value is None:
+      self._dG_max = 0
+    else :
+      self._dG_max = -self._RT * math.log(1/value/self._k0)
 
   @property
-  def findpath_width(self):
+  def t_fast(self):
+    """
+    k_slow = _k0 * exp(-dG_max/_RT) 
+    t_slow = 1/k_slow
+    """
+    return 1 / (self._k0 * exp(-self._dG_min/self._RT)) 
+
+  @t_fast.setter
+  def t_fast(self, value):
+    self._dG_min = -self._RT * math.log(1/value/self._k0)
+
+
+  @property
+  def p_min(self):
+    """A threshold that determines which structures are 
+    considered to explore a breathing-helix move-set.
+    
+    """
+    return self._p_min
+
+  @p_min.setter
+  def p_min(self, value):
+    self._p_min = value
+
+  @property
+  def findpath_search_width(self):
     return self._fpath
 
-  @findpath_width.setter
-  def findpath_width(self, val):
+  @findpath_search_width.setter
+  def findpath_search_width(self, val):
     self._fpath = val
 
   def graph_copy(self):
@@ -116,8 +145,8 @@ class ConformationGraph(nx.DiGraph):
     else :
       return 0
 
-  def add_transition_edge(self, s1, s2, ts = None, fpath = None, 
-      maxdG = None, mbar = None, call=None):
+  def add_transition_edge(self, s1, s2, ts = None, fpath = None, fpathE = None,
+      dG_max = None, call=None):
     """ Calculates transition rates from direct path barrier heights.
 
     Uses the *findpath* direct path heuristic to find the lowest energy barrier
@@ -136,9 +165,9 @@ class ConformationGraph(nx.DiGraph):
         path barriers s1 -> ts and ts -> s2 must be known already.
       fpath (int, optional): the search width parameter for the findpath routine.
         Defaults to None: using global ConformationGraph parameter.
-      maxdG (flt, optional): maximum barrier height. Serves as a cutoff, if the energy
-        barrier is greater than maxdG, the edge is not added. 
-        maxdG = 0 switches this parameter off.
+      dG_max (flt, optional): maximum barrier height. Serves as a cutoff, if the energy
+        barrier is greater than dG_max, the edge is not added. 
+        dG_max = 0 switches this parameter off.
         Defaults to None: using global ConformationGraph parameter.
 
     Returns:
@@ -152,8 +181,8 @@ class ConformationGraph(nx.DiGraph):
     _RT = self._RT
     k0 = self._k0
 
-    if maxdG is None:
-      maxdG = self._maxdG
+    if dG_max is None:
+      dG_max = self._dG_max
 
     if fpath is None:
       fpath = self._fpath
@@ -180,8 +209,8 @@ class ConformationGraph(nx.DiGraph):
         saddleE = findpath_wrap(s1, s2, tsE, fpath)
         saddleE = tsE if saddleE is None else saddleE
       else :
-        if mbar:
-          saddleE = findpath_wrap(s1, s2, mbar+0.01, fpath)
+        if fpathE:
+          saddleE = findpath_wrap(s1, s2, fpathE+0.01, fpath)
         else :
           saddleE = float(fc.path_findpath_saddle(s1, s2, width=fpath))/100
       
@@ -194,13 +223,13 @@ class ConformationGraph(nx.DiGraph):
     # invalid neighbor saddle energies are not stored for future calls.
     if saddleE is None:
       valid = False
-    elif maxdG :
-      valid = (ts is not None or saddleE-self.node[s1]['energy'] <= maxdG)
+    elif dG_max :
+      valid = (ts is not None or saddleE-self.node[s1]['energy'] <= dG_max)
     else :
       valid = True
 
-    if mbar:
-      assert saddleE <= mbar
+    if fpathE:
+      assert saddleE <= fpathE
 
     if valid : # Add the edge.
       e1 = self.node[s1]['energy']
@@ -226,7 +255,7 @@ class ConformationGraph(nx.DiGraph):
  
     return valid
 
-  def expand(self, extend = 1, exp_mode = 'default', mfree = 6, cutoff = None):
+  def expand(self, extend = 1, exp_mode = 'default', mfree = 6, p_min = None):
     """ Find new secondary structures and add them to the ConformationGraph
 
     The function supports two move-sets: 1) The mfe structure for the current
@@ -241,14 +270,14 @@ class ConformationGraph(nx.DiGraph):
         neighborhood. "default": do both mfe and breathing.
       mfree (int, optional): minimum number of freed bases during a
         helix-opening step. Defaults to 6.
-      cutoff (flt, optional): Occupancy cutoff for neighbor generation.
+      p_min (flt, optional): Occupancy p_min for neighbor generation.
         Defaults to None: using global ConformationGraph parameter.
 
     Returns:
       int: Number of new nodes
     """
-    if cutoff is None:
-      cutoff = self.occupancy_cutoff
+    if p_min is None:
+      p_min = self._p_min
 
     fseq = self.full_sequence
     self._transcript_length += extend
@@ -294,10 +323,10 @@ class ConformationGraph(nx.DiGraph):
           continue
         
         if self.has_node(ss): # from a previous iteration
-          if self.add_transition_edge(ni, ss, mbar=mbar, call='mfe'):
+          if self.add_transition_edge(ni, ss, fpathE=mbar, call='mfe'):
             self.node[ss]['active'] = True # in case it was there but inactive
 
-        elif self.add_transition_edge(ni, ss, mbar=mbar, call='mfe'):
+        elif self.add_transition_edge(ni, ss, fpathE=mbar, call='mfe'):
           en = round(fc_full.eval_structure(ss), 2)
           self.node[ss]['active'] = True
           self.node[ss]['last_seen'] = 0
@@ -330,7 +359,7 @@ class ConformationGraph(nx.DiGraph):
         if data['active'] == False : continue
         en  = data['energy']
         occ = data['occupancy']
-        if occ < cutoff : continue
+        if occ < p_min : continue
 
         # short secondary structure (without its future)
         sss = ni[0:len(seq)]
@@ -405,7 +434,7 @@ class ConformationGraph(nx.DiGraph):
                     self.add_weighted_edges_from([(child, nbr, None)])
                     self[nbr][child]['saddle'] = sC1
                     self[child][nbr]['saddle'] = sC1
-                    if self.add_transition_edge(nbr, child, maxdG = 0, call='feature'):
+                    if self.add_transition_edge(nbr, child, dG_max = 0, call='feature'):
                       self.node[nbr]['active'] = True # in case it was there but inactive
                       self.node[child]['active'] = True # in case it was there but inactive
                     else :
@@ -441,21 +470,21 @@ class ConformationGraph(nx.DiGraph):
 
     return self._nodeid-csid
 
-  def coarse_grain(self, minh = 1):
+  def coarse_grain(self, dG_min = None):
     """ Graph condensation step. 
 
     Processes an energetically sorted list of structures (high to low energies)
     and tries to merge their occupancy into a neighboring, better conformation
     (thus forming a macro-state). The current structure can be merged (and
     therefore removed from the graph) if there exists a neighbor that has
-    better energy and the energy barrier is lower than the *minh* parameter. If
+    better energy and the energy barrier is lower than the *dG_min* parameter. If
     there are multiple better neighbors with the same transition energy
     barrier, then the occupancy is transfered to the neighbor with the lowest
     energy, in the degenerate case the lexicographically first structure is
     chosen.
 
     Args:
-      minh (flt, optional): Minimum energy barrier between structures.
+      dG_min (flt, optional): Minimum energy barrier between structures.
 
     Returns:
       dict[node] = node: A mapping from deleted nodes to macro-state
@@ -464,6 +493,9 @@ class ConformationGraph(nx.DiGraph):
     merged_nodes = dict()
     merged_to = dict()
 
+    if dG_min is None:
+      dG_min = self._dG_min
+    assert dG_min is not None
 
     # sort by energy (high to low)
     for ni, data in sorted(self.nodes(data=True), 
@@ -495,7 +527,7 @@ class ConformationGraph(nx.DiGraph):
         if sE - minsE < 0.0001 :
           (transfer, minsE) = (nbr, sE)
       
-      if minsE - en - minh > 0.0001 : # avoid precision errors
+      if minsE - en - dG_min > 0.0001 : # avoid precision errors
         # do not merge, if the barrier is too high.
         continue
 
@@ -628,7 +660,7 @@ class ConformationGraph(nx.DiGraph):
 
     return time, iterations
 
-  def prune(self, cutoff = None, maxh = None, mocca=None):
+  def prune(self, p_min = None, maxh = None, mocca=None):
     """ Delete nodes or report them as still reachable. 
 
     Use the occupancy cutoff to choose which nodes to keep and which ones to
@@ -637,7 +669,7 @@ class ConformationGraph(nx.DiGraph):
     removal of a node that has a very high energy barrier to all its neighbors.
 
     Args:
-      cutoff (flt, optional): Occupancy cutoff for neighbor generation.
+      p_min (flt, optional): Occupancy cutoff for neighbor generation.
         Defaults to None: using global ConformationGraph parameter.
       maxh (flt, optional): Don't remove structures that are separated with 
         an energy barrier higher than maxh.
@@ -649,15 +681,15 @@ class ConformationGraph(nx.DiGraph):
         number of rejected deletions due to maxh
     
     """
-    if cutoff is None:
-      cutoff = self._cutoff
+    if p_min is None:
+      p_min = self._p_min
   
     deleted_nodes = 0
     still_reachables = 0
     rejected = 0
 
     for ni, data in self.sorted_nodes(descending=False) : # sort high to low..
-      if data['occupancy'] - cutoff > 0.0000001 :
+      if data['occupancy'] - p_min > 0.0000001 :
         continue
       en  = data['energy']
   
@@ -667,7 +699,7 @@ class ConformationGraph(nx.DiGraph):
 
       # looks good!
       if mocca and len(
-          filter(lambda x: self.node[x]['occupancy'] >= cutoff, nbrs)) > mocca:
+          filter(lambda x: self.node[x]['occupancy'] >= p_min, nbrs)) > mocca:
         rejected += 1
         continue
 
