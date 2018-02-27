@@ -15,9 +15,8 @@ from utils import plot_nxy
 from utils import ProgressBar
 
 from syswraps import sys_subopt_range
-from syswraps import sys_suboptimals 
+from syswraps import sys_suboptimals
 from syswraps import sys_barriers
 from syswraps import sys_treekin
 
 from crnwrapper import DiGraphSimulator
-
