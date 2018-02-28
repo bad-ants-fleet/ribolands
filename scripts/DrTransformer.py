@@ -22,7 +22,7 @@ import RNA
 import ribolands as ril
 from ribolands.syswraps import SubprocessError, ExecError, check_version, VersionError
 from ribolands.crnwrapper import DiGraphSimulator
-from ribolands.trafo import ConformationGraph
+from ribolands.trafo import TrafoLandscape
 
 
 @contextlib.contextmanager
@@ -213,6 +213,8 @@ def add_drtrafo_args(parser):
     # NOTE: Needs to be adjusted after treekin dependency is gone...
     parser.add_argument("--t0", type=float, default=0, metavar='<flt>',
                         help=argparse.SUPPRESS)
+    parser.add_argument("--mocca", type=int, default=None, metavar='<int>',
+                        help=argparse.SUPPRESS)
 
     # More supported library parameters
     ril.argparse_add_arguments(parser, start=True, stop=True,
@@ -377,7 +379,7 @@ def main(args):
             lfh.write("# ID, Structure, Energy, Occupancy\n")
 
     # initialize a directed conformation graph
-    CG = ConformationGraph(fullseq, vrna_md)
+    CG = TrafoLandscape(fullseq, vrna_md)
     CG.p_min = args.p_min
     CG._k0 = args.k0
     CG.t_fast = args.t_fast
@@ -512,22 +514,16 @@ def main(args):
                 CG._total_time += time_inc
 
                 # Prune
-                dn, sr, rj = CG.prune(mocca=2)
+                dn, sr, rj = CG.prune(mocca=args.mocca)
 
             if args.verbose:
                 print "# Transcripton length: {}. Initial graph size: {}. ".format(tlen, len(nlist))
                 print "#  Deleted {} nodes, {} still reachable, {} rejected deletions.".format(dn, sr, rj)
                 print("#  Computation time at current nucleotide: {} s".format(
                     (datetime.now() - mytime).total_seconds()))
-                print("{} {} {} {} {} {} {} {} {} {} {} {}".format(tlen, len(nlist), dn, sr, rj,
-                                                                   (datetime.now(
-                                                                   ) - mytime).total_seconds(),
-                                                                   ril.trafo.PROFILE['findpath-calls'],
-                                                                   ril.trafo.PROFILE['mfe'],
-                                                                   ril.trafo.PROFILE['hb'],
-                                                                   ril.trafo.PROFILE['feature'],
-                                                                   ril.trafo.PROFILE['cogr'],
-                                                                   ril.trafo.PROFILE['prune']))
+                print("{} {} {} {}".format(tlen, len(nlist), 
+                                                                   (datetime.now() - mytime).total_seconds(),
+                                                                   ril.trafo.PROFILE['findpath-calls']))
 
                 mytime = datetime.now()
                 ril.trafo.PROFILE['findpath-calls'] = 0

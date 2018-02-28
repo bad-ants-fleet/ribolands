@@ -29,11 +29,31 @@ class DebuggingAlert(Exception):
     pass
 
 
-class ConformationGraph(nx.DiGraph):
+class TrafoLandscape(nx.DiGraph):
+    """ 
+    A cotranscriptional interface to explore RNA energy landscapes.
+
+    A directed graph (:ob:`networkx.DiGraph()`) where nodes are RNA secondary
+    structures and edges are transition rates between secondary structures.  Two
+    structures are called neighbors, if there exists an edge connecting them. 
+
+    This object is initialized with the full-length RNA sequence and general RNA
+    folding parameters. New (or initial) conformations are found using the
+    routine TrafoLandscape.expand(), the landscape can be coarse-grained into a
+    more compact representation using the routine TrafoLandscape.coarse_grain()
+    and TrafoLandscape.get_simulation_files_tkn() returns a rate matrix to
+    simulate RNA folding, TrafoLandscape.update_occupancies_tkn() reads a
+    simulation output and updates the occupancies of structures accordingly.
+    TrafoLandscape.prune() removes improbable nodes from the landscape.
+
+    Args:
+        fullseq (str): The nucleotide sequence of a full-length molecule.
+        vrna_md (:obj:`RNA.md()`): ViennaRNA model details. Contains RNA
+            folding parameters such as Temperature, noLP, etc...
+    """
+ 
     def __init__(self, fullseq, vrna_md):
-        """ Conformation Graph initialization.
-        """
-        super(ConformationGraph, self).__init__()
+        super(TrafoLandscape, self).__init__()
 
         self._full_sequence = fullseq
         self._model_details = vrna_md
@@ -67,10 +87,34 @@ class ConformationGraph(nx.DiGraph):
         return self._full_sequence[0:self._transcript_length]
 
     @property
-    def t_slow(self):
+    def t_fast(self):
+        """Time-scale separation parameter for coarse-graining.
+
+        Expected folding times faster than t-fast are considered instantaneous,
+        and used to assign a conformation to a macrostate. This parameter is
+        equivalent to the internal dG_min parameter, which quantifies the minmal
+        energy barrier to separate two macrostates.
+
+        t_fast = 1/(self._k0 * exp(-self.dG_min/self._RT))
         """
-        k_slow = _k0 * exp(-dG_max/_RT)
-        t_slow = 1/k_slow
+        return 1 / (self._k0 * exp(-self._dG_min / self._RT))
+
+    @t_fast.setter
+    def t_fast(self, value):
+        self._dG_min = -self._RT * math.log(1 / value / self._k0)
+
+    @property
+    def t_slow(self):
+        """Time-scale separation parameter for finding new neighbors.
+
+        When new a potential new relevant RNA conformation was found, then this
+        conformation needs to be connected to the existing energy landscape.
+        This parameter is used to *reject* a transition rate toward a new
+        energetically better structure if it is lower than t-slow, it is
+        equivalen to the internal dG_max parameter, which quantifies the maximal
+        energy barrier that can be overcome within a folding simulation.
+
+        t_slow = 1(self._k0 * exp(-self.dG_max/self._RT))
         """
         if self._dG_max == 0:
             return None
@@ -85,22 +129,14 @@ class ConformationGraph(nx.DiGraph):
             self._dG_max = -self._RT * math.log(1 / value / self._k0)
 
     @property
-    def t_fast(self):
-        """
-        k_slow = _k0 * exp(-dG_max/_RT)
-        t_slow = 1/k_slow
-        """
-        return 1 / (self._k0 * exp(-self._dG_min / self._RT))
-
-    @t_fast.setter
-    def t_fast(self, value):
-        self._dG_min = -self._RT * math.log(1 / value / self._k0)
-
-    @property
     def p_min(self):
-        """A threshold that determines which structures are
-        considered to explore a breathing-helix move-set.
+        """A probability threshold to identify relevant RNA structures. 
 
+        This paramenter is relevant for TrafoLandscape.expand() and
+        TrafoLandscape.prune(). During expansion, only conformations with
+        probability greater than p_min are considered. During pruning, all
+        conformations with probability lower than p_min are evaluated to be
+        removed from the landscape.
         """
         return self._p_min
 
@@ -110,6 +146,8 @@ class ConformationGraph(nx.DiGraph):
 
     @property
     def findpath_search_width(self):
+        """Search width for a heuristic to find transition state energies.
+        """
         return self._fpath
 
     @findpath_search_width.setter
@@ -117,16 +155,20 @@ class ConformationGraph(nx.DiGraph):
         self._fpath = val
 
     def graph_copy(self):
-        copy = ConformationGraph(self.full_sequence, self._model_details)
+        """Returns a copy of the TrafoLandscape Graph. 
+
+        This does not include internal parameters such as the current
+        transcript length, current nodeID, current time, etc.
+        """
+        copy = TrafoLandscape(self.full_sequence, self._model_details)
         copy.add_nodes_from(self.nodes(data=True))
         copy.add_edges_from(self.edges(data=True))
         return copy
 
     def sorted_nodes(self, descending=False):
-        """ Returns active nodes sorted by energy.
+        """ Returns active nodes and their attributes sorted by energy.
 
         Args:
-          data (bool, optional): networkx parameter: return a dictionary of attributes
           descending (bool, optional): sorting parameter.
             True: energetically high to low.
             False: energetically low to high.
@@ -138,20 +180,21 @@ class ConformationGraph(nx.DiGraph):
             x[1]['energy'], x[0]), reverse=descending)
 
     def get_saddle(self, s1, s2):
+        """Returns the saddle energy of a transition edge."""
         if self.has_edge(s1, s2):
             return self[s1][s2]['saddle']
         else:
             return None
 
     def get_rate(self, s1, s2):
+        """Returns the direct transition rate of two secondary structures."""
         if self.has_edge(s1, s2):
             return self[s1][s2]['weight']
         else:
             return 0
 
-    def add_transition_edge(self, s1, s2, ts=None, fpath=None, fpathE=None,
-                            dG_max=None, call=None):
-        """ Calculates transition rates from direct path barrier heights.
+    def add_transition_edge(self, s1, s2, ts=None, fpath=None, fpathE=None, call=None):
+        """Calculates transition rates from direct path barrier heights.
 
         Uses the *findpath* direct path heuristic to find the lowest energy barrier
         between two secondary structures. Typically s2 is the new, energetically
@@ -162,17 +205,16 @@ class ConformationGraph(nx.DiGraph):
         variables in the ConformaitonGraph object.
 
         Args:
-          s1 (str): pathway start secondary structure (must be part of the graph already)
-          s2 (str): pathway end secondary structure (may be added to the graph)
-          ts (str, optional): transient secondary structure that is not on the
+          s1 (str): start secondary structure (must be part of TrafoLandscape already)
+          s2 (str): final secondary structure (may be added to TrafoLandscape)
+          ts (str, optional): transient secondary structure which is not on the
             direct folding path. If a transient structure is specified, the direct
             path barriers s1 -> ts and ts -> s2 must be known already.
           fpath (int, optional): the search width parameter for the findpath routine.
-            Defaults to None: using global ConformationGraph parameter.
-          dG_max (flt, optional): maximum barrier height. Serves as a cutoff, if the energy
-            barrier is greater than dG_max, the edge is not added.
-            dG_max = 0 switches this parameter off.
-            Defaults to None: using global ConformationGraph parameter.
+            Defaults to None: using global TrafoLandscape parameter.
+          fpathE (flt, optional): an upper bound on the energy of the transition
+            state for findpath. A neighbor is only valid, if there exits a path
+            via an energetically *better* transition state.
 
         Returns:
           bool: True if the transition edge was added to the graph, False otherwise.
@@ -183,13 +225,14 @@ class ConformationGraph(nx.DiGraph):
         fc = self._fold_compound
 
         _RT = self._RT
-        k0 = self._k0
-
-        if dG_max is None:
-            dG_max = self._dG_max
+        _k0 = self._k0
 
         if fpath is None:
             fpath = self._fpath
+
+        #if self._dG_max:
+        #    maxE = self.node[s1]['energy'] + self._dG_max
+        #    fpathE = min(maxE, fpathE) if fpathE else maxE
 
         assert s1 != s2
 
@@ -202,49 +245,32 @@ class ConformationGraph(nx.DiGraph):
         saddleE = self.get_saddle(s1, s2)
 
         def findpath_wrap(s1, s2, maxE, fpath):
-            dcal_bound = int(round(maxE * 100))
-            dcal_sE = fc.path_findpath_saddle(
-                s1, s2, maxE=dcal_bound, width=fpath)
+            if maxE:
+                dcal_bound = int(round(maxE * 100))
+                dcal_sE = fc.path_findpath_saddle(s1, s2, maxE=dcal_bound, width=fpath)
+            else :
+                dcal_sE = fc.path_findpath_saddle(s1, s2, width=fpath)
             return float(dcal_sE) / 100 if dcal_sE else dcal_sE
 
         # Now this is the computationally heavy part ...
         if saddleE is None:
             if ts:
-                # Unfortunately, find_path_once returns MAX_INT if no path has
-                # been found.
                 saddleE = findpath_wrap(s1, s2, tsE, fpath)
                 saddleE = tsE if saddleE is None else saddleE
             else:
-                if fpathE:
-                    saddleE = findpath_wrap(s1, s2, fpathE + 0.01, fpath)
-                else:
-                    saddleE = float(
-                        fc.path_findpath_saddle(
-                            s1, s2, width=fpath)) / 100
+                saddleE = findpath_wrap(s1, s2, fpathE, fpath)
 
             PROFILE['findpath-calls'] += 1
             PROFILE[call] += 1
-
         elif ts:
             saddleE = min(saddleE, tsE)
-
-        # invalid neighbor saddle energies are not stored for future calls.
-        if saddleE is None:
-            valid = False
-        elif dG_max:
-            valid = (
-                ts is not None or saddleE -
-                self.node[s1]['energy'] <= dG_max)
-        else:
-            valid = True
 
         if fpathE:
             assert saddleE <= fpathE
 
-        if valid:  # Add the edge.
+        if saddleE is not None:  # Add the edge.
             e1 = self.node[s1]['energy']
-            e2 = self.node[s2]['energy'] if self.has_node(
-                s2) else round(fc.eval_structure(s2), 2)
+            e2 = self.node[s2]['energy'] if self.has_node(s2) else round(fc.eval_structure(s2), 2)
 
             # ensure saddle is not lower than s1, s2
             saddleE = max(saddleE, max(e1, e2))
@@ -254,8 +280,8 @@ class ConformationGraph(nx.DiGraph):
             dG_2s = saddleE - e2
 
             # Metropolis Rule
-            k_12 = k0 * math.exp(-dG_1s / _RT)
-            k_21 = k0 * math.exp(-dG_2s / _RT)
+            k_12 = _k0 * math.exp(-dG_1s / _RT)
+            k_21 = _k0 * math.exp(-dG_2s / _RT)
 
             self.add_weighted_edges_from([(s1, s2, k_12)])
             self.add_weighted_edges_from([(s2, s1, k_21)])
@@ -263,13 +289,11 @@ class ConformationGraph(nx.DiGraph):
             self[s2][s1]['saddle'] = saddleE
             self[s1][s2]['meta'] = call
             self[s2][s1]['meta'] = call
-            # print "#Added Edge:", s1, s2, "({}, {:g}, {:g})".format(valid,
-            # k_12, k_21)
 
-        return valid
+        return not (saddleE is None)
 
     def expand(self, extend=1, exp_mode='default', mfree=6, p_min=None):
-        """ Find new secondary structures and add them to the ConformationGraph
+        """Find new secondary structures and add them to :obj:`TrafoLandscape()`
 
         The function supports two move-sets: 1) The mfe structure for the current
         sequence length is connected to all present structures, 2) The conformation
@@ -283,8 +307,8 @@ class ConformationGraph(nx.DiGraph):
             neighborhood. "default": do both mfe and breathing.
           mfree (int, optional): minimum number of freed bases during a
             helix-opening step. Defaults to 6.
-          p_min (flt, optional): Occupancy p_min for neighbor generation.
-            Defaults to None: using global ConformationGraph parameter.
+          p_min (flt, optional): Minimum probability of a structure for neighbor
+            generation.  Defaults to None: using global TrafoLandscape parameter.
 
         Returns:
           int: Number of new nodes
@@ -310,7 +334,6 @@ class ConformationGraph(nx.DiGraph):
         ss, mfe = fc_tmp.mfe()
         future = '.' * (len(fseq) - len(seq))
         ss = ss + future
-        # print "{}\n{} {:6.2f}".format(seq, ss, mfe)
 
         # If there is no node because we are in the beginning, add the node,
         # otherwise, try to add transition edges from every node to MFE.
@@ -322,9 +345,8 @@ class ConformationGraph(nx.DiGraph):
 
         elif exp_mode == 'default' or exp_mode == 'mfe-only':
             # Try to connect MFE to every existing state
-            mbar = None
-            for ni in sorted(
-                    self.nodes(), key=lambda x: RNA.bp_distance(ss, x)):
+            fpathE = 9999
+            for ni in sorted(self.nodes(), key=lambda x: RNA.bp_distance(ss, x)):
                 if ni == ss:
                     continue
 
@@ -335,18 +357,16 @@ class ConformationGraph(nx.DiGraph):
                     # in case it was there but inactive
                     self.node[ss]['active'] = True
                     assert self.get_saddle(ss, ni) is not None
-                    mbar = self.get_saddle(
-                        ss, ni) if mbar is None or self.get_saddle(
-                        ss, ni) < mbar else mbar
+                    fpathE = self.get_saddle(ss, ni) \
+                            if self.get_saddle(ss, ni) < fpathE else fpathE
                     continue
 
                 if self.has_node(ss):  # from a previous iteration
-                    if self.add_transition_edge(
-                            ni, ss, fpathE=mbar, call='mfe'):
+                    if self.add_transition_edge(ni, ss, fpathE=fpathE+1.00, call='mfe'):
                         # in case it was there but inactive
                         self.node[ss]['active'] = True
 
-                elif self.add_transition_edge(ni, ss, fpathE=mbar, call='mfe'):
+                elif self.add_transition_edge(ni, ss, fpathE=fpathE+1.00, call='mfe'):
                     en = round(fc_full.eval_structure(ss), 2)
                     self.node[ss]['active'] = True
                     self.node[ss]['last_seen'] = 0
@@ -356,13 +376,8 @@ class ConformationGraph(nx.DiGraph):
                     self._nodeid += 1
 
                 if self.get_saddle(ss, ni) is not None:
-                    if mbar is None:
-                        mbar = self.get_saddle(ss, ni)
-                    else:
-                        mbar = self.get_saddle(
-                            ss, ni) if self.get_saddle(
-                            ss, ni) < mbar else mbar
-                # print 'e', RNA.bp_distance(ss,ni), mbar
+                    fpathE = self.get_saddle(ss, ni) \
+                            if self.get_saddle(ss, ni) < fpathE else fpathE
 
         if exp_mode == 'default' or exp_mode == 'breathing-only':
             # Do the helix breathing graph expansion
@@ -392,8 +407,7 @@ class ConformationGraph(nx.DiGraph):
                 opened = open_breathing_helices(seq, sss, mfree)
 
                 # do a constrained exterior loop folding for all of them and then
-                # connect them to the present conformation "ni", but also to each
-                # other.
+                # connect them to the present conformation and to each other.
                 connect = [ni]
                 for onbr in opened:
                     nbr, ext_seq = fold_exterior_loop(md, seq, onbr, ext_moves)
@@ -425,10 +439,9 @@ class ConformationGraph(nx.DiGraph):
                             self.node[nbr]['identity'] = self._nodeid
                             self._nodeid += 1
                         else:
-                            # Replace this with a continue, or logging... but first see some examples.
-                            # raise DebuggingAlert("# helix breathing: could
-                            # not add transition edge!")
-                            continue
+                            msg = "# helix breathing: could not add transition edge!"
+                            raise DebuggingAlert(msg)
+                            #continue
 
                     if self.has_node(nbr) and self.node[nbr]['active']:
                         connect.append(nbr)
@@ -443,8 +456,8 @@ class ConformationGraph(nx.DiGraph):
                         for (parent, child) in ext_moves[ext_seq][0]:
                             assert parent != ni  # Parents may never be the same
                             if child == nbr:
-                                # the parents differ in breathing helices, no
-                                # historic differences
+                                # the parents differ in breathing helices, 
+                                # no historic differences
                                 continue
 
                             if self.has_edge(parent, ni):
@@ -452,23 +465,19 @@ class ConformationGraph(nx.DiGraph):
                                     if self.has_edge(nbr, child):
                                         continue
 
-                                    # TODO: Calculate saddleE from saddleE of
-                                    # parents?
+                                    # TODO: Calculate saddleE from saddleE of parents?
                                     sP = self.get_saddle(ni, parent)
-                                    sC1 = round(
-                                        self.node[child]['energy'] + sP - self.node[parent]['energy'], 2)
-                                    sC2 = round(
-                                        self.node[nbr]['energy'] + sP - self.node[ni]['energy'], 2)
+                                    sC1 = round(self.node[child]['energy'] \
+                                            + sP - self.node[parent]['energy'], 2)
+                                    sC2 = round(self.node[nbr]['energy'] \
+                                            + sP - self.node[ni]['energy'], 2)
 
                                     if sC1 == sC2:  # avoid findpath!
-                                        self.add_weighted_edges_from(
-                                            [(nbr, child, None)])
-                                        self.add_weighted_edges_from(
-                                            [(child, nbr, None)])
+                                        self.add_weighted_edges_from([(nbr, child, None)])
+                                        self.add_weighted_edges_from([(child, nbr, None)])
                                         self[nbr][child]['saddle'] = sC1
                                         self[child][nbr]['saddle'] = sC1
-                                        if self.add_transition_edge(
-                                                nbr, child, dG_max=0, call='feature'):
+                                        if self.add_transition_edge(nbr, child, call='feature'):
                                             # in case it was there but inactive
                                             self.node[nbr]['active'] = True
                                             # in case it was there but inactive
@@ -476,25 +485,19 @@ class ConformationGraph(nx.DiGraph):
                                         else:
                                             self.remove_edge(nbr, child)
                                             self.remove_edge(child, nbr)
-                                            # Replace this with a continue, or
-                                            # logging... but first see some
-                                            # examples.
-                                            raise DebuggingAlert(
-                                                "# helix breathing: did not add historic edge! It is safe to replace this with a continue, but tell stefan about it!")
+                                            msg = "# helix breathing: did not add historic edge!"
+                                            raise DebuggingAlert(msg)
+                                            #continue
                                     else:
-                                        if self.add_transition_edge(
-                                                nbr, child, call='feature'):
+                                        if self.add_transition_edge(nbr, child, call='feature'):
                                             # in case it was there but inactive
                                             self.node[nbr]['active'] = True
                                             # in case it was there but inactive
                                             self.node[child]['active'] = True
                                 else:
-                                    # TODO: Need to think about this more once a few examples come up ...
-                                    # raise DebuggingAlert("# helix breathing:
-                                    # should we add the edge?! It is safe to
-                                    # replace this with a continue, but tell
-                                    # stefan about it!")
-                                    continue
+                                    msg = "# helix breathing: should we add the edge?"
+                                    raise DebuggingAlert(msg)
+                                    #continue
 
                     # Track the final structure, every new identical ext-change will be
                     # connected, if the parents were connected.
@@ -504,8 +507,8 @@ class ConformationGraph(nx.DiGraph):
             print "# WARNING: ", ss, "[mfe secondary structure not connected]"
 
         # Post processing of graph after expansion:
-        #   remove nodes that have been inactive for a long time.
-        for ni in self.nodes():
+        # remove nodes that have been inactive for a long time.
+        for ni in list(self.nodes()):
             if self.node[ni]['active'] == False:
                 self.node[ni]['last_seen'] += 1
             else:
@@ -516,20 +519,21 @@ class ConformationGraph(nx.DiGraph):
         return self._nodeid - csid
 
     def coarse_grain(self, dG_min=None):
-        """ Graph condensation step.
+        """Landscape coarse-graining base on energy barriers.
 
-        Processes an energetically sorted list of structures (high to low energies)
-        and tries to merge their occupancy into a neighboring, better conformation
-        (thus forming a macro-state). The current structure can be merged (and
-        therefore removed from the graph) if there exists a neighbor that has
-        better energy and the energy barrier is lower than the *dG_min* parameter. If
-        there are multiple better neighbors with the same transition energy
-        barrier, then the occupancy is transfered to the neighbor with the lowest
-        energy, in the degenerate case the lexicographically first structure is
-        chosen.
+        Processes an energetically sorted list of structures (high to low
+        energies) and tries to merge their occupancy into a neighboring, better
+        conformation (forming a macro-state). The current structure is merged
+        (and therefore removed from the graph) if there exists a neighbor that
+        has better energy and the energy barrier is lower than the dG_min
+        parameter. If there are multiple better neighbors with a minimal
+        transition energy barrier, then the occupancy is transfered to the
+        neighbor with the lowest energy, in the degenerate case the
+        lexicographically first structure is chosen.
 
         Args:
-          dG_min (flt, optional): Minimum energy barrier between structures.
+          dG_min (flt, optional): Minimum energy barrier between separate
+            macrostates.
 
         Returns:
           dict[node] = node: A mapping from deleted nodes to macro-state
@@ -551,7 +555,8 @@ class ConformationGraph(nx.DiGraph):
 
             # get all active neighbors (low to high)
             nbrs = filter(lambda x: self.node[x]['active'],
-                          sorted(self.successors(ni), key=lambda x: (self.node[x]['energy'], x), reverse=False))
+                          sorted(self.successors(ni), 
+                              key=lambda x: (self.node[x]['energy'], x), reverse=False))
 
             if nbrs == []:
                 break
@@ -658,8 +663,9 @@ class ConformationGraph(nx.DiGraph):
                     sE = self.get_saddle(be, ni)
                     if sE is not None:
                         nMsE.add((ee, sE))
-                mystr = ' '.join(map(lambda x_y: '({:3d} {:6.2f})'.format(x_y[0], x_y[1] - data['energy']),
-                                     sorted(list(nMsE), key=lambda x: x[0])))
+                mystr = ' '.join(map(
+                    lambda x_y: '({:3d} {:6.2f})'.format(x_y[0], x_y[1] - data['energy']),
+                    sorted(list(nMsE), key=lambda x: x[0])))
 
                 # Print structures and neighbors to bfile:
                 bar.write("{:4d} {} {:6.2f} {}\n".format(
@@ -717,7 +723,7 @@ class ConformationGraph(nx.DiGraph):
 
         Args:
           p_min (flt, optional): Occupancy cutoff for neighbor generation.
-            Defaults to None: using global ConformationGraph parameter.
+            Defaults to None: using global TrafoLandscape parameter.
           maxh (flt, optional): Don't remove structures that are separated with
             an energy barrier higher than maxh.
 
@@ -742,12 +748,11 @@ class ConformationGraph(nx.DiGraph):
             en = data['energy']
 
             # get all active neighbors (low to high)
-            nbrs = filter(lambda x: self.node[x]['active'], sorted(self.successors(ni),
-                                                                   key=lambda x: self.node[x]['energy'], reverse=False))
+            nbrs = filter(lambda x: self.node[x]['active'], sorted(self.successors(ni), 
+                key=lambda x: self.node[x]['energy'], reverse=False))
 
             # looks good!
-            if mocca and len(
-                    filter(lambda x: self.node[x]['occupancy'] >= p_min, nbrs)) > mocca:
+            if mocca and len(filter(lambda x: self.node[x]['occupancy'] >= p_min, nbrs)) > mocca:
                 rejected += 1
                 continue
 
@@ -758,8 +763,7 @@ class ConformationGraph(nx.DiGraph):
                 still_reachables += 1
                 continue
 
-            # among *all* neighbors, find the neighbor with the lowest energy
-            # barrier
+            # among *all* neighbors, find the neighbor with the lowest energy barrier
             (transfer, minsE) = (best, self.get_saddle(ni, best))
             for e, nbr in enumerate(nbrs[1:]):
                 sE = self.get_saddle(ni, nbr)
@@ -771,20 +775,19 @@ class ConformationGraph(nx.DiGraph):
                 rejected += 1
                 continue
 
-            for e, nb1 in enumerate(nbrs, 1):
-                for nb2 in nbrs[e:]:
-                    always_true = self.add_transition_edge(
-                        nb2, nb1, ts=ni, call='prune')
-                    if always_true is False:
-                        raise TrafoAlgoError(
-                            'Did not add the transition edge!')
-
             # remove the node
             self.node[ni]['active'] = False
             self.node[ni]['last_seen'] = 1
             self.node[transfer]['occupancy'] += self.node[ni]['occupancy']
             self.node[ni]['occupancy'] = 0.0
             deleted_nodes += 1
+
+            for e, nb1 in enumerate(nbrs, 1):
+                for nb2 in nbrs[e:]:
+                    always_true = self.add_transition_edge(nb2, nb1, ts=ni, call='prune')
+                    if always_true is False:
+                        raise TrafoAlgoError('Did not add the transition edge!')
+
 
         return deleted_nodes, still_reachables, rejected
 
@@ -828,8 +831,8 @@ class ConformationGraph(nx.DiGraph):
                                 mapss = softmap[ss]
                                 mapid = macromap[mapss]
                             else:
-                                # we *must* have seen this state before, given there are no degenerate
-                                # sorting errors...
+                                # we *must* have seen this state before, given
+                                # there are no degenerate sorting errors...
                                 mapid = e + 1
                                 macromap[ss] = mapid
 
