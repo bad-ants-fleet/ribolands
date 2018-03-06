@@ -227,13 +227,16 @@ def add_drtrafo_args(parser):
 
     # Plotting tools (DrForna, matplotlib, xmgrace)
     parser.add_argument("--drffile", action="store_true",
-                        help="Write DrForna output to a file: {--name}.drf")
+            help="Write DrForna output to a file: {--name}.drf")
     parser.add_argument("--pyplot", action="store_true",
-                        help="""Plot the simulation using matplotlib. Interpret the legend using
-      STDOUT or --logfile""")
+            help="""Plot the simulation using matplotlib. Interpret the legend
+            using STDOUT or --logfile""")
     parser.add_argument("--xmgrace", action="store_true",
-                        help="""Plot the simulation for xmgrace visualization. Interpret the
-      legend using STDOUT or --logfile""")
+            help="""Plot the simulation for xmgrace visualization. Interpret
+            the legend using STDOUT or --logfile""")
+    parser.add_argument("--draw-graphs", action="store_true",
+            help="""Plot the landscape graph as pdf. Interpret the nodeID using
+            STDOUT or --logfile""")
 
     # Logging and STDOUT
     parser.add_argument("--logfile", action="store_true",
@@ -339,12 +342,12 @@ def main(args):
                 args.t_slow, dG_max, 1 / args.t_slow, args.k0)
 
     if args.t_fast * 10 > args.t_ext:
-        raise Exception(
-            'Conflicting Settings: rate for equilibration must be much faster than for nucleotide extension.')
+        raise Exception("""Conflicting Settings: rate for equilibration must be
+                much faster than for nucleotide extension.""")
 
     if args.t_slow is not None and args.t_end * 100 > args.t_slow:
-        raise Exception(
-            'Conflicting Settings: 1/--min-rate should be much longer than the simulation time --t_end.')
+        raise Exception("""Conflicting Settings: 1/--min-rate should be much
+                longer than the simulation time --t_end.""")
 
     check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
 
@@ -435,7 +438,7 @@ def main(args):
                     with smart_open(_drffile, 'a') as dfh:
                         ss = nlist[0][0]
                         line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'],
-                                                              CG._total_time, 1.0, ss[:len(seq)], CG.node[ss]['energy'])
+                                CG._total_time, 1.0, ss[:len(seq)], CG.node[ss]['energy'])
                         dfh.write(line + '\n')
 
                 if args.pyplot or args.xmgrace:
@@ -449,23 +452,25 @@ def main(args):
                 bfile = None
                 try:  # - Simulate with treekin
                     tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
-                                               treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8,
-                                               mpack_method=args.mpack_method,
-                                               exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
+                            treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8,
+                            mpack_method=args.mpack_method,
+                            exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
                     norm += 1
                 except SubprocessError:
                     try:  # - Simulate with treekin and --exponent
                         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
-                                                   mpack_method=args.mpack_method,
-                                                   treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8,
-                                                   exponent=True, useplusI=False, force=True, verb=(args.verbose > 0))
+                                mpack_method=args.mpack_method,
+                                treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8,
+                                exponent=True, useplusI=False, force=True, verb=(args.verbose > 0))
                         expo += 1
                     except SubprocessError:
                         try:  # - Simulate with treekin and --useplusI
                             tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
-                                                       mpack_method=args.mpack_method,
-                                                       treekin=args.treekin, p0=p0, t0=_t0, ti=args.ti, t8=_t8,
-                                                       exponent=False, useplusI=True, force=True, verb=(args.verbose > 0))
+                                    mpack_method=args.mpack_method,
+                                    treekin=args.treekin, p0=p0, t0=_t0,
+                                    ti=args.ti, t8=_t8, exponent=False,
+                                    useplusI=True, force=True,
+                                    verb=(args.verbose > 0))
                             plusI += 1
                         except SubprocessError:
                             if args.verbose > 1:
@@ -480,8 +485,7 @@ def main(args):
                             fail += 1
 
                 except ExecError as e:
-                    # NOTE: This is a hack to avoid treekin simulations in the
-                    # first place
+                    # NOTE: This is a hack to avoid treekin simulations in the first place
                     _odename = name + str(tlen)
                     tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
                                              t_lin=t_lin,
@@ -500,8 +504,7 @@ def main(args):
                     del copyCG
 
                 if args.pyplot or args.xmgrace or _drffile:
-                    for data in CG.sorted_trajectories_iter(
-                            nlist, tfile, softmap):
+                    for data in CG.sorted_trajectories_iter(nlist, tfile, softmap):
                         [id_, tt_, oc_, ss_, en_] = data
                         if args.pyplot or args.xmgrace:
                             all_courses[id_].append((tt_, oc_))
@@ -516,14 +519,19 @@ def main(args):
                 # Prune
                 dn, sr, rj = CG.prune(mocca=args.mocca)
 
+                if args.draw_graphs:
+                    CG.to_json(_fname)
+
             if args.verbose:
-                print "# Transcripton length: {}. Initial graph size: {}. ".format(tlen, len(nlist))
-                print "#  Deleted {} nodes, {} still reachable, {} rejected deletions.".format(dn, sr, rj)
+                print "# Transcripton length: " + \
+                    "{}. Initial graph size: {}. Hidden graph size: {}".format(
+                            tlen, len(nlist), len(CG))
+                print "#  Deleted {} nodes, {} still reachable, {} rejected deletions.".format(
+                        dn, sr, rj)
                 print("#  Computation time at current nucleotide: {} s".format(
                     (datetime.now() - mytime).total_seconds()))
                 print("{} {} {} {}".format(tlen, len(nlist), 
-                                                                   (datetime.now() - mytime).total_seconds(),
-                                                                   ril.trafo.PROFILE['findpath-calls']))
+                    (datetime.now() - mytime).total_seconds(), ril.trafo.PROFILE['findpath-calls']))
 
                 mytime = datetime.now()
                 ril.trafo.PROFILE['findpath-calls'] = 0
@@ -534,8 +542,7 @@ def main(args):
                 ril.trafo.PROFILE['prune'] = 0
 
         if args.verbose >= 1:
-            print "# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format(
-                norm, expo, plusI, fail)
+            print "# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format( norm, expo, plusI, fail)
 
         lfh.write("Distribution of structures at the end:\n")
         lfh.write("          {}\n".format(CG.transcript))
