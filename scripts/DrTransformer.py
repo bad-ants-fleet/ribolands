@@ -381,7 +381,7 @@ def main(args):
   #import statprof
   #statprof.start()
 
-  CG._transcript_length = args.start
+  CG._transcript_length = args.start-1
 
   with smart_open(_logfile, 'w') as lfh :
     CG.logfile = lfh
