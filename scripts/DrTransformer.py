@@ -390,10 +390,10 @@ def main(args):
 
     CG.findpath_search_width = args.findpath_search_width
 
-    CG._transcript_length = args.start
+    CG._transcript_length = args.start-1
 
     if args.verbose:
-        mytime = datetime.now()
+        atime = datetime.now()
 
     with smart_open(_logfile, 'w') as lfh:
         CG.logfile = lfh
@@ -498,9 +498,9 @@ def main(args):
                 # print time_inc, iterations
 
                 softmap = dict()
-                if args.soft_minh and args.soft_minh > args.minh:
+                if args.soft_minh and args.soft_minh > CG._dG_min:
                     copyCG = CG.graph_copy()
-                    softmap = copyCG.coarse_grain(minh=args.soft_minh)
+                    softmap = copyCG.coarse_grain(dG_min=args.soft_minh)
                     del copyCG
 
                 if args.pyplot or args.xmgrace or _drffile:
@@ -511,8 +511,7 @@ def main(args):
                         if _drffile:
                             with smart_open(_drffile, 'a') as dfh:
                                 dfh.write(
-                                    "{} {} {} {:s} {:6.2f}\n".format(
-                                        *data))
+                                    "{} {} {} {:s} {:6.2f}\n".format(*data))
 
                 CG._total_time += time_inc
 
@@ -528,12 +527,19 @@ def main(args):
                             tlen, len(nlist), len(CG))
                 print "#  Deleted {} nodes, {} still reachable, {} rejected deletions.".format(
                         dn, sr, rj)
+                dtime = datetime.now()
                 print("#  Computation time at current nucleotide: {} s".format(
-                    (datetime.now() - mytime).total_seconds()))
-                print("{} {} {} {}".format(tlen, len(nlist), 
-                    (datetime.now() - mytime).total_seconds(), ril.trafo.PROFILE['findpath-calls']))
+                    (dtime - atime).total_seconds()))
 
-                mytime = datetime.now()
+                fp_tot = ril.trafo.PROFILE['findpath-calls']
+                fp_exp = ril.trafo.PROFILE['mfe'] + \
+                         ril.trafo.PROFILE['hb'] + ril.trafo.PROFILE['feature']
+                fp_cgr = ril.trafo.PROFILE['cogr']
+                fp_prn = ril.trafo.PROFILE['prune']
+                print("{} {} {} {} {} {} {}".format(tlen, len(nlist), 
+                    (dtime - atime).total_seconds(), fp_exp, fp_cgr, fp_prn, fp_tot))
+
+                atime = dtime
                 ril.trafo.PROFILE['findpath-calls'] = 0
                 ril.trafo.PROFILE['mfe'] = 0
                 ril.trafo.PROFILE['hb'] = 0
