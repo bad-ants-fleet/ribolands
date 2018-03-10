@@ -7,13 +7,13 @@
 #  for uncommenting large parts during testing
 #
 #  *) do not exceed 80 characters per line
-#  *) indents: 2x whitespace, no tab characters!
-#
-#  -*- VIM config -*-
-#  set textwidth=80
-#  set ts=2 et sw=2 sts=2
 #
 
+
+# Python 3 compatibility
+from __future__ import absolute_import, division, print_function, unicode_literals
+
+from builtins import str
 import subprocess as sub
 from ribolands.syswraps import SubprocessError
 from crnsimulator import ReactionGraph
@@ -52,7 +52,7 @@ def DiGraphSimulator(CG, fname, nlist, p0, t0, t8,
     xfile = fname + '.py'
 
     crn = []
-    for e in CG.edges_iter():
+    for e in CG.edges():
         if not CG.node[e[0]]['active'] or not CG.node[e[1]]['active']:
             continue
         reactant = 'id_' + str(CG.node[e[0]]['identity'])
@@ -61,7 +61,7 @@ def DiGraphSimulator(CG, fname, nlist, p0, t0, t8,
         crn.append([[reactant], [product], rate])
 
     RG = ReactionGraph(crn)
-    svars = map(lambda x: 'id_' + str(x[1]['identity']), nlist)
+    svars = ['id_' + str(x[1]['identity']) for x in nlist]
 
     filename, _ = RG.write_ODE_lib(sorted_vars=svars, filename=xfile)
 
@@ -77,7 +77,7 @@ def DiGraphSimulator(CG, fname, nlist, p0, t0, t8,
     syscall.extend(['--p0'])
     syscall.extend(p0)
     if verb:
-        print "# {} > {}".format(' '.join(syscall), tfile)
+        print("# {} > {}".format(' '.join(syscall), tfile))
 
     # Do the simulation (catch treekin errors)
     with open(tfile, 'w') as tf:

@@ -1,13 +1,10 @@
 #!/usr/bin/env python
 
 """
-  BarMap 2 -- cotranscriptional folding with *barriers* and *treekin*
-
-  :requires: python-v.2.7, RNAsubopt, barriers-v1.6, treekin-v0.4
-
-  use two whitespace characters as tab when editing this file!
-  vim-config = set: ts=2 et sw=2 sts=2
+  BarMap.py -- cotranscriptional folding using *barriers* and *treekin*
 """
+
+from __future__ import absolute_import, division, print_function, unicode_literals
 
 import os
 import re
@@ -273,7 +270,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
     p0 = args.p0
     tt = 0
     tfiles = []
-    reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
+    reg_flt = re.compile(b'[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
     # http://www.regular-expressions.info/floatingpoint.html
 
     for e, l in enumerate(range(start, stop + 1)):
@@ -281,7 +278,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
 
         cseq = seq[0:l]
         cname = "{}-t8_{}-len_{}".format(bname, t8, l)
-        [bfile, efile, rfile, psfile] = bfiles[e]
+        [bfile, efile, rfile, psfile, msfile] = bfiles[e]
 
         with open(bfile) as bf:
             for i, _ in enumerate(bf):
@@ -300,7 +297,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
                                             verb=verb,
                                             force=args.force)
             except SubprocessError:
-                print "# repeating treekin calculations with --exponent"
+                print("# repeating treekin calculations with --exponent")
                 ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile,
                                             treekin=args.treekin,
                                             exponent=True,
@@ -314,7 +311,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
                                             force=True)
 
             lastlines = s.check_output(
-                ['tail', '-2', ctfile]).strip().split("\n")
+                ['tail', '-2', ctfile]).strip().split(b'\n')
             if reg_flt.match(lastlines[0]):
                 tt += float(lastlines[0].split()[0])
                 if l < stop:
@@ -326,8 +323,8 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
                     for (i, pop) in enumerate(lastlines[0].split()):
                         if i != 0 and float(pop) > cutoff:
                             ss, en = get_structure(bfile, i, energy=True)
-                            print "{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, i,
-                                                                         float(pop), ss, float(en))
+                            print("{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, i,
+                                float(pop), ss, float(en)))
             else:
                 raise SubprocessError(
                     'found crashed treekin trajectory.', ctfile)
@@ -336,7 +333,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
             ctfile = cname + '.tkn'
             open(ctfile, 'a').close()
             tt += t8
-            print "{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, 1, 1.0, get_structure(bfile, 1), 0.00)
+            print("{:3d} {:3d} {:f} {:s} {:6.2f}".format(l, 1, 1.0, get_structure(bfile, 1), 0.00))
         tfiles.append(ctfile)
     return tfiles
 
@@ -354,7 +351,7 @@ def barmap_mapping(_bname, seq, args):
 
     if os.path.exists(mapinfo) and not force:
         if verb:
-            print "# {} <= File exists".format(mapinfo)
+            print("# {} <= File exists".format(mapinfo))
         with open(mapinfo, 'r') as m:
             m.readline().strip()
             for line in m:
@@ -369,8 +366,8 @@ def barmap_mapping(_bname, seq, args):
 
             if os.path.exists(pname + '.bar'):
                 if verb:
-                    print "# Get mapping info {:d} -> {:d}".format(l - 1, l)
-                mlist.append(get_mapping_dict(pname + '.bar', cname + '.err'))
+                    print("# Get mapping info {:d} -> {:d}".format(l - 1, l))
+                mlist.append(get_mapping_dict(pname + '.bar', cname + '.ms'))
 
         plist = pathlist(mlist)
         with open(mapinfo, 'w') as m:
@@ -407,7 +404,7 @@ def barmap_barriers(_bname, seq, sfiles, args):
         # Make sure the first round for mapping is always recomputed
         # force = True if e == 1 else args.force
 
-        [sfile, bfile, efile, rfile, psfile] = ril.sys_barriers(cname, cseq, sfile,
+        [sfile, bfile, efile, rfile, psfile, msfile] = ril.sys_barriers(cname, cseq, sfile,
                                                                 barriers=args.barriers,
                                                                 minh=args.b_minh,
                                                                 maxn=args.b_maxn,
@@ -423,7 +420,7 @@ def barmap_barriers(_bname, seq, sfiles, args):
                                                                 mfile=mfile,
                                                                 force=args.force,
                                                                 verb=args.verbose)
-        bfiles.append([bfile, efile, rfile, psfile])
+        bfiles.append([bfile, efile, rfile, psfile, msfile])
         prog.inc()
     return bfiles
 
@@ -467,8 +464,8 @@ def set_p0(bfile, l, lastlines, curlmin, newlmin, cutoff, verb):
             p0dict[lminmap[i]] += float(pop)
             if float(pop) > cutoff:
                 ss, en = get_structure(bfile, i, energy=True)
-                print "{:3d} {:3d} {:f} {:s} {:6.2f} {:4d} => {:d}".format(
-                    l, i, float(pop), ss, float(en), i, lminmap[i])
+                print("{:3d} {:3d} {:f} {:s} {:6.2f} {:4d} => {:d}".format(
+                    l, i, float(pop), ss, float(en), i, lminmap[i]))
                 if lminmap[i] == 0:
                     raise LostPopulationError('Lost significant population!')
 
@@ -482,7 +479,7 @@ def set_p0(bfile, l, lastlines, curlmin, newlmin, cutoff, verb):
             p0sum += y
 
     if verb:
-        print "# Total population {:.3f}\n".format(p0sum)
+        print("# Total population {:.3f}\n".format(p0sum))
     return p0
 
 
@@ -517,10 +514,10 @@ def get_mapping_dict(oldbar, minfo):
                 gstr, sptidx, energy, fmin, fminT, gmin, gminT = line.strip().split()
                 mapinfo.append([gminT, gstr])
             elif re.match('not in hash', line.strip()):
-                print "# structure not in hash"
+                print("# structure not in hash")
                 mapinfo.append([0, ''])
             elif re.match('not yet assigned', line.strip()):
-                print "# structure not yet assigned"
+                print("# structure not yet assigned")
                 mapinfo.append([0, ''])
 
         for n, line in enumerate(old):
@@ -617,18 +614,18 @@ def main(args):
     else:
         seq = seq[:args.stop]
 
-    print "# Input: {:s} {:s}".format(name, seq)
+    print("# Input: {:s} {:s}".format(name, seq))
 
     if args.s_ener is None:
         args.s_ener, args.s_maxn = ril.sys_subopt_range(seq,
-                                                        nos=args.s_maxn, maxe=args.s_maxe, verb=(args.verbose > 0))
-        print "# Energyrange {:.2f} computes {:d} sequences".format(
-            args.s_ener, args.s_maxn)
+                nos=args.s_maxn, maxe=args.s_maxe, verb=(args.verbose > 0))
+        print("# Energyrange {:.2f} computes {:d} sequences".format(
+            args.s_ener, args.s_maxn))
     elif args.verbose:
         args.s_ener, args.s_maxn = ril.sys_subopt_range(seq,
                                                         nos=0, maxe=args.s_ener, verb=False)
-        print "# Energyrange {:.2f} computes {:d} sequences".format(
-            args.s_ener, args.s_maxn)
+        print("# Energyrange {:.2f} computes {:d} sequences".format(
+            args.s_ener, args.s_maxn))
 
     if not args.tmpdir:
         args.tmpdir = 'BarMap_' + args.name
@@ -639,53 +636,53 @@ def main(args):
     """# Starting with BarMap computations ... """
 
     while True:
-        print """# writing RNAsubopt files ... """
+        print("""# writing RNAsubopt files ... """)
         sname = "{}/{}-ener_{:.2f}".format(args.tmpdir, args.name, args.s_ener)
         #if args.circ: myfile += '_circ'
         if args.noLP:
             sname += '_noLP'
         sfiles = barmap_subopts(sname, seq, args)
 
-        print """# writing barriers files ... """
+        print("""# writing barriers files ... """)
         bname = "{}-minh_{}-maxn_{}-k0_{}".format(sname,
                                                   args.b_minh, args.b_maxn, args.k0)
         bfiles = barmap_barriers(bname, seq, sfiles, args)
 
-        print """# writing/parsing mapping information ... """
+        print("""# writing/parsing mapping information ... """)
         plist = barmap_mapping(bname, seq, args)
 
-        print """# simulations using treekin ... """
+        print("""# simulations using treekin ... """)
         try:
             tfiles = barmap_treekin(bname, seq, bfiles, plist, args)
             break
         except LostPopulationError as e:
             if args.adaptive:
                 args.s_ener += 2
-                print Warning('repeating caluclations with higher energy:', args.s_ener)
+                print('repeating caluclations with higher energy:', args.s_ener)
             else:
-                print Warning('caluclations failed with current suboptimal energy range:', args.s_ener)
+                print('caluclations failed with current suboptimal energy range:', args.s_ener)
                 break
         except SubprocessError as e:
             if args.adaptive:
                 args.s_ener += 2
-                print Warning('repeating caluclations with higher energy:', args.s_ener)
+                print('repeating caluclations with higher energy:', args.s_ener)
             else:
-                print Warning('caluclations failed with current suboptimal energy range:', args.s_ener)
+                print('caluclations failed with current suboptimal energy range:', args.s_ener)
                 break
 
     if args.xmgrace or args.pyplot:
-        print """# Processing treekin results for plotting ... """
+        print("""# Processing treekin results for plotting ... """)
         courses = get_plot_data(tfiles, plist, args)
 
         if args.xmgrace:
             grfile = plot_xmgrace(courses, plist, args)
-            print "# Your results have been plotted in the file: {}".format(grfile)
+            print("# Your results have been plotted in the file: {}".format(grfile))
 
         if args.pyplot:
             plotfile = plot_matplotlib(name, seq, courses, plist, args)
-            print "# Your results have been plotted in the file: {}".format(plotfile)
+            print("# Your results have been plotted in the file: {}".format(plotfile))
 
-    print "# Thank you for using BarMap b(^.^)d"
+    print("# Thank you for using BarMap b(^.^)d")
 
 
 if __name__ == '__main__':

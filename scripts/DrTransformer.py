@@ -1,7 +1,15 @@
-#!/usr/bin/env python
+from __future__ import division
 
 # written by Stefan Badelt (stef@tbi.univie.ac.at)
 # vim-config = set: ts=2 et sw=2 sts=2
+
+# Python 3 compatibility
+#from __future__ import absolute_import, division, print_function, unicode_literals
+
+from builtins import map
+from builtins import zip
+from builtins import str
+from builtins import range
 
 import re
 import os
@@ -58,7 +66,7 @@ def plot_xmgrace(all_in, args):
     with open(args.name + '.gr', 'w') as gfh:
         gfh.write(head)
         for e, course in enumerate(all_in):
-            t, o = zip(*course)
+            t, o = list(zip(*course))
             for i in range(len(t)):
                 gfh.write("{:f} {:f}\n".format(t[i], o[i]))
             gfh.write("&\n")
@@ -97,7 +105,7 @@ def plot_simulation(all_in, args):
     for e, course in enumerate(all_in):
         if course == []:
             continue
-        t, o = zip(*course)
+        t, o = list(zip(*course))
         # Determine which lines are part of the legend:
         # like this, it is only those that are populated
         # at the end of transcription and if they reach
@@ -138,18 +146,14 @@ def plot_simulation(all_in, args):
 def add_drtrafo_args(parser):
     """ A collection of arguments that are used by DrTransformer """
     # Treekin parameters
-    parser.add_argument(
-        '--version',
-        action='version',
-        version='%(prog)s ' +
-        ril.__version__)
+    parser.add_argument('--version', action='version', version='%(prog)s ' + ril.__version__)
     parser.add_argument("--treekin", default='treekin', action='store',
                         metavar='<str>', help="Path to the *treekin* executable.")
 
     parser.add_argument("--mpack-method", metavar='<str>', action='store',
-                        choices=(['FLOAT128', 'LD', 'QD', 'DD']),
-                        help="""Increase the precision of treekin simulations. Requires a development
-      version of treekin with mpack support.""")
+            choices=(['FLOAT128', 'LD', 'QD', 'DD']),
+            help="""Increase the precision of treekin simulations. Requires a development
+                    version of treekin with mpack support.""")
 
     # Common parameters
     parser.add_argument("--ti", type=float, default=1.2, metavar='<flt>',
@@ -202,6 +206,9 @@ def add_drtrafo_args(parser):
       and a loop region of 2 nucleotides. If less bases are freed and there
       exists a nested stacked helix, this helix is considered to breathe as
       well.""")
+
+    parser.add_argument("--detailed-pruning", action="store_true",
+            help="""Calculate new direct path barriers during the pruning step.""")
 
     # Advanced plotting parameters
     parser.add_argument("--t-lin", type=int, default=30, metavar='<int>',
@@ -334,12 +341,12 @@ def main(args):
     # Compare --minh, --min-rate, --t8 and --tX :
     if args.verbose:
         dG_min = -_RT * math.log(1 / args.t_fast / args.k0)
-        print '# --t-fast: {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
-            args.t_fast, dG_min, 1 / args.t_fast, args.k0)
+        print('# --t-fast: {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
+            args.t_fast, dG_min, 1/args.t_fast, args.k0))
         if args.t_slow is not None:
             dG_max = -_RT * math.log(1 / args.t_slow / args.k0)
-            print '# --t-slow {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
-                args.t_slow, dG_max, 1 / args.t_slow, args.k0)
+            print('# --t-slow {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
+                args.t_slow, dG_max, 1/args.t_slow, args.k0))
 
     if args.t_fast * 10 > args.t_ext:
         raise Exception("""Conflicting Settings: rate for equilibration must be
@@ -349,16 +356,12 @@ def main(args):
         raise Exception("""Conflicting Settings: 1/--min-rate should be much
                 longer than the simulation time --t_end.""")
 
-    check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
+    #check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
 
     def versiontuple(rv):
         return tuple(map(int, (rv.split("."))))
-    if versiontuple(RNA.__version__) < versiontuple(
-            ril._MIN_VIENNARNA_VERSION):
-        raise VersionError(
-            'ViennaRNA',
-            RNA.__version__,
-            ril._MIN_VIENNARNA_VERSION)
+    if versiontuple(RNA.__version__) < versiontuple(ril._MIN_VIENNARNA_VERSION):
+        raise VersionError('ViennaRNA', RNA.__version__, ril._MIN_VIENNARNA_VERSION)
 
     ############################
     # Start with DrTransformer #
@@ -404,7 +407,7 @@ def main(args):
 
             mn = CG.coarse_grain()
             if args.verbose:
-                print "# Merged {} nodes after expanding {} new nodes.".format(len(mn), nn)
+                print("# Merged {} nodes after expanding {} new nodes.".format(len(mn), nn))
 
             if args.pyplot or args.xmgrace:
                 ttt = CG._total_time
@@ -474,7 +477,7 @@ def main(args):
                             plusI += 1
                         except SubprocessError:
                             if args.verbose > 1:
-                                print Warning("After {} nucleotides: treekin cannot find a solution!".format(tlen))
+                                print("After {} nucleotides: treekin cannot find a solution!".format(tlen))
                             # - Simulate with crnsimulator python package (slower)
                             _odename = name + str(tlen)
                             tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
@@ -516,17 +519,17 @@ def main(args):
                 CG._total_time += time_inc
 
                 # Prune
-                dn, sr, rj = CG.prune(mocca=args.mocca)
+                dn, sr, rj = CG.prune(mocca=args.mocca, detailed=args.detailed_pruning)
 
                 if args.draw_graphs:
                     CG.to_json(_fname)
 
             if args.verbose:
-                print "# Transcripton length: " + \
+                print("# Transcripton length: " + \
                     "{}. Initial graph size: {}. Hidden graph size: {}".format(
-                            tlen, len(nlist), len(CG))
-                print "#  Deleted {} nodes, {} still reachable, {} rejected deletions.".format(
-                        dn, sr, rj)
+                            tlen, len(nlist), len(CG)))
+                print("#  Deleted {} nodes, {} still reachable, {} rejected deletions.".format(
+                        dn, sr, rj))
                 dtime = datetime.now()
                 print("#  Computation time at current nucleotide: {} s".format(
                     (dtime - atime).total_seconds()))
@@ -548,7 +551,7 @@ def main(args):
                 ril.trafo.PROFILE['prune'] = 0
 
         if args.verbose >= 1:
-            print "# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format( norm, expo, plusI, fail)
+            print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format( norm, expo, plusI, fail))
 
         lfh.write("Distribution of structures at the end:\n")
         lfh.write("          {}\n".format(CG.transcript))

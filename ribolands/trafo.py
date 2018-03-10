@@ -1,4 +1,11 @@
+from __future__ import division
 
+# Python 3 compatibility
+#from __future__ import absolute_import, division, print_function, unicode_literals
+
+
+from builtins import map
+from builtins import range
 import re
 import math
 import networkx as nx
@@ -63,7 +70,7 @@ class TrafoLandscape(nx.DiGraph):
         self._RT = 0.61632077549999997
         if vrna_md.temperature != 37.0:
             kelvin = 273.15 + vrna_md.temperature
-            self._RT = (self._RT / 310.15) * kelvin
+            self._RT = (self._RT/310.15) * kelvin
 
         # Private instance variables:
         self._transcript_length = 0
@@ -97,7 +104,7 @@ class TrafoLandscape(nx.DiGraph):
 
         t_fast = 1/(self._k0 * exp(-self.dG_min/self._RT))
         """
-        return 1 / (self._k0 * exp(-self._dG_min / self._RT))
+        return 1/(self._k0 * exp(-self._dG_min/self._RT))
 
     @t_fast.setter
     def t_fast(self, value):
@@ -119,7 +126,7 @@ class TrafoLandscape(nx.DiGraph):
         if self._dG_max == 0:
             return None
         else:
-            return 1 / (self._k0 * exp(-self._dG_max / self._RT))
+            return 1/(self._k0 * exp(-self._dG_max/self._RT))
 
     @t_slow.setter
     def t_slow(self, value):
@@ -182,7 +189,7 @@ class TrafoLandscape(nx.DiGraph):
     def graph_to_pdf(self, name):
         import matplotlib.pyplot as plt
         name += 'mpl.pdf'
-        nl = filter(lambda x: self.node[x]['active'], self.nodes)
+        nl = [x for x in self.nodes if self.node[x]['active']]
         nd = nx.get_node_attributes(self, 'identity')
         nx.drawing.nx_pylab.draw_networkx(self, nodelist=nl, labels=nd)
 
@@ -200,7 +207,7 @@ class TrafoLandscape(nx.DiGraph):
             Defaults to False.
 
         """
-        active = filter(lambda n_d: n_d[1]['active'], self.nodes(data=True))
+        active = [n_d for n_d in self.nodes(data=True) if n_d[1]['active']]
         return sorted(active, key=lambda x: (
             x[1]['energy'], x[0]), reverse=descending)
 
@@ -280,7 +287,7 @@ class TrafoLandscape(nx.DiGraph):
                 dcal_sE = fc.path_findpath_saddle(s1, s2, maxE=dcal_bound, width=fpath)
             else :
                 dcal_sE = fc.path_findpath_saddle(s1, s2, width=fpath)
-            return float(dcal_sE) / 100 if dcal_sE else dcal_sE
+            return float(dcal_sE)/100 if dcal_sE else dcal_sE
 
         # Now this is the computationally heavy part ...
         if saddleE is None:
@@ -296,7 +303,7 @@ class TrafoLandscape(nx.DiGraph):
         elif ts:
             saddleE = min(saddleE, tsE)
 
-        if fpathE:
+        if fpathE and saddleE:
             assert saddleE <= fpathE
 
         if saddleE is not None:  # Add the edge.
@@ -311,8 +318,8 @@ class TrafoLandscape(nx.DiGraph):
             dG_2s = saddleE - e2
 
             # Metropolis Rule
-            k_12 = _k0 * math.exp(-dG_1s / _RT)
-            k_21 = _k0 * math.exp(-dG_2s / _RT)
+            k_12 = _k0 * math.exp(-dG_1s/_RT)
+            k_21 = _k0 * math.exp(-dG_2s/_RT)
             self.add_weighted_edges_from([(s1, s2, k_12)])
             self.add_weighted_edges_from([(s2, s1, k_21)])
             self[s1][s2]['saddle'] = saddleE
@@ -604,10 +611,9 @@ class TrafoLandscape(nx.DiGraph):
             en = data['energy']
 
             # get all active neighbors (low to high)
-            nbrs = filter(lambda x: self.node[x]['active'], sorted(self.successors(ni), 
-                              key=lambda x: (self.node[x]['energy'], x), reverse=False))
+            nbrs = [x for x in sorted(self.successors(ni), 
+                              key=lambda x: (self.node[x]['energy'], x), reverse=False) if self.node[x]['active']]
 
-            #print 'processing', ni, map(lambda x: self[ni][x]['saddle'], nbrs)
             if nbrs == []:
                 break
 
@@ -631,8 +637,6 @@ class TrafoLandscape(nx.DiGraph):
             if minsE - en - dG_min > 0.0001:  # avoid precision errors
                 # do not merge, if the barrier is too high.
                 continue
-
-            #print 'transfer', ni, transfer
 
             # connect all neighboring nodes to the transfer node
             for e, nb1 in enumerate(nbrs, 1):
@@ -705,7 +709,7 @@ class TrafoLandscape(nx.DiGraph):
         brfile = rfile + '.bin'
         p0 = []
 
-        with open(bfile, 'w') as bar, open(rfile, 'w') as rts, open(brfile, 'w') as brts:
+        with open(bfile, 'w') as bar, open(rfile, 'w') as rts, open(brfile, 'wb') as brts:
             bar.write("     {}\n".format(seq))
             brts.write(pack("i", len(sorted_nodes)))
             for e, (ni, data) in enumerate(sorted_nodes, 1):
@@ -717,9 +721,7 @@ class TrafoLandscape(nx.DiGraph):
                     sE = self.get_saddle(be, ni)
                     if sE is not None:
                         nMsE.add((ee, sE))
-                mystr = ' '.join(map(
-                    lambda x_y: '({:3d} {:6.2f})'.format(x_y[0], x_y[1] - data['energy']),
-                    sorted(list(nMsE), key=lambda x: x[0])))
+                mystr = ' '.join(['({:3d} {:6.2f})'.format(x_y[0], x_y[1] - data['energy']) for x_y in sorted(list(nMsE), key=lambda x: x[0])])
 
                 # Print structures and neighbors to bfile:
                 bar.write("{:4d} {} {:6.2f} {}\n".format(e, ni[:len(seq)], data['energy'], mystr))
@@ -751,22 +753,30 @@ class TrafoLandscape(nx.DiGraph):
           Update the occupancy in the Graph and the total simulation time
         """
         # http://www.regular-expressions.info/floatingpoint.html
-        reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
+        reg_flt = re.compile(b'[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
 
-        lastlines = s.check_output(['tail', '-2', tfile]).strip().split("\n")
+        lastlines = s.check_output(['tail', '-2', tfile]).strip().split(b'\n')
         if not reg_flt.match(lastlines[0]):
             raise TrafoAlgoError('Cannot parse simulation output', tfile)
         else:
-            time = float(lastlines[0].split()[0])
-            iterations = int(lastlines[-1].split()[-1])
-            tot_occ = sum(map(float, lastlines[0].split()[1:]))
-            for e, occu in enumerate(lastlines[0].split()[1:]):
-                ss = sorted_nodes[e][0]
-                self.node[ss]['occupancy'] = float(occu) / tot_occ
+            if reg_flt.match(lastlines[1]):
+                time = float(lastlines[1].split()[0])
+                iterations = None
+                tot_occ = sum(map(float, lastlines[1].split()[1:]))
+                for e, occu in enumerate(lastlines[1].split()[1:]):
+                    ss = sorted_nodes[e][0]
+                    self.node[ss]['occupancy'] = float(occu)/tot_occ
+            else :
+                time = float(lastlines[0].split()[0])
+                iterations = int(lastlines[-1].split()[-1])
+                tot_occ = sum(map(float, lastlines[0].split()[1:]))
+                for e, occu in enumerate(lastlines[0].split()[1:]):
+                    ss = sorted_nodes[e][0]
+                    self.node[ss]['occupancy'] = float(occu)/tot_occ
 
         return time, iterations
 
-    def prune(self, p_min=None, maxh=None, mocca=None):
+    def prune(self, p_min=None, maxh=None, mocca=None, detailed=False):
         """ Delete nodes or report them as still reachable.
 
         Use the occupancy cutoff to choose which nodes to keep and which ones to
@@ -800,11 +810,11 @@ class TrafoLandscape(nx.DiGraph):
             en = data['energy']
 
             # get all active neighbors (low to high)
-            nbrs = filter(lambda x: self.node[x]['active'], sorted(self.successors(ni), 
-                key=lambda x: self.node[x]['energy'], reverse=False))
+            nbrs = [x for x in sorted(self.successors(ni), 
+                key=lambda x: self.node[x]['energy'], reverse=False) if self.node[x]['active']]
 
             # looks good!
-            if mocca and len(filter(lambda x: self.node[x]['occupancy'] >= p_min, nbrs)) > mocca:
+            if mocca and len([x for x in nbrs if self.node[x]['occupancy'] >= p_min]) > mocca:
                 rejected += 1
                 continue
 
@@ -812,20 +822,6 @@ class TrafoLandscape(nx.DiGraph):
             best, been = nbrs[0], self.node[nbrs[0]]['energy']
 
             if been - en > 0.0001:
-                #fpathE = 9999
-                ##for newnb, newdata in self.sorted_nodes(descending=True):  # sort low to high
-                #for newnb in sorted(self.nodes(), key=lambda x: RNA.bp_distance(ni, x)):
-                #    if newnb == ni:
-                #        continue
-                #    if self.node[newnb]['energy'] > en:
-                #        continue
-                #    if self.node[newnb]['active'] == False:
-                #        continue
-                #    assert not self.has_edge(ni, newnb) #otherwise why would we be here?
-                #    if self.add_transition_edge(ni, newnb, fpathE=fpathE+1.00, call='prune'):
-                #        fpathE = self.get_saddle(ni, newnb)
-                #        print 'saving', ni
-
                 still_reachables += 1
                 continue
 
@@ -850,7 +846,8 @@ class TrafoLandscape(nx.DiGraph):
 
             for e, nb1 in enumerate(nbrs, 1):
                 for nb2 in nbrs[e:]:
-                    always_true = self.add_transition_edge(nb2, nb1, ts=ni, call='prune', fake=True)
+                    always_true = self.add_transition_edge(nb2, nb1, ts=ni, call='prune', 
+                            fake=not detailed)
                     if always_true is False:
                         raise TrafoAlgoError('Did not add the transition edge!')
 
@@ -877,7 +874,7 @@ class TrafoLandscape(nx.DiGraph):
             tknlines = tkn.readlines()
             for line in tknlines:
                 if reg_flt.match(line):
-                    course = map(float, line.strip().split())
+                    course = list(map(float, line.strip().split()))
                     time = course[0]
 
                     # softmap hack:
@@ -888,7 +885,6 @@ class TrafoLandscape(nx.DiGraph):
                         macromap = dict()
                         for e, occu in enumerate(course[1:]):
                             ss = sorted_nodes[e][0]
-                            # print ss, occu
 
                             # map occupancy to (energetically better)
                             # softmap[ss]

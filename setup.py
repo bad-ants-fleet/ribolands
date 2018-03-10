@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# Python 3 compatibility
+from __future__ import absolute_import
+
 from setuptools import setup, find_packages
 
 with open('README.md') as f:
@@ -9,8 +12,7 @@ with open('README.md') as f:
 with open('LICENSE') as f:
     license = f.read()
 
-# Dynamically figure out the version
-version = __import__('ribolands').__version__
+version = 0.6
 
 setup(
     name='ribolands',

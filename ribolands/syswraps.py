@@ -11,20 +11,21 @@
 #  Use double quotes or '#' for comments, such that single quotes are available
 #  for uncommenting large parts during testing
 #
-#  *) do not exceed 80 characters per line
-#  *) indents: 2x whitespace, no tabs!
-#
-#  -*- VIM config -*-
-#  set textwidth=80
-#  set ts=2 et sw=2 sts=2
 
+# Python 3 compatibility
+from __future__ import absolute_import, division, print_function, unicode_literals
+
+from builtins import str
+from builtins import zip
+from builtins import map
+from builtins import range
 import os
 import re
 import sys
 import gzip
 import math
 import subprocess as sub
-from struct import pack, unpack
+from struct import pack, unpack, calcsize
 
 
 def check_version(program, rv):
@@ -41,9 +42,11 @@ def check_version(program, rv):
         else:
             raise ExecError(program)
     p, pv = sub.check_output([program, '--version']).split()
+    pv = pv.decode()
 
     def versiontuple(rv):
         return tuple(map(int, (rv.split("."))))
+
     if versiontuple(pv) < versiontuple(rv):
         raise VersionError(program, pv, rv)
 
@@ -94,11 +97,10 @@ class VersionError(Exception):
 
         super(VersionError, self).__init__(self.message)
 
-#
+
 # **************** #
 # public functions #
 # ................ #
-
 
 def sys_treekin(name, seq, bfile, rfile,
                 treekin='treekin',
@@ -146,7 +148,7 @@ def sys_treekin(name, seq, bfile, rfile,
         raise ExecError(treekin,
                         "treekin", 'http://www.tbi.univie.ac.at/RNA/Treekin')
 
-    reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
+    reg_flt = re.compile(b'[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
     # http://www.regular-expressions.info/floatingpoint.html
 
     tfile = name + '.tkn'
@@ -154,15 +156,15 @@ def sys_treekin(name, seq, bfile, rfile,
 
     if not force and os.path.exists(tfile):
         if verb:
-            print "# {:s} <= Files exist".format(tfile),
+            print("# {:s} <= Files exist".format(tfile))
         return tfile, efile
 
     # Unfortunately, running treekin with a single state leads to an error that
     # is printed to STDOUT instead of STDERR. The program, exits with success.
     # That's why we catch it first:
     if binrates:
-        with open(rfile) as rf:
-            i, = unpack('i', rf.read(4))  # unsigned long, little-endian
+        with open(rfile, 'rb') as rf:
+            i, = unpack('i', rf.read(calcsize('i')))  # unsigned long, little-endian
         i -= 1
     else:
         with open(rfile) as rf:
@@ -181,7 +183,8 @@ def sys_treekin(name, seq, bfile, rfile,
     treecall.extend(('--t8', str(t8)))
     for p in p0:
         treecall.extend(('--p0', p))
-    treecall.extend(('-f', rfile))
+    if bfile:
+        treecall.extend(('--bar', bfile))
     if binrates:
         treecall.extend(['--bin'])
     if exponent:
@@ -189,47 +192,40 @@ def sys_treekin(name, seq, bfile, rfile,
 
     if verb:
         if bfile:
-            print '#', "{} < {} 2> {} > {}".format(
-                ' '.join(treecall), bfile, efile, tfile)
+            print("# {} < {} 2> {} > {}".format(
+                ' '.join(treecall), bfile, efile, tfile))
         else:
-            print '#', "echo "" | {} 2> {} > {}".format(
-                ' '.join(treecall), efile, tfile)
+            print("# echo "" | {} 2> {} > {}".format(
+                ' '.join(treecall), efile, tfile))
 
     # Do the simulation (catch treekin errors)
-    if bfile:
-        with open(bfile, 'r') as bar, \
-                open(tfile, 'w') as tkn, \
-                open(efile, 'w') as err:
-            proc = sub.Popen(treecall, stdin=bar, stdout=tkn, stderr=err)
-            proc.communicate(None)
-            if proc.returncode:
-                call = "{} < {} 2> {} > {}".format(
-                    ' '.join(treecall), bfile, efile, tfile)
-                raise SubprocessError(proc.returncode, call)
-    else:
-        with open(tfile, 'w') as tkn, \
-                open(efile, 'w') as err:
-            proc = sub.Popen(treecall, stdin=sub.PIPE, stdout=tkn, stderr=err)
-            proc.communicate('\n')
-            if proc.returncode:
-                call = "echo "" | {} 2> {} > {}".format(
-                    ' '.join(treecall), efile, tfile)
-                raise SubprocessError(proc.returncode, call)
+    with open(rfile, 'r') as rts, \
+            open(tfile, 'w') as tkn, \
+            open(efile, 'w') as err:
+        proc = sub.Popen(treecall, stdin=rts, stdout=tkn, stderr=err)
+        proc.communicate(None)
+        if proc.returncode:
+            call = "{} < {} 2> {} > {}".format(
+                ' '.join(treecall), bfile, efile, tfile)
+            raise SubprocessError(proc.returncode, call)
 
     # Adapt here to return exact simulation time and number of iterations
     if exponent or verb:
-        lastlines = sub.check_output(['tail', '-2', tfile]).strip().split("\n")
+        lastlines = sub.check_output(['tail', '-2', tfile]).strip().split(b'\n')
         if not reg_flt.match(lastlines[0]):
             raise SubprocessError(None, "No output from treekin simulation")
         else:
-            time = float(lastlines[0].split()[0])
-            iterations = int(lastlines[-1].split()[-1])
+            if reg_flt.match(lastlines[1]):
+                time = float(lastlines[1].split()[0])
+                iterations = 0
+            else:
+                time = float(lastlines[0].split()[0])
+                iterations = int(lastlines[-1].split()[-1])
             if (abs(float(time) - t8) > t8 / 1000):
-                raise SubprocessError(
-                    None, "Treekin terminated at the wrong time.")
+                raise SubprocessError(None, "Treekin terminated at the wrong time.")
             if verb:
-                print "# Treekin stopped after {:d} iterations at time {:f}".format(
-                    iterations, time)
+                print("# Treekin stopped after {:d} iterations at time {:f}".format(
+                    iterations, time))
 
     return tfile, efile
 
@@ -284,6 +280,7 @@ def sys_barriers(name, seq, sfile,
     bfile = name + '.bar'
     efile = name + '.err'
     rfile = name + '.rts'
+    msfile = name + '.ms'
     psfile = name + '.ps'
 
     if not force and \
@@ -292,8 +289,8 @@ def sys_barriers(name, seq, sfile,
             os.path.exists(psfile) and \
             os.path.exists(efile):
         if verb:
-            print "#", bfile, "<= Files exist"
-        return [sfile, bfile, efile, rfile, psfile]
+            print("#", bfile, "<= Files exist")
+        return [sfile, bfile, efile, rfile, psfile, msfile]
 
     if gzip:
         barcall = ['zcat', sfile, '|', barriers]
@@ -329,7 +326,7 @@ def sys_barriers(name, seq, sfile,
         barcall.extend(["--mapstruc", mfile])
 
     if verb:
-        print '#', ' '.join(barcall), '2>', efile, '>', bfile
+        print('#', ' '.join(barcall), '2>', efile, '>', bfile)
 
     with open(sfile, 'r') as shandle, \
             open(bfile, 'w') as bhandle, \
@@ -345,7 +342,7 @@ def sys_barriers(name, seq, sfile,
     if rates:
         if k0 != 1.0:
             if binrates:
-                with open('rates.bin') as rf, open(rfile, 'w') as new:
+                with open('rates.bin', 'rb') as rf, open(rfile, 'wb') as new:
                     dim, = unpack('i', rf.read(4))
                     new.write(pack("i", dim))
                     for e in range(dim * dim):
@@ -353,7 +350,7 @@ def sys_barriers(name, seq, sfile,
                         new.write(pack("d", r * k0))
                 os.rename('rates.out', rfile + '2')
             else:
-                with open('rates.bin') as rf, open(rfile, 'w') as new:
+                with open('rates.bin', 'rb') as rf, open(rfile, 'w') as new:
                     dim, = unpack('i', rf.read(4))
                     rm = []
                     for e in range(dim):
@@ -375,9 +372,13 @@ def sys_barriers(name, seq, sfile,
                 os.remove('rates.bin')
                 os.rename('rates.out', rfile)
         os.remove('treeR.ps')
-    os.rename('tree.ps', psfile)
 
-    return [sfile, bfile, efile, rfile, psfile]
+    if mfile:
+        os.rename('mapstruc.out', msfile)
+    os.rename('tree.ps', psfile)
+    #print(sfile, bfile, efile, rfile, psfile, msfile)
+
+    return [sfile, bfile, efile, rfile, psfile, msfile]
 
 
 def sys_suboptimals(name, seq,
@@ -430,14 +431,14 @@ def sys_suboptimals(name, seq,
         ener, nos = sys_subopt_range(seq, verb=verb,
                                      RNAsubopt=RNAsubopt, noLP=noLP, circ=circ, temp=temp)
         if verb:
-            print "# Energy-Update: {:.2f} kcal/mol to compute {} sequences".format(
-                ener, nos)
+            print("# Energy-Update: {:.2f} kcal/mol to compute {} sequences".format(
+                ener, nos))
 
     sfile = name + '.spt.gz' if gzip else name + '.spt'
 
     if os.path.exists(sfile) and not force:
         if verb:
-            print "#", sfile, "<= File exists"
+            print("#", sfile, "<= File exists")
         return sfile
 
     sptcall = [RNAsubopt, "-e {:.2f} -T {:.2f}".format(ener, temp)]
@@ -452,12 +453,12 @@ def sys_suboptimals(name, seq,
         sptcall.extend(('|', 'gzip', '--best'))
 
     if verb:
-        print "#", "echo \"{}\" | {} > {}".format(seq, ' '.join(sptcall), sfile)
+        print("#", "echo \"{}\" | {} > {}".format(seq, ' '.join(sptcall), sfile))
 
     with open(sfile, 'w') as shandle:
         proc = sub.Popen([' '.join(sptcall)],
                          stdin=sub.PIPE, stdout=shandle, shell=True)
-        proc.communicate(seq)
+        proc.communicate(seq.encode())
         if proc.returncode:
             call = "echo \"{}\" | {} > {}".format(
                 seq, ' '.join(sptcall), sfile)
@@ -505,7 +506,7 @@ def sys_subopt_range(seq,
     ep = e - 1
     while (num < nos + 1):
         if verb:
-            print "# Energy: ", "{:.2f}".format(float(e))
+            print("# Energy: ", "{:.2f}".format(float(e)))
 
         sptcall = [RNAsubopt, "-D -e {:.2f} -T {:.2f}".format(float(e), temp)]
         if circ:
@@ -515,13 +516,13 @@ def sys_subopt_range(seq,
 
         process = sub.Popen([' '.join(sptcall)],
                             stdin=sub.PIPE, stdout=sub.PIPE, stderr=sub.PIPE, shell=True)
-        output, err = process.communicate(seq)
+        output, err = process.communicate(seq.encode())
         if err:
             # this one might be not so bad ...
             raise Exception(err)
 
         structures = 0
-        for l in output.split("\n")[1:-1]:
+        for l in output.split(b'\n')[1:-1]:
             [interval, value] = l.split()
             structures += int(value)
 
@@ -561,7 +562,6 @@ def sys_subopt_range(seq,
 # ***************** #
 # private functions #
 # ................. #
-
 
 def subopt_reaches_minh(fname, minh):
     """ Internal function to report on whether the energy-range of suboptimal
@@ -621,7 +621,7 @@ def main():
 
     # Quick set test model params """
     name, seq = rnu.parse_vienna_stdin(sys.stdin)
-    print name, seq
+    print(name, seq)
 
     # param='RNA'
     # dangle='some'
@@ -650,7 +650,7 @@ def main():
                             verb=verb,
                             force=force)
 
-    [sfile, bfile, efile, rfile, psfile] = sys_barriers(name, seq, sfile,
+    [sfile, bfile, efile, rfile, psfile, msfile] = sys_barriers(name, seq, sfile,
                                                         minh=b_minh, maxn=b_maxn, rates=True, binrates=binrates,
                                                         verb=verb, noLP=noLP, force=force)
     tfile, _ = sys_treekin(name, seq, bfile, rfile, binrates=binrates,
@@ -662,8 +662,8 @@ def main():
     RM = rnu.parse_ratefile(rfile, binary=binrates)
     BT = rnu.parse_barfile(bfile, seq=seq)
 
-    print RM, BT
-    print sfile, bfile, efile, rfile, psfile, tfile, pfile
+    print(RM, BT)
+    print(sfile, bfile, efile, rfile, psfile, tfile, pfile)
     return
 
 

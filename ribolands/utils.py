@@ -1,3 +1,4 @@
+from __future__ import division
 #
 #  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
 #  University of Vienna, Department of Theoretical Chemistry
@@ -7,14 +8,18 @@
 #  for uncommenting large parts during testing
 #
 #  *) do not exceed 80 characters per line
-#  *) indents: 2x whitespace, no tab characters!
-#
-#  -*- VIM config -*-
-#  set textwidth=80
-#  set ts=2 et sw=2 sts=2
 #
 #  -*- Content -*-
 #  *) parsers for stdin, barfiles and rate-matrix
+
+# Python 3 compatibility
+#from __future__ import absolute_import, division, print_function, unicode_literals
+
+from builtins import str
+from builtins import map
+from builtins import zip
+from builtins import range
+from builtins import object
 
 import re
 import sys
@@ -36,7 +41,7 @@ class ProgressBar(object):
     def inc(self):
         self.clock += 1
         if self.clock % 10 == 0:
-            sys.stdout.write(str(self.clock / 10))
+            sys.stdout.write(str(self.clock/10))
         elif self.clock % 5 == 0:
             sys.stdout.write(",")
         else:
@@ -283,12 +288,12 @@ def parse_ratefile(rfile, binary=False):
                     r, = unpack('d', rf.read(8))
                     col.append(r)
                 rm.append(col)
-            RM = map(list, zip(*rm))
+            RM = list(map(list, list(zip(*rm))))
     else:
         RM = []
         with open(rfile) as rates:
             for line in rates:
-                RM.append((map(float, line.strip().split())))
+                RM.append((list(map(float, line.strip().split()))))
 
     return RM
 
@@ -324,7 +329,7 @@ def plot_nxy(name, tfile,
         for line in tkn:
             if re.match('#', line):
                 continue
-            nxy.append(map(float, line.strip().split()))
+            nxy.append(list(map(float, line.strip().split())))
 
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
