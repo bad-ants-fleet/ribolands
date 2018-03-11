@@ -356,7 +356,7 @@ def main(args):
         raise Exception("""Conflicting Settings: 1/--min-rate should be much
                 longer than the simulation time --t_end.""")
 
-    #check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
+    check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
 
     def versiontuple(rv):
         return tuple(map(int, (rv.split("."))))
