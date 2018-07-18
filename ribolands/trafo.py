@@ -247,7 +247,8 @@ class ConformationGraph(nx.DiGraph):
 
     elif exp_mode == 'default' or exp_mode == 'mfe-only':
       # Try to connect MFE to every existing state
-      for ni in self.nodes() :
+      nodes = list(self.nodes())
+      for ni in nodes :
         if self.node[ni]['active'] == False : continue
         if ni == ss : continue
         if self.has_edge(ni,ss) :
@@ -383,7 +384,8 @@ class ConformationGraph(nx.DiGraph):
 
     # Post processing of graph after expansion: 
     #   remove nodes that have been inactive for a long time.
-    for ni in self.nodes() :
+    nodes = list(self.nodes())
+    for ni in nodes :
       if self.node[ni]['active'] == False :
         self.node[ni]['last_seen'] += 1
       else :
