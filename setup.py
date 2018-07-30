@@ -1,31 +1,52 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# Python 3 compatibility
+from __future__ import absolute_import
+
 from setuptools import setup, find_packages
 
-with open('README.md') as f:
-    readme = f.read()
+LONG_DESCRIPTION="""
+A package to analyze energy landscapes and folding kinetics of nucleic acids.
+It provides wrapper functions for the programs `RNAsubopt`, `barriers` and
+`treekin`, which have to installed separately. 
 
-with open('LICENSE') as f:
-    license = f.read()
+Two scripts for cotranscriptional folding are part of `ribolands`: 
 
-# Dynamically figure out the version
-version = __import__('ribolands').__version__
+  * **DrTransformer**: Short for "DNA-to-RNA Transformer", the program
+    computes cotranscriptional folding of larger RNAs by generating a
+    heuristic energy landscape at every transcription step.  `DrTransformer`
+    uses the `ViennaRNA package` to calculate transition rates and `treekin` to
+    simulate folding kinetics.
+    ```sh
+    echo "CUGCGGCUUUGGCUCUAGCC" | DrTransformer.py --pyplot
+    ```
+
+  * **BarMap**: folding kinetics on dynamic energy landscapes. For each
+    sequence length, the coarse-grained barriers landscape is computed. During
+    kinetic simulations, a mapping between subsequent landscapes is used to
+    transfer occupancy from one landscape to the next. This is mostly a
+    reimplementation of `BarMap` by [Hofacker et al. (2010)], but it makes use
+    of more recent functionality of `barriers` and `treekin`.
+    ```sh
+    echo "CUGCGGCUUUGGCUCUAGCC" | BarMap.py --pyplot
+    ```
+"""
 
 setup(
     name='ribolands',
     description='energy landscapes and folding kinetics of nucleic acids',
-    long_description=readme,
-    version=version,
-    license=license,
+    long_description=LONG_DESCRIPTION,
+    version='0.6',
+    license='MIT',
     author='Stefan Badelt',
     author_email='stef@tbi.univie.ac.at',
     url='https://github.com/bad-ants-fleet/ribolands',
-    install_requires=['matplotlib', 'networkx==1.11', 'pandas', 'crnsimulator>=0.1'],
-    dependency_links=['https://github.com/bad-ants-fleet/crnsimulator/tarball/master#egg=crnsimulator-0.1'],
+    install_requires=['matplotlib', 'networkx', 'future', 'pandas', 'crnsimulator>=0.3'],
+    dependency_links=[
+        'https://github.com/bad-ants-fleet/crnsimulator/tarball/master#egg=crnsimulator-0.3'],
     test_suite='tests',
     packages=['ribolands'],
     scripts=['scripts/BarMap.py',
-      'scripts/DrTransformer.py']
+             'scripts/DrTransformer.py']
 )
-
