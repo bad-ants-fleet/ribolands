@@ -441,7 +441,7 @@ def main(args):
                     with smart_open(_drffile, 'a') as dfh:
                         ss = nlist[0][0]
                         line = "{} {} {} {:s} {:6.2f}".format(CG.node[ss]['identity'],
-                                CG._total_time, 1.0, ss[:len(seq)], CG.node[ss]['energy'])
+                                CG._total_time, 1.0, CG.transcript, CG.node[ss]['energy'])
                         dfh.write(line + '\n')
 
                 if args.pyplot or args.xmgrace:
