@@ -356,7 +356,10 @@ def main(args):
         raise Exception("""Conflicting Settings: 1/--min-rate should be much
                 longer than the simulation time --t_end.""")
 
-    check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
+    try:
+        check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
+    except ExecError:
+        pass
 
     def versiontuple(rv):
         return tuple(map(int, (rv.split("."))))
@@ -480,6 +483,7 @@ def main(args):
                                 print("After {} nucleotides: treekin cannot find a solution!".format(tlen))
                             # - Simulate with crnsimulator python package (slower)
                             _odename = name + str(tlen)
+                            _t0 = args.t0  if args.t0 > 0 and t_log else 1e-6
                             tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
                                                      t_lin=t_lin,
                                                      t_log=t_log,
@@ -490,6 +494,7 @@ def main(args):
                 except ExecError as e:
                     # NOTE: This is a hack to avoid treekin simulations in the first place
                     _odename = name + str(tlen)
+                    _t0 = args.t0  if args.t0 > 0 and t_log else 1e-6
                     tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
                                              t_lin=t_lin,
                                              t_log=t_log,

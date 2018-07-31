@@ -42,9 +42,9 @@ setup(
     author='Stefan Badelt',
     author_email='stef@tbi.univie.ac.at',
     url='https://github.com/bad-ants-fleet/ribolands',
-    install_requires=['matplotlib', 'networkx', 'future', 'pandas', 'crnsimulator>=0.3'],
+    install_requires=['matplotlib', 'networkx', 'future', 'pandas', 'crnsimulator>=0.4'],
     dependency_links=[
-        'https://github.com/bad-ants-fleet/crnsimulator/tarball/master#egg=crnsimulator-0.3'],
+        'https://github.com/bad-ants-fleet/crnsimulator/tarball/master#egg=crnsimulator-0.4'],
     test_suite='tests',
     packages=['ribolands'],
     scripts=['scripts/BarMap.py',
