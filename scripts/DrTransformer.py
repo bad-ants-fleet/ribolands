@@ -28,7 +28,7 @@ from ribolands.syswraps import SubprocessError, ExecError, check_version, Versio
 from ribolands.crnwrapper import DiGraphSimulator
 from ribolands.trafo import TrafoLandscape
 
-def plot_xmgrace(all_in, filename):
+def plot_xmgrace(trajectories, filename):
     head = """
 @with line
 @line on
@@ -45,7 +45,7 @@ def plot_xmgrace(all_in, filename):
 """
     with open(filename, 'w') as gfh:
         gfh.write(head)
-        for e, course in enumerate(all_in):
+        for e, course in enumerate(trajectories):
             t, o = list(zip(*course))
             for i in range(len(t)):
                 gfh.write("{:f} {:f}\n".format(t[i], o[i]))
@@ -53,21 +53,19 @@ def plot_xmgrace(all_in, filename):
     return
 
 
-#TODO: This function should be documented and restructured to become a library function.
-def plot_simulation(all_in, args):
+def plot_simulation(trajectories, 
+        steps, 
+        t_ext, 
+        t_end,
+        fpath,
+        formats = ['pdf'],
+        title = ''):
     """
     """
 
-    # Get the relevant arguments from args
-    stop  = args.stop
-    start = args.start
-    t8    = args.t_ext
-    lin_time = (stop - start) * float(t8)
-    tX = lin_time + args.t_end if \
-            (lin_time + args.t_end) >= lin_time * 10 else lin_time * 10
-    title = args.name
-    filepath = args.outdir + '/' + args.name if args.outdir else args.name
-    formats = args.pyplot
+    # # Get the relevant arguments from args
+    lin_time = steps * float(t_ext)
+    log_time = lin_time + t_end if (lin_time + t_end) >= lin_time * 10 else lin_time * 10
 
     # Do the plotting
     fig = plt.figure()
@@ -80,11 +78,11 @@ def plot_simulation(all_in, args):
     divider = make_axes_locatable(ax)
     axLog = divider.append_axes("right", size=2.5, pad=0, sharey=ax)
     axLog.set_xscale('log')
-    axLog.set_xlim((lin_time + 0.00001, tX))
+    axLog.set_xlim((lin_time + 0.00001, log_time))
     axLog.set_ylim([0, 1.01])
     axLog.yaxis.set_visible(False)
 
-    for e, course in enumerate(all_in):
+    for e, course in enumerate(trajectories):
         if course == []:
             continue
         t, o = list(zip(*course))
@@ -115,12 +113,11 @@ def plot_simulation(all_in, args):
     plt.legend()
 
     ax.set_ylabel('occupancy [mol/l]', fontsize=11)
-    ax.set_xlabel('time [seconds]', ha='center', va='center', fontsize=11)
+    ax.set_xlabel('time [s]', ha='center', va='center', fontsize=11)
     ax.xaxis.set_label_coords(.9, -0.15)
 
-    # plt.show()
     for ending in formats:
-        pfile = filepath + '.' + ending
+        pfile = fpath + '.' + ending
         plt.savefig(pfile, bbox_inches='tight')
 
     return
@@ -149,7 +146,7 @@ def add_drtrafo_args(parser):
     environ.add_argument("--treekin", default='treekin', action='store', metavar='<str>', 
             help="Path to the *treekin* executable.")
 
-    environ.add_argument("--mpack-method", metavar='<str>', action='store',
+    environ.add_argument("--mpack-method", action='store',
             choices=(['FLOAT128', 'LD', 'QD', 'DD']),
             help="""Increase the precision of treekin simulations. Requires a development
                     version of treekin with mpack support.""")
@@ -189,17 +186,29 @@ def add_drtrafo_args(parser):
             DrForna (drf). Interpret the legend using STDOUT or --logfile.
             Files: {--outdir}/{--name}.{--visualize}""")
 
-    output.add_argument("--tinc", type=float, default=1.2, metavar='<flt>',
+    output.add_argument("--tinc", type=float, default=None, metavar='<flt>',
+            #NOTE: Deprecated: use --t-inc!
+            help=argparse.SUPPRESS)
+
+    output.add_argument("--t-inc", type=float, default=1.2, metavar='<flt>',
             help="""Adjust the plotting time resolution via the time-increment of
-            the solver (t1 * tinc = t2).""")
+            the solver (t1 * t-inc = t2).""")
 
     output.add_argument("--soft-minh", type=float, default=0, metavar='<flt>',
-            help="""Reduce the number of visualized structures. This parameter
-            merges structures which are separated by a barrier smaller than
-            --soft-minh *for visualzation only*. The dynamics will still be
-            caculated based on the more detailed network. This parameter can
-            only be effectve if it leads to a stronger coarse-graining than the
-            simulation paramter --t-fast.""")
+            #NOTE: Deprecated: use --v-minh!
+            help=argparse.SUPPRESS)
+
+    output.add_argument("--plot-minh", type=float, default=0, metavar='<flt>',
+            help="""Reduce the resolution of visualized structures. This
+            parameter merges structures which are separated by a barrier
+            smaller than --plot-minh *for visualzation only*. The dynamics will
+            still be caculated based on the more detailed network. This
+            parameter can only be effectve if it leads to a stronger
+            coarse-graining than the simulation paramter --t-fast.  
+            
+            This parameter corresponds to folding time as: 
+            t=1/(k0*exp(-dG/RT)), where dG is the parameter --plot-minh.
+            E.g.  --plot-minh: 5.1 kcal/mol ~= 0.02 s [default t-ext]. """)
 
     output.add_argument("--draw-graphs", action="store_true",
             #help="""Export every landscape as json file. Uses --tempdir. """)
@@ -238,11 +247,12 @@ def add_drtrafo_args(parser):
             considered (relevant) when transcribing a new nucleotide.
             Probability threshold for secondary structure graph expansion.""")
 
-    algo.add_argument("--t-fast", type=float, default=1e-6, metavar='<flt>',
+    algo.add_argument("--t-fast", type=float, default=5e-6, metavar='<flt>',
             help="""Folding times faster than --t-fast are considered
             instantaneous.  Structural transitions that are faster than
             --t-fast are considerd part of the same macrostate. Directly
-            translates to an energy barrier separating conforations.""")
+            translates to an energy barrier separating conforations using:
+            dG=-RT*ln(1/t_fast/k0).""")
 
     algo.add_argument("--t-slow", type=float, default=None, metavar='<flt>',
             help="""Only accept new structures as neighboring conformations if
@@ -281,11 +291,14 @@ def add_drtrafo_args(parser):
             confirmed folding time in seconds.""")
 
     algo.add_argument("--mocca", type=int, default=None, metavar='<int>',
+            # I actually forgot what this was about, but it's an over-the-thumb solution,
+            # which was worth experimenting with during profiling.
             help=argparse.SUPPRESS)
 
     return
 
 def write_output(data, stdout = False, fh = None):
+    # Helper function to print data to filehandle, STDOUT, or both.
     if stdout:
         sys.stdout.write(data)
     if fh:
@@ -295,6 +308,16 @@ def write_output(data, stdout = False, fh = None):
 def main(args):
     """ DrTransformer - cotranscriptional folding """
     (name, fullseq) = ril.parse_vienna_stdin(sys.stdin)
+
+    # Argument deprecation Warnings
+    if args.tinc:
+        print('DEPRECATION WARNING: Argument --tinc is deprecated, please use --t-inc.')
+        args.t_inc = args.tinc
+
+    if args.soft_minh:
+        print('DEPRECATION WARNING: Argument --soft-minh is deprecated, please use --v-minh.')
+        args.plot_minh = args.soft_minh
+
 
     # Adjust arguments, prepare simulation
     if args.name == '':
@@ -336,9 +359,6 @@ def main(args):
 
     if args.stop is None:
         args.stop = len(fullseq) + 1
-    else:
-        pass
-        #fullseq = fullseq[0:args.stop - 1]
 
     if args.t_end < args.t_ext:
         raise ValueError(
@@ -440,7 +460,7 @@ def main(args):
         fdata += "#\n"
         fdata += "#\n"
         fdata += "# Results:\n"
-        fdata += "# Tanscription Step | Energy-sorted structure index | Structure | Energy | Occupancy | Plotting ID\n"
+        fdata += "# Tanscription Step | Energy-sorted structure index | Structure | Energy | Occupancy | Structure ID (-> Plotting ID)\n"
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
 
     # Write DrForna output
@@ -491,10 +511,17 @@ def main(args):
         # produce input for treekin simulation
         [bfile, rfile, p0, nlist] = CG.get_simulation_files_tkn(_fname)
 
+        softmap = dict()
+        if args.plot_minh and args.plot_minh > CG._dG_min:
+            copyCG = CG.graph_copy()
+            softmap = copyCG.coarse_grain(dG_min=args.plot_minh)
+            del copyCG
+
         if args.stdout == 'log' or lfh:
             for e, (ni, data) in enumerate(nlist, 1):
-                fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
-                    tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'])
+                sm = '-> {}'.format(CG.node[softmap[ni]]['identity']) if ni in softmap else ''
+                fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d} {:s})\n".format(
+                    tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
                 write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
 
         dn, sr, rj = 0, 0, 0
@@ -518,7 +545,7 @@ def main(args):
             bfile = None
             try:  # - Simulate with treekin
                 tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
-                        treekin=args.treekin, p0=p0, t0=_t0, ti=args.tinc, t8=_t8,
+                        treekin=args.treekin, p0=p0, t0=_t0, ti=args.t_inc, t8=_t8,
                         mpack_method=args.mpack_method,
                         exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
                 norm += 1
@@ -526,7 +553,7 @@ def main(args):
                 try:  # - Simulate with treekin and --exponent
                     tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
                             mpack_method=args.mpack_method,
-                            treekin=args.treekin, p0=p0, t0=_t0, ti=args.tinc, t8=_t8,
+                            treekin=args.treekin, p0=p0, t0=_t0, ti=args.t_inc, t8=_t8,
                             exponent=True, useplusI=False, force=True, verb=(args.verbose > 0))
                     expo += 1
                 except SubprocessError:
@@ -534,7 +561,7 @@ def main(args):
                         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
                                 mpack_method=args.mpack_method,
                                 treekin=args.treekin, p0=p0, t0=_t0,
-                                ti=args.tinc, t8=_t8, exponent=False,
+                                ti=args.t_inc, t8=_t8, exponent=False,
                                 useplusI=True, force=True,
                                 verb=(args.verbose > 0))
                         plusI += 1
@@ -565,11 +592,6 @@ def main(args):
             time_inc, iterations = CG.update_occupancies_tkn(tfile, nlist)
             # print time_inc, iterations
 
-            softmap = dict()
-            if args.soft_minh and args.soft_minh > CG._dG_min:
-                copyCG = CG.graph_copy()
-                softmap = copyCG.coarse_grain(dG_min=args.soft_minh)
-                del copyCG
 
             if args.pyplot or dfh or args.stdout == 'drf':
                 for rdata in CG.sorted_trajectories_iter(nlist, tfile, softmap):
@@ -622,8 +644,9 @@ def main(args):
         fdata  = "Distribution of structures at the end:\n"
         fdata += "          {}\n".format(CG.transcript)
         for e, (ni, data) in enumerate(CG.sorted_nodes(), 1):
-            fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d})\n".format(
-                tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'])
+            sm = '-> {}'.format(CG.node[softmap[ni]]['identity']) if ni in softmap else ''
+            fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d} {:s})\n".format(
+                tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
 
     # CLEANUP file handles
@@ -640,8 +663,13 @@ def main(args):
         args.pyplot = filter(lambda x: x!='gr', args.pyplot)
 
     if args.pyplot:
-        plot_simulation(all_courses, args)
-
+        plot_simulation(all_courses, 
+                steps = args.stop - args.start,
+                t_ext = args.t_ext,
+                t_end = args.t_end,
+                fpath = filepath,
+                formats = args.pyplot,
+                title = args.name)
 
     return
 

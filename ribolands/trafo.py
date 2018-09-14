@@ -104,11 +104,11 @@ class TrafoLandscape(nx.DiGraph):
 
         t_fast = 1/(self._k0 * exp(-self.dG_min/self._RT))
         """
-        return 1/(self._k0 * exp(-self._dG_min/self._RT))
+        return 1/(self._k0 * math.exp(-self._dG_min/self._RT))
 
     @t_fast.setter
     def t_fast(self, value):
-        self._dG_min = -self._RT * math.log(1 / value / self._k0)
+        self._dG_min = max(0, -self._RT * math.log(1 / value / self._k0))
 
     @property
     def t_slow(self):
@@ -592,7 +592,7 @@ class TrafoLandscape(nx.DiGraph):
             macrostates.
 
         Returns:
-          dict[node] = node: A mapping from deleted nodes to macro-state
+          dict[del-node] = macro-node: A mapping from deleted nodes to macro-state
         """
 
         merged_nodes = dict()
@@ -612,7 +612,7 @@ class TrafoLandscape(nx.DiGraph):
 
             # get all active neighbors (low to high)
             nbrs = [x for x in sorted(self.successors(ni), 
-                              key=lambda x: (self.node[x]['energy'], x), reverse=False) if self.node[x]['active']]
+                key=lambda x: (self.node[x]['energy'], x), reverse=False) if self.node[x]['active']]
 
             if nbrs == []:
                 break
@@ -859,6 +859,8 @@ class TrafoLandscape(nx.DiGraph):
         Args:
           sorted_nodes (list): a list of nodes sorted by their energy
           tfile (str): treekin-output file name.
+          softmap (dict, optional): A mapping to transfer occupancy between
+            states. Likely not the most efficient implementation.
 
         Yields:
           list: ID, time, occupancy, structure, energy
@@ -878,8 +880,7 @@ class TrafoLandscape(nx.DiGraph):
                     time = course[0]
 
                     # softmap hack:
-                    # preprocess the timeline by merging all states using the
-                    # softmap
+                    # preprocess the timeline by merging all states
                     if softmap:
                         macrostates = [0] * len(course)
                         macromap = dict()
@@ -887,7 +888,6 @@ class TrafoLandscape(nx.DiGraph):
                             ss = sorted_nodes[e][0]
 
                             # map occupancy to (energetically better)
-                            # softmap[ss]
                             if ss in softmap:
                                 mapss = softmap[ss]
                                 mapid = macromap[mapss]
