@@ -125,15 +125,13 @@ class Test_complete_pipeline(unittest.TestCase):
         for f in self._RiboTestFiles(name):
             self.files.add(f)
 
-        sfile = rsys.sys_suboptimals(name, seq, ener=4.0)
+        sfile = rsys.sys_suboptimals(name, seq, ener=5.0)
         [sfile, bfile, efile, rfile, psfile, msfile] = rsys.sys_barriers(
-            name, seq, sfile)
-        tfile, efile = rsys.sys_treekin(
-            name, seq, bfile, rfile, t0=1e-6, ti=2, t8=1e10)
+            name, seq, sfile, maxn=7)
+        tfile, efile = rsys.sys_treekin(name, seq, bfile, rfile, t0=0, ti=2, t8=1e10)
 
         # NOTE so many treekin changes...
         #self.assertFileWeakEqual(tfile, ref_tfile)
-        #self.assertFileWeakEqual(efile, ref_efile)
 
     def _RiboTestFiles(self, prefix):
         files = [

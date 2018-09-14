@@ -105,7 +105,7 @@ class VersionError(Exception):
 def sys_treekin(name, seq, bfile, rfile,
                 treekin='treekin',
                 p0=['1=0.5', '2=0.5'],
-                t0=1e-6,
+                t0=0,
                 ti=1.2,
                 t8=1e6,
                 binrates=False,

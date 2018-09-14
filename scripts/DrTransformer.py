@@ -520,7 +520,7 @@ def main(args):
         if args.stdout == 'log' or lfh:
             for e, (ni, data) in enumerate(nlist, 1):
                 sm = '-> {}'.format(CG.node[softmap[ni]]['identity']) if ni in softmap else ''
-                fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d} {:s})\n".format(
+                fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                     tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
                 write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
 
@@ -645,7 +645,7 @@ def main(args):
         fdata += "          {}\n".format(CG.transcript)
         for e, (ni, data) in enumerate(CG.sorted_nodes(), 1):
             sm = '-> {}'.format(CG.node[softmap[ni]]['identity']) if ni in softmap else ''
-            fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} (ID = {:d} {:s})\n".format(
+            fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                 tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
 

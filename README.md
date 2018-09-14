@@ -14,7 +14,7 @@ Two scripts for cotranscriptional folding are part of `ribolands`:
     uses the `ViennaRNA package` to calculate transition rates and `treekin` to
     simulate folding kinetics.
     ```sh
-    echo "CUGCGGCUUUGGCUCUAGCC" | DrTransformer.py --pyplot
+    echo "CUGCGGCUUUGGCUCUAGCC" | DrTransformer.py --visualize pdf
     ```
 
   * **BarMap**: folding kinetics on dynamic energy landscapes. For each
