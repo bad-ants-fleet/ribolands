@@ -47,7 +47,7 @@ setup(
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
         ],
-    install_requires=['matplotlib', 'networkx', 'future', 'pandas', 'crnsimulator>=0.4'],
+    install_requires=['matplotlib', 'networkx', 'future', 'pandas', 'seaborn', 'crnsimulator>=0.4'],
     test_suite='tests',
     packages=['ribolands'],
     scripts=['scripts/BarMap.py',
