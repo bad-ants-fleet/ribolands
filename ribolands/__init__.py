@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import
-__version__ = "0.6"
+__version__ = "0.6.1"
 
 _MIN_TREEKIN_VERSION = "0.4.2"
 _MIN_BARRIERS_VERSION = "1.7.0"

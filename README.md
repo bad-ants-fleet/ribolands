@@ -63,7 +63,7 @@ If you are using `BarMap` or `DrTransformer` please cite:
 ```
  
 ## Version
-0.6.0
+0.6.1
 
 ## Development / Unittests
   python setup.py test

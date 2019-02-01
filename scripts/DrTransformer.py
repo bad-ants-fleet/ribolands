@@ -28,6 +28,10 @@ from ribolands.syswraps import SubprocessError, ExecError, check_version, Versio
 from ribolands.crnwrapper import DiGraphSimulator
 from ribolands.trafo import TrafoLandscape
 
+import seaborn as sns
+sns.set_style("darkgrid")
+#sns.set_style("ticks")
+
 def plot_xmgrace(trajectories, filename):
     head = """
 @with line
@@ -70,7 +74,7 @@ def plot_simulation(trajectories,
     # Do the plotting
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
-    ax.set_ylim([0, 1.01])
+    ax.set_ylim([-0.05, 1.05])
     ax.set_xscale('linear')
 
     # Make the second part of the plot logarithmic
@@ -79,7 +83,7 @@ def plot_simulation(trajectories,
     axLog = divider.append_axes("right", size=2.5, pad=0, sharey=ax)
     axLog.set_xscale('log')
     axLog.set_xlim((lin_time + 0.00001, log_time))
-    axLog.set_ylim([0, 1.01])
+    axLog.set_ylim([-0.05, 1.05])
     axLog.yaxis.set_visible(False)
 
     for e, course in enumerate(trajectories):
@@ -102,10 +106,11 @@ def plot_simulation(trajectories,
     fig.set_size_inches(7, 3)
     fig.text(0.5, 0.95, title, ha='center', va='center')
 
-    # for tlen in range(args.stop-args.start) :
-    #  ax.axvline(x=tlen*t8, linewidth=0.01, color='black', linestyle='--')
+    #for tlen in range(1, args.stop-args.start, 10) :
+    #  ax.axvline(x=tlen*t_ext, linewidth=0.01, color='black', linestyle='--')
 
     # Add ticks for 1 minute, 1 hour, 1 day, 1 year
+    axLog.axvline(x=lin_time, linewidth=5, color='black', linestyle='-')
     axLog.axvline(x=60, linewidth=1, color='black', linestyle='--')
     axLog.axvline(x=3600, linewidth=1, color='black', linestyle='--')
     axLog.axvline(x=86400, linewidth=1, color='black', linestyle='--')
@@ -338,7 +343,7 @@ def main(args):
     dfh = open(filepath + '.drf', 'w') if 'drf' in args.visualize else None
     lfh = open(filepath + '.log', 'w') if args.logfile else None
 
-    args.pyplot = filter(lambda x: x != 'drf', args.visualize)
+    args.pyplot = list(filter(lambda x: x != 'drf', args.visualize))
 
     # Adjust filehandle-stuff
     if args.stdout is None and lfh is None:
@@ -485,8 +490,7 @@ def main(args):
     # now lets start...
     norm, plusI, expo, fail = 0, 0, 0, 0
     for tlen in range(args.start, args.stop):
-        nn = CG.expand(exp_mode=args.structure_search_mode)
-        # print """ {} new nodes """.format(nn), CG._nodeid, "total nodes"
+        nn = CG.expand(exp_mode=args.structure_search_mode, warning=(tlen==args.stop-1))
 
         mn = CG.coarse_grain()
         if args.verbose:
@@ -524,14 +528,18 @@ def main(args):
                     tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
                 write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
 
+
+        if args.verbose:
+            itime = datetime.now()
+
         dn, sr, rj = 0, 0, 0
         if len(nlist) == 1:
             # Fake simulation results for DrForna
             CG._total_time += _t8
             if args.stdout == 'drf' or dfh:
                 ss = nlist[0][0]
-                fdata = "{} {} {} {:s} {:6.2f}\n".format(CG.node[ss]['identity'],
-                        CG._total_time, 1.0, CG.transcript, CG.node[ss]['energy'])
+                fdata = "{:d} {:03.9f} {:03.3f} {:s} {:6.2f}\n".format(CG.node[ss]['identity'],
+                        CG._total_time, 1.0, ss[:len(CG.transcript)], CG.node[ss]['energy'])
                 write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
 
             if args.pyplot:
@@ -554,7 +562,7 @@ def main(args):
                     tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
                             mpack_method=args.mpack_method,
                             treekin=args.treekin, p0=p0, t0=_t0, ti=args.t_inc, t8=_t8,
-                            exponent=True, useplusI=False, force=True, verb=(args.verbose > 0))
+                            exponent=True, useplusI=False, force=True, verb=(args.verbose > 1))
                     expo += 1
                 except SubprocessError:
                     try:  # - Simulate with treekin and --useplusI
@@ -563,7 +571,7 @@ def main(args):
                                 treekin=args.treekin, p0=p0, t0=_t0,
                                 ti=args.t_inc, t8=_t8, exponent=False,
                                 useplusI=True, force=True,
-                                verb=(args.verbose > 0))
+                                verb=(args.verbose > 1))
                         plusI += 1
                     except SubprocessError:
                         if args.verbose > 1:
@@ -575,23 +583,21 @@ def main(args):
                                                  t_lin=t_lin,
                                                  t_log=t_log,
                                                  jacobian=False,  # faster!
-                                                 verb=(args.verbose > 0))
+                                                 verb=(args.verbose > 1))
                         fail += 1
 
-            except ExecError as e:
-                # NOTE: This is a hack to avoid treekin simulations in the first place
-                _odename = name + str(tlen)
-                _t0 = args.t0  if args.t0 > 0 and t_log else 1e-6
-                tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
-                                         t_lin=t_lin,
-                                         t_log=t_log,
-                                         jacobian=False,  # faster!
-                                         verb=(args.verbose > 1))
+            ## NOTE: Enable this hack to avoid treekin simulations in the first place
+            #except ExecError as e:
+            #    _odename = name + str(tlen)
+            #    _t0 = args.t0  if args.t0 > 0 and t_log else 1e-6
+            #    tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
+            #                             t_lin=t_lin,
+            #                             t_log=t_log,
+            #                             jacobian=False,  # faster!
+            #                             verb=(args.verbose > 1))
 
             # Get Results
             time_inc, iterations = CG.update_occupancies_tkn(tfile, nlist)
-            # print time_inc, iterations
-
 
             if args.pyplot or dfh or args.stdout == 'drf':
                 for rdata in CG.sorted_trajectories_iter(nlist, tfile, softmap):
@@ -599,7 +605,7 @@ def main(args):
                     if args.pyplot:
                         all_courses[id_].append((tt_, oc_))
 
-                    fdata = "{} {} {} {:s} {:6.2f}\n".format(*rdata)
+                    fdata = "{:d} {:03.9f} {:03.3f} {:s} {:6.2f}\n".format(*rdata)
                     write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
 
             CG._total_time += time_inc
@@ -611,24 +617,28 @@ def main(args):
                 CG.to_json(_fname)
 
         if args.verbose:
-            print("# Transcripton length: " + \
-                "{}. Initial graph size: {}. Hidden graph size: {}".format(
-                        tlen, len(nlist), len(CG)))
-            print("#  Deleted {} nodes, {} still reachable, {} rejected deletions.".format(
-                    dn, sr, rj))
-            dtime = datetime.now()
-            print("#  Computation time at current nucleotide: {} s".format(
-                (dtime - atime).total_seconds()))
-
+            print("# Transcripton length: {}. Active graph size: {}. Hidden graph size: {}. Number of Edges: {}".format(tlen, len(nlist), len(CG), CG.number_of_edges()))
+            stime = datetime.now()
+            algotime = (itime - atime).total_seconds()
+            simutime = (stime - itime).total_seconds()
+            tot_time = (stime - atime).total_seconds()
+            print("# Computation time at current nucleotide: algo: {} simu: {} total: {}".format(algotime, simutime, tot_time))
+            print("# Deleted {} nodes, {} still reachable, {} rejected deletions.".format(dn, sr, rj))
+            print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format( norm, expo, plusI, fail))
             fp_tot = ril.trafo.PROFILE['findpath-calls']
             fp_exp = ril.trafo.PROFILE['mfe'] + \
                      ril.trafo.PROFILE['hb'] + ril.trafo.PROFILE['feature']
             fp_cgr = ril.trafo.PROFILE['cogr']
             fp_prn = ril.trafo.PROFILE['prune']
-            print("{} {} {} {} {} {} {}".format(tlen, len(nlist), 
-                (dtime - atime).total_seconds(), fp_exp, fp_cgr, fp_prn, fp_tot))
+            print("# Findpath stats: {} expansion, {} coarse-grain, {} prune, {} total.".format(fp_exp, fp_cgr, fp_prn, fp_tot))
+            print("{}  {} {} {}  {} {} {}  {} {} {}  {} {} {} {}  {} {} {} {}".format(tlen, 
+                len(nlist), len(CG), CG.number_of_edges(),
+                algotime, simutime, tot_time,
+                dn, sr, rj,
+                norm, expo, plusI, fail,
+                fp_exp, fp_cgr, fp_prn, fp_tot))
 
-            atime = dtime
+            atime = stime
             ril.trafo.PROFILE['findpath-calls'] = 0
             ril.trafo.PROFILE['mfe'] = 0
             ril.trafo.PROFILE['hb'] = 0
@@ -636,13 +646,10 @@ def main(args):
             ril.trafo.PROFILE['cogr'] = 0
             ril.trafo.PROFILE['prune'] = 0
 
-    if args.verbose >= 1:
-        print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format( norm, expo, plusI, fail))
-
     # Write the last results
     if args.stdout == 'log' or lfh:
-        fdata  = "Distribution of structures at the end:\n"
-        fdata += "          {}\n".format(CG.transcript)
+        fdata  = "# Distribution of structures at the end:\n"
+        fdata += "#         {}\n".format(CG.transcript)
         for e, (ni, data) in enumerate(CG.sorted_nodes(), 1):
             sm = '-> {}'.format(CG.node[softmap[ni]]['identity']) if ni in softmap else ''
             fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
@@ -660,7 +667,7 @@ def main(args):
     # Plot results
     if 'gr' in args.pyplot:
         plot_xmgrace(all_courses, filepath + '.gr')
-        args.pyplot = filter(lambda x: x!='gr', args.pyplot)
+        args.pyplot = list(filter(lambda x: x!='gr', args.pyplot))
 
     if args.pyplot:
         plot_simulation(all_courses, 

@@ -330,7 +330,7 @@ class TrafoLandscape(nx.DiGraph):
 
         return not (saddleE is None)
 
-    def expand(self, extend=1, exp_mode='default', mfree=6, p_min=None):
+    def expand(self, extend=1, exp_mode='default', mfree=6, p_min=None, warning=False):
         """Find new secondary structures and add them to :obj:`TrafoLandscape()`
 
         The function supports two move-sets: 1) The mfe structure for the current
@@ -347,6 +347,10 @@ class TrafoLandscape(nx.DiGraph):
             helix-opening step. Defaults to 6.
           p_min (flt, optional): Minimum probability of a structure for neighbor
             generation.  Defaults to None: using global TrafoLandscape parameter.
+          warning (bool, optional): When using 'breathing-only' search mode,
+            print a warning if MFE structure is not part of the ensemble. Be
+            aware that calculating the MFE structure just for this warning is not
+            recommended for large systems!
 
         Returns:
           int: Number of new nodes
@@ -368,10 +372,11 @@ class TrafoLandscape(nx.DiGraph):
             raise TrafoUsageError('unknown expansion mode')
 
         # Calculate MFE of current transcript
-        fc_tmp = RNA.fold_compound(seq, md)
-        ss, mfe = fc_tmp.mfe()
-        future = '.' * (len(fseq) - len(seq))
-        ss = ss + future
+        if exp_mode == 'default' or exp_mode == 'mfe-only' or len(self) == 0 or warning:
+            fc_tmp = RNA.fold_compound(seq, md)
+            ss, mfe = fc_tmp.mfe()
+            future = '.' * (len(fseq) - len(seq))
+            ss = ss + future
 
         # If there is no node because we are in the beginning, add the node,
         # otherwise, try to add transition edges from every node to MFE.
@@ -551,7 +556,7 @@ class TrafoLandscape(nx.DiGraph):
                     # connected, if the parents were connected.
                     ext_moves[ext_seq][0].add((ni, nbr))
 
-        if not self.has_node(ss) or (not self.node[ss]['active']):
+        if warning and not self.has_node(ss) or (not self.node[ss]['active']):
             print("# WARNING: mfe secondary structure not connected\n# {}".format(ss))
 
         # Post processing of graph after expansion:
