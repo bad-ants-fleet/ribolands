@@ -1,8 +1,4 @@
-from __future__ import division
-
-# Python 3 compatibility
-#from __future__ import absolute_import, division, print_function, unicode_literals
-
+from __future__ import division, print_function
 
 from builtins import map
 from builtins import range
@@ -23,18 +19,14 @@ PROFILE = {'findpath-calls': 0,
            'cogr': 0,
            'prune': 0}
 
-
 class TrafoUsageError(Exception):
     pass
-
 
 class TrafoAlgoError(Exception):
     pass
 
-
 class DebuggingAlert(Exception):
     pass
-
 
 class TrafoLandscape(nx.DiGraph):
     """ 
@@ -330,7 +322,7 @@ class TrafoLandscape(nx.DiGraph):
 
         return not (saddleE is None)
 
-    def expand(self, extend=1, exp_mode='default', mfree=6, p_min=None, warning=False):
+    def expand(self, extend=1, exp_mode='default', mfree=6, warning=False):
         """Find new secondary structures and add them to :obj:`TrafoLandscape()`
 
         The function supports two move-sets: 1) The mfe structure for the current
@@ -345,8 +337,6 @@ class TrafoLandscape(nx.DiGraph):
             neighborhood. "default": do both mfe and breathing.
           mfree (int, optional): minimum number of freed bases during a
             helix-opening step. Defaults to 6.
-          p_min (flt, optional): Minimum probability of a structure for neighbor
-            generation.  Defaults to None: using global TrafoLandscape parameter.
           warning (bool, optional): When using 'breathing-only' search mode,
             print a warning if MFE structure is not part of the ensemble. Be
             aware that calculating the MFE structure just for this warning is not
@@ -355,9 +345,6 @@ class TrafoLandscape(nx.DiGraph):
         Returns:
           int: Number of new nodes
         """
-        if p_min is None:
-            p_min = self._p_min
-
         fseq = self.full_sequence
         self._transcript_length += extend
         if self._transcript_length > len(fseq):
@@ -441,9 +428,6 @@ class TrafoLandscape(nx.DiGraph):
                 if data['active'] == False:
                     continue
                 en = data['energy']
-                #occ = data['occupancy']
-                #if occ < p_min:
-                #    continue
 
                 # short secondary structure (without its future)
                 sss = ni[0:len(seq)]
@@ -556,8 +540,9 @@ class TrafoLandscape(nx.DiGraph):
                     # connected, if the parents were connected.
                     ext_moves[ext_seq][0].add((ni, nbr))
 
-        if warning and not self.has_node(ss) or (not self.node[ss]['active']):
-            print("# WARNING: mfe secondary structure not connected\n# {}".format(ss))
+        if warning:
+            if not self.has_node(ss) or not self.node[ss]['active']:
+                print("# WARNING: mfe secondary structure not connected\n# {}".format(ss[0:self._transcript_length]))
 
         # Post processing of graph after expansion:
         # remove nodes that have been inactive for a long time.
@@ -816,10 +801,12 @@ class TrafoLandscape(nx.DiGraph):
 
             # get all active neighbors (low to high)
             nbrs = [x for x in sorted(self.successors(ni), 
-                key=lambda x: self.node[x]['energy'], reverse=False) if self.node[x]['active']]
+                key=lambda x: self.node[x]['energy'], reverse=False) \
+                        if self.node[x]['active']]
 
             # looks good!
-            if mocca and len([x for x in nbrs if self.node[x]['occupancy'] >= p_min]) > mocca:
+            if mocca and len([x for x in nbrs \
+                    if self.node[x]['occupancy'] >= p_min]) > mocca:
                 rejected += 1
                 continue
 
@@ -851,8 +838,8 @@ class TrafoLandscape(nx.DiGraph):
 
             for e, nb1 in enumerate(nbrs, 1):
                 for nb2 in nbrs[e:]:
-                    always_true = self.add_transition_edge(nb2, nb1, ts=ni, call='prune', 
-                            fake=not detailed)
+                    always_true = self.add_transition_edge(nb2, nb1, ts=ni, 
+                            call='prune', fake=not detailed)
                     if always_true is False:
                         raise TrafoAlgoError('Did not add the transition edge!')
 

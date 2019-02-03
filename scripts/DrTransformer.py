@@ -139,7 +139,8 @@ def add_drtrafo_args(parser):
     ###################
     # Default options #
     ###################
-    parser.add_argument('--version', action='version', version='%(prog)s ' + ril.__version__)
+    parser.add_argument('--version', action='version', 
+            version='%(prog)s ' + ril.__version__)
     parser.add_argument("-v", "--verbose", action='count', default=0,
             help="""Track process by writing verbose output to STDOUT during
             calculations. Use --logfile if you want to see *just* verbose
@@ -200,7 +201,7 @@ def add_drtrafo_args(parser):
             the solver (t1 * t-inc = t2).""")
 
     output.add_argument("--soft-minh", type=float, default=0, metavar='<flt>',
-            #NOTE: Deprecated: use --v-minh!
+            #NOTE: Deprecated: use --plot-minh!
             help=argparse.SUPPRESS)
 
     output.add_argument("--plot-minh", type=float, default=0, metavar='<flt>',
@@ -247,7 +248,10 @@ def add_drtrafo_args(parser):
     ###########################
     # DrTransformer algorithm #
     ###########################
-    algo.add_argument("--min-occupancy", type=float, default=0.01, metavar='<flt>',
+    algo.add_argument("--track-basins", type=float, default=10, metavar='<flt>',
+            help="""TODO.""")
+
+    algo.add_argument("--min-occupancy", type=float, default=None, metavar='<flt>',
             help="""Occupancy threshold to determine which structures are
             considered (relevant) when transcribing a new nucleotide.
             Probability threshold for secondary structure graph expansion.""")
@@ -294,11 +298,6 @@ def add_drtrafo_args(parser):
             help="""Arrhenius rate constant. Adjust the rate constant k0 of the
             Arrhenius equation to relate free energy changes to experimentally
             confirmed folding time in seconds.""")
-
-    algo.add_argument("--mocca", type=int, default=None, metavar='<int>',
-            # I actually forgot what this was about, but it's an over-the-thumb solution,
-            # which was worth experimenting with during profiling.
-            help=argparse.SUPPRESS)
 
     return
 
@@ -478,6 +477,7 @@ def main(args):
     CG.p_min = args.min_occupancy
     CG._k0 = args.k0
     CG.t_fast = args.t_fast
+    dG_min = CG._dG_min 
     CG.t_slow = args.t_slow
 
     CG.findpath_search_width = args.findpath_search_width
@@ -611,7 +611,13 @@ def main(args):
             CG._total_time += time_inc
 
             # Prune
-            dn, sr, rj = CG.prune(mocca=args.mocca, detailed=args.detailed_pruning)
+            if args.min_occupancy:
+                dn, sr, rj = CG.prune(detailed=args.detailed_pruning)
+            else:
+                # add or substract a 0.1 kcal/mol plot-minh for every structure
+                # too much or too little.
+                approach = (len(nlist) - args.track_basins) / 10
+                CG._dG_min = max(dG_min, CG._dG_min + approach)
 
             if args.draw_graphs:
                 CG.to_json(_fname)
@@ -631,12 +637,12 @@ def main(args):
             fp_cgr = ril.trafo.PROFILE['cogr']
             fp_prn = ril.trafo.PROFILE['prune']
             print("# Findpath stats: {} expansion, {} coarse-grain, {} prune, {} total.".format(fp_exp, fp_cgr, fp_prn, fp_tot))
-            print("{}  {} {} {}  {} {} {}  {} {} {}  {} {} {} {}  {} {} {} {}".format(tlen, 
+            print("{}  {} {} {}  {} {} {}  {} {} {}  {} {} {} {}  {} {} {} {}  {}".format(tlen, 
                 len(nlist), len(CG), CG.number_of_edges(),
                 algotime, simutime, tot_time,
                 dn, sr, rj,
                 norm, expo, plusI, fail,
-                fp_exp, fp_cgr, fp_prn, fp_tot))
+                fp_exp, fp_cgr, fp_prn, fp_tot, CG._dG_min))
 
             atime = stime
             ril.trafo.PROFILE['findpath-calls'] = 0
