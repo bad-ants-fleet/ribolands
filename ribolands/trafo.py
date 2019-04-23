@@ -327,17 +327,17 @@ class TrafoLandscape(nx.DiGraph):
 
         The function supports two move-sets: 1) The mfe structure for the current
         sequence length is connected to all present structures, 2) The conformation
-        graph is expanded using helix-breathing.
+        graph is expanded using helix-fraying.
 
         Args:
           extend (int, optional): number of nucleotide extensions before graph
             expansion (updates the global variable transcript length). Defaults to 1.
           exp_mode (str, optional): choose from "mfe-only": only use current mfe
-            structure as potential new neighbor. "breathing-only": only use breathing
-            neighborhood. "default": do both mfe and breathing.
+            structure as potential new neighbor. "fraying-only": only use fraying 
+            neighborhood. "default": do both mfe and fraying.
           mfree (int, optional): minimum number of freed bases during a
             helix-opening step. Defaults to 6.
-          warning (bool, optional): When using 'breathing-only' search mode,
+          warning (bool, optional): When using 'fraying-only' search mode,
             print a warning if MFE structure is not part of the ensemble. Be
             aware that calculating the MFE structure just for this warning is not
             recommended for large systems!
@@ -355,7 +355,7 @@ class TrafoLandscape(nx.DiGraph):
         md = self._model_details
         fc_full = self._fold_compound
 
-        if exp_mode not in ['default', 'mfe-only', 'breathing-only']:
+        if exp_mode not in ['default', 'mfe-only', 'fraying-only']:
             raise TrafoUsageError('unknown expansion mode')
 
         # Calculate MFE of current transcript
@@ -411,8 +411,8 @@ class TrafoLandscape(nx.DiGraph):
                     fpathE = self.get_saddle(ss, ni) \
                             if self.get_saddle(ss, ni) < fpathE else fpathE
 
-        if exp_mode == 'default' or exp_mode == 'breathing-only':
-            # Do the helix breathing graph expansion
+        if exp_mode == 'default' or exp_mode == 'fraying-only':
+            # Do the helix fraying graph expansion
 
             # Initialize a dictionary to store the feature expansion during each
             # graph expansion round: ext_moves[ext_seq] = [set((con,paren),...),
@@ -432,8 +432,8 @@ class TrafoLandscape(nx.DiGraph):
                 # short secondary structure (without its future)
                 sss = ni[0:len(seq)]
 
-                # compute a set of all helix breathing open steps
-                opened = open_breathing_helices(seq, sss, mfree)
+                # compute a set of all helix fraying open steps
+                opened = open_fraying_helices(seq, sss, mfree)
 
                 # do a constrained exterior loop folding for all of them and then
                 # connect them to the present conformation and to each other.
@@ -470,7 +470,7 @@ class TrafoLandscape(nx.DiGraph):
                             self.node[nbr]['identity'] = self._nodeid
                             self._nodeid += 1
                         else:
-                            msg = "# helix breathing: could not add transition edge!"
+                            msg = "# helix fraying: could not add transition edge!"
                             raise DebuggingAlert(msg)
                             #continue
 
@@ -487,7 +487,7 @@ class TrafoLandscape(nx.DiGraph):
                         for (parent, child) in ext_moves[ext_seq][0]:
                             assert parent != ni  # Parents may never be the same
                             if child == nbr:
-                                # the parents differ in breathing helices, 
+                                # the parents differ in fraying helices, 
                                 # no historic differences
                                 continue
 
@@ -633,7 +633,7 @@ class TrafoLandscape(nx.DiGraph):
                 if nb1 == transfer:
                     continue
                 (s1, s2) = (nb1, transfer) if \
-                        self.node[nb1]['energy'] >  self.node[transfer]['energy'] else \
+                        self.node[nb1]['energy'] > self.node[transfer]['energy'] else \
                         (transfer, nb1)
                 always_true = self.add_transition_edge(s1, s2, ts=ni, call='cogr')
                 if always_true is False:
@@ -904,8 +904,8 @@ class TrafoLandscape(nx.DiGraph):
         return
 
 
-def open_breathing_helices(seq, ss, free=6):
-    """ open all breathable helices, i.e. those that share a base-pair
+def open_fraying_helices(seq, ss, free=6):
+    """ open all fraying helices, i.e. those that share a base-pair
       with an exterior loop region
     """
     nbrs = set()
@@ -928,7 +928,7 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, xxx_todo_changeme, free):
     :param nbrs: a set of all neighboring conformations
     :param ss: reference secondary structure
     :param mb: a mutable version of ss, which, after the final round will have
-      all breathing helices opened
+      all fraying helices opened
     :param pt: pair table (zero based)
     :param (n,m): the range of the pt under current investigation
     :param free: number of bases that should be freed

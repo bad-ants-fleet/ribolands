@@ -275,21 +275,21 @@ def add_drtrafo_args(parser):
             energies.""")
 
     algo.add_argument('--structure-search-mode', default='default',
-            choices=('default', 'mfe-only', 'breathing-only'),
+            choices=('default', 'mfe-only', 'fraying-only'),
             help="""Specify one of three modes: *default*: find new secondary
-            structures using both the current MFE structure and breathing
+            structures using both the current MFE structure and fraying
             neighbors.  *mfe-only*: only find the current MFE structure at
-            every transcription step.  *breathing-only*: only find local
-            breathing neighbors at every transcription step.""")
+            every transcription step.  *fraying-only*: only find local
+            fraying neighbors at every transcription step.""")
 
-    algo.add_argument("--min-breathing", type=int, default=6, metavar='<int>',
-            help="""Minimum number of freed bases during helix breathing.
-            Breathing helices can vary greatly in length, starting with at
+    algo.add_argument("--min-fraying", type=int, default=6, metavar='<int>',
+            help="""Minimum number of freed bases during helix fraying.
+            Fraying helices can vary greatly in length, starting with at
             least two base-pairs. This parameter defines the minimum amount of
-            bases freed by helix breathing. For example, 6 corresponds to a
+            bases freed by helix fraying. For example, 6 corresponds to a
             stack of two base-pairs and a loop region of 2 nucleotides. If less
             bases are freed and there exists a nested stacked helix, this helix
-            is considered to breathe as well.""")
+            is considered to fray as well.""")
 
     algo.add_argument("--detailed-pruning", action="store_true",
             help="""Calculate new direct path barriers during the pruning step.""")
@@ -458,7 +458,7 @@ def main(args):
         fdata += "# --t-slow: {} sec\n".format(args.t_slow)
         fdata += "# --findpath-search-width: {}\n".format(args.findpath_search_width)
         fdata += "# --structure-search-mode: {}\n".format(args.structure_search_mode)
-        fdata += "# --min-breathing: {} nuc\n".format(args.min_breathing)
+        fdata += "# --min-fraying: {} nuc\n".format(args.min_fraying)
         fdata += "# --detailed-pruning: {}\n".format(args.detailed_pruning)
         fdata += "# --k0: {}\n".format(args.k0)
         fdata += "#\n"
