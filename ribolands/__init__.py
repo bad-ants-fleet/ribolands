@@ -5,7 +5,7 @@ __version__ = "0.6.1"
 
 _MIN_TREEKIN_VERSION = "0.4.2"
 _MIN_BARRIERS_VERSION = "1.7.0"
-_MIN_VIENNARNA_VERSION = "2.4.4"
+_MIN_VIENNARNA_VERSION = "2.4.12" # will actually require "2.4.13"
 
 from .utils import argparse_add_arguments
 from .utils import parse_vienna_stdin

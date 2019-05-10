@@ -401,11 +401,11 @@ class test_stuff(unittest.TestCase):
         self.assertEqual(ext_moves[ext][1], '.....((...))((...))..')
         self.assertEqual(ext_moves[ext][0], set())
 
-    def test_open_breathing_helices(self):
+    def test_open_fraying_helices(self):
         se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
         ss = ".....(((((......)).)))((((((((....))))....)))).."
 
-        out = trafo.open_breathing_helices(se, ss, free=6)
+        out = trafo.open_fraying_helices(se, ss, free=6)
 
         res = [
             "........((......))....((((((((....))))....))))..",
@@ -414,7 +414,7 @@ class test_stuff(unittest.TestCase):
 
         self.assertEqual(sorted(out), sorted(res))
 
-        out = trafo.open_breathing_helices(se, ss, free=8)
+        out = trafo.open_fraying_helices(se, ss, free=8)
 
         res = [
             "......................((((((((....))))....))))..",
@@ -423,15 +423,15 @@ class test_stuff(unittest.TestCase):
 
         self.assertEqual(sorted(out), sorted(res))
 
-    def test_open_breathing_helices_multi(self):
+    def test_open_fraying_helices_multi(self):
         se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCG"
         ss = "..((.(((((......)).)))((((((((....))))....)))).))"
 
-        out = trafo.open_breathing_helices(se, ss, free=6)
+        out = trafo.open_fraying_helices(se, ss, free=6)
         res = [".....(((((......)).)))((((((((....))))....))))..."]
         self.assertEqual(sorted(out), sorted(res))
 
-        out = trafo.open_breathing_helices(se, ss, free=7)
+        out = trafo.open_fraying_helices(se, ss, free=7)
         res = [
             "........((......))....((((((((....))))....))))...",
             ".....(((((......)).)))....((((....))))...........",

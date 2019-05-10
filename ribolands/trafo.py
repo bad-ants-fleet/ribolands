@@ -58,6 +58,9 @@ class TrafoLandscape(nx.DiGraph):
         self._model_details = vrna_md
         self._fold_compound = RNA.fold_compound(fullseq, vrna_md)
 
+        # Calculate full backtracking matrix for all subsequent mfe runs.
+        _ = self._fold_compound.mfe()
+
         # Adjust simulation parameters
         self._RT = 0.61632077549999997
         if vrna_md.temperature != 37.0:
@@ -322,7 +325,7 @@ class TrafoLandscape(nx.DiGraph):
 
         return not (saddleE is None)
 
-    def expand(self, extend=1, exp_mode='default', mfree=6, warning=False):
+    def expand(self, extend=1, exp_mode='default', mfree=6):
         """Find new secondary structures and add them to :obj:`TrafoLandscape()`
 
         The function supports two move-sets: 1) The mfe structure for the current
@@ -337,10 +340,6 @@ class TrafoLandscape(nx.DiGraph):
             neighborhood. "default": do both mfe and fraying.
           mfree (int, optional): minimum number of freed bases during a
             helix-opening step. Defaults to 6.
-          warning (bool, optional): When using 'fraying-only' search mode,
-            print a warning if MFE structure is not part of the ensemble. Be
-            aware that calculating the MFE structure just for this warning is not
-            recommended for large systems!
 
         Returns:
           int: Number of new nodes
@@ -359,11 +358,9 @@ class TrafoLandscape(nx.DiGraph):
             raise TrafoUsageError('unknown expansion mode')
 
         # Calculate MFE of current transcript
-        if exp_mode == 'default' or exp_mode == 'mfe-only' or len(self) == 0 or warning:
-            fc_tmp = RNA.fold_compound(seq, md)
-            ss, mfe = fc_tmp.mfe()
-            future = '.' * (len(fseq) - len(seq))
-            ss = ss + future
+        ss, mfe = fc_full.backtrack(len(seq))
+        future = '.' * (len(fseq) - len(seq))
+        ss = ss + future
 
         # If there is no node because we are in the beginning, add the node,
         # otherwise, try to add transition edges from every node to MFE.
@@ -530,19 +527,21 @@ class TrafoLandscape(nx.DiGraph):
                                             self.node[child]['active'] = True
                                             self.node[child]['last_seen'] = 0
                                 else:
-                                    # Apparently, either child or nbr could not be connected
-                                    # to the graph, but since parents are connected we should 
-                                    # give it a try.. but then again, this can only happen when
-                                    # using dG_max during rate computation.
+                                    # Apparently, either child or nbr could not
+                                    # be connected to the graph, but since
+                                    # parents are connected we should give it a
+                                    # try.. but then again, this can only
+                                    # happen when using dG_max during rate
+                                    # computation.
                                     continue
 
                     # Track the final structure, every new identical ext-change will be
                     # connected, if the parents were connected.
                     ext_moves[ext_seq][0].add((ni, nbr))
 
-        if warning:
-            if not self.has_node(ss) or not self.node[ss]['active']:
-                print("# WARNING: mfe secondary structure not connected\n# {}".format(ss[0:self._transcript_length]))
+        if not self.has_node(ss) or not self.node[ss]['active']:
+            print("# WARNING: mfe secondary structure not connected\n# {}".format(
+                ss[0:self._transcript_length]))
 
         # Post processing of graph after expansion:
         # remove nodes that have been inactive for a long time.
@@ -600,9 +599,11 @@ class TrafoLandscape(nx.DiGraph):
                 continue
             en = data['energy']
 
-            # get all active neighbors (low to high)
+            # get all active neighbors (low to high) including the high
+            # neighbors, bec we have to connect them later
             nbrs = [x for x in sorted(self.successors(ni), 
-                key=lambda x: (self.node[x]['energy'], x), reverse=False) if self.node[x]['active']]
+                key=lambda x: (self.node[x]['energy'], x), 
+                    reverse=False) if self.node[x]['active']]
 
             if nbrs == []:
                 break
@@ -614,48 +615,59 @@ class TrafoLandscape(nx.DiGraph):
                 # local minimum
                 continue
 
-            # among all energetically better neighbors, find the neighbor with the
-            # lowest energy barrier ...
-            (transfer, minsE) = (best, self.get_saddle(ni, best))
+            # among all energetically equal and lower neighbors, find the
+            # neighbor(s) with the lowest energy barrier ...
+            (transfer, minsE) = (set([best]), self.get_saddle(ni, best))
             for e, nbr in enumerate(nbrs[1:]):
                 if self.node[nbr]['energy'] - en >= 0.0001:
                     break
                 sE = self.get_saddle(ni, nbr)
-                if sE - minsE < 0.0001:
-                    (transfer, minsE) = (nbr, sE)
+                if sE + 0.01 < minsE : # a truly lower energy saddle
+                    (transfer, minsE) = (set([nbr]), sE)
+                elif abs(sE - minsE) < 0.0001 : # an equal conformation.
+                    transfer.add(nbr)
+                    minsE = sE
+                    #raise Exception('maybe this is not so good', sE, minsE)
+                    #(transfer, minsE) = (nbr, sE)
 
             if minsE - en - dG_min > 0.0001:  # avoid precision errors
                 # do not merge, if the barrier is too high.
                 continue
 
-            # connect all neighboring nodes to the transfer node
-            for e, nb1 in enumerate(nbrs, 1):
-                if nb1 == transfer:
-                    continue
-                (s1, s2) = (nb1, transfer) if \
-                        self.node[nb1]['energy'] > self.node[transfer]['energy'] else \
-                        (transfer, nb1)
-                always_true = self.add_transition_edge(s1, s2, ts=ni, call='cogr')
-                if always_true is False:
-                    raise TrafoAlgoError('Did not add the transition edge!')
+            # connect all neighboring nodes to the transfer nodes
+            for nb1 in nbrs:
+                for trans in transfer:
+                    if nb1 == trans:
+                        continue
+                    if self.node[nb1]['energy'] > self.node[trans]['energy']:
+                        (s1, s2) = (nb1, trans) 
+                    else:
+                        (s1, s2) = (trans, nb1) 
+                    always_true = self.add_transition_edge(s1, s2, ts=ni, call='cogr')
+                    if always_true is False:
+                        raise TrafoAlgoError('Did not add the transition edge!')
 
             # remove the node
             self.node[ni]['active'] = False
             self.node[ni]['last_seen'] = 1
-            self.node[transfer]['occupancy'] += self.node[ni]['occupancy']
+            for trans in transfer:
+                self.node[trans]['occupancy'] += self.node[ni]['occupancy']/len(transfer)
             self.node[ni]['occupancy'] = 0.0
 
+            # TODO: need to double check this...
             merged_nodes[ni] = transfer
-            if transfer in merged_to:
-                merged_to[transfer].append(ni)
-            else:
-                merged_to[transfer] = [ni]
+            for trans in transfer:
+                if trans in merged_to:
+                    merged_to[trans].append(ni)
+                else:
+                    merged_to[trans] = [ni]
 
             if ni in merged_to:
                 fathers = merged_to[ni]
                 for f in fathers:
                     merged_nodes[f] = transfer
-                    merged_to[transfer].append(f)
+                    for trans in transfer:
+                        merged_to[trans].append(f)
                 del merged_to[ni]
 
         return merged_nodes
@@ -795,7 +807,7 @@ class TrafoLandscape(nx.DiGraph):
         rejected = 0
 
         for ni, data in self.sorted_nodes(descending=False):  # sort high to low..
-            if data['occupancy'] - p_min > 0.0000001:
+            if data['occupancy'] >= p_min:
                 continue
             en = data['energy']
 
@@ -881,15 +893,16 @@ class TrafoLandscape(nx.DiGraph):
 
                             # map occupancy to (energetically better)
                             if ss in softmap:
-                                mapss = softmap[ss]
-                                mapid = macromap[mapss]
+                                mapss = softmap[ss]     # set of mapss
+                                mapids = [macromap[ma] for ma in mapss]
                             else:
                                 # we *must* have seen this state before, given
                                 # there are no degenerate sorting errors...
-                                mapid = e + 1
-                                macromap[ss] = mapid
+                                mapids = [e + 1]
+                                macromap[ss] = mapids[0]
 
-                            macrostates[mapid] += occu
+                            for mapid in mapids:
+                                macrostates[mapid] += occu/len(mapids)
 
                         course[1:] = macrostates[1:]
 
@@ -921,7 +934,7 @@ def open_fraying_helices(seq, ss, free=6):
     return nbrs
 
 
-def rec_fill_nbrs(nbrs, ss, mb, pt, xxx_todo_changeme, free):
+def rec_fill_nbrs(nbrs, ss, mb, pt, myrange, free):
     """ recursive helix opening
     TODO: Test function, but looks good
 
@@ -935,7 +948,7 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, xxx_todo_changeme, free):
 
     :return:
     """
-    (n, m) = xxx_todo_changeme
+    (n, m) = myrange
     skip = 0  # fast forward in case we have deleted stuff
     for i in range(n, m):
         j = pt[i]

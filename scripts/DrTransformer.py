@@ -248,12 +248,13 @@ def add_drtrafo_args(parser):
     ###########################
     # DrTransformer algorithm #
     ###########################
-    algo.add_argument("--track-basins", type=float, default=10, metavar='<flt>',
+    algo.add_argument("--track-basins", type=float, default=None, metavar='<flt>',
             help="""TODO.""")
 
-    algo.add_argument("--min-occupancy", type=float, default=None, metavar='<flt>',
+    algo.add_argument("--min-occupancy", type=float, default=0.1, metavar='<flt>',
             help="""Occupancy threshold to determine which structures are
-            considered (relevant) when transcribing a new nucleotide.
+            considered (relevant) when transcribing a new nucleotide. 
+            #If you have 10 structures every structure has to be occupied over 10*par times.
             Probability threshold for secondary structure graph expansion.""")
 
     algo.add_argument("--t-fast", type=float, default=5e-6, metavar='<flt>',
@@ -319,7 +320,7 @@ def main(args):
         args.t_inc = args.tinc
 
     if args.soft_minh:
-        print('DEPRECATION WARNING: Argument --soft-minh is deprecated, please use --v-minh.')
+        print('DEPRECATION WARNING: Argument --soft-minh is deprecated, please use --plot-minh.')
         args.plot_minh = args.soft_minh
 
 
@@ -431,10 +432,18 @@ def main(args):
     # Start with DrTransformer #
     ############################
 
+    #RNA.read_parameter_file('xyz.par')
+
     # Set model details.
     vrna_md = RNA.md()
     vrna_md.noLP = 1
     vrna_md.temperature = args.temperature
+    #vrna_md.dangles = 2
+    #vrna_md.logML = 0
+    #vrna_md.special_hp = 1
+    #vrna_md.gquad = 0
+    #vrna_md.noGU = 0
+    #vrna_md.noGUclosure = 0
 
     if args.pyplot:
         all_courses = []
@@ -474,7 +483,6 @@ def main(args):
 
     # initialize a directed conformation graph
     CG = TrafoLandscape(fullseq, vrna_md)
-    CG.p_min = args.min_occupancy
     CG._k0 = args.k0
     CG.t_fast = args.t_fast
     dG_min = CG._dG_min 
@@ -490,7 +498,7 @@ def main(args):
     # now lets start...
     norm, plusI, expo, fail = 0, 0, 0, 0
     for tlen in range(args.start, args.stop):
-        nn = CG.expand(exp_mode=args.structure_search_mode, warning=(tlen==args.stop-1))
+        nn = CG.expand(exp_mode=args.structure_search_mode)
 
         mn = CG.coarse_grain()
         if args.verbose:
@@ -523,11 +531,10 @@ def main(args):
 
         if args.stdout == 'log' or lfh:
             for e, (ni, data) in enumerate(nlist, 1):
-                sm = '-> {}'.format(CG.node[softmap[ni]]['identity']) if ni in softmap else ''
+                sm = '-> {}'.format([CG.node[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
                 fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                     tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
                 write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
-
 
         if args.verbose:
             itime = datetime.now()
@@ -611,13 +618,17 @@ def main(args):
             CG._total_time += time_inc
 
             # Prune
-            if args.min_occupancy:
-                dn, sr, rj = CG.prune(detailed=args.detailed_pruning)
-            else:
+            assert args.min_occupancy is not None
+            # adjust minimum occupancy to size of current structure space:
+            pmin = args.min_occupancy / len(nlist)
+            dn, sr, rj = CG.prune(p_min=pmin, detailed=args.detailed_pruning)
+
+            if args.track_basins:
                 # add or substract a 0.1 kcal/mol plot-minh for every structure
                 # too much or too little.
-                approach = (len(nlist) - args.track_basins) / 10
+                approach = (len(nlist)-dn - args.track_basins) / 10
                 CG._dG_min = max(dG_min, CG._dG_min + approach)
+                #CG._dG_min = min(CG._dG_min, 5) # set an upper bound ...
 
             if args.draw_graphs:
                 CG.to_json(_fname)
@@ -657,7 +668,7 @@ def main(args):
         fdata  = "# Distribution of structures at the end:\n"
         fdata += "#         {}\n".format(CG.transcript)
         for e, (ni, data) in enumerate(CG.sorted_nodes(), 1):
-            sm = '-> {}'.format(CG.node[softmap[ni]]['identity']) if ni in softmap else ''
+            sm = '-> {}'.format([CG.node[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
             fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                 tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
