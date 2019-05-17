@@ -257,9 +257,9 @@ class TrafoLandscape(nx.DiGraph):
         if fpath is None:
             fpath = self._fpath
 
-        #if self._dG_max:
-        #    maxE = self.node[s1]['energy'] + self._dG_max
-        #    fpathE = min(maxE, fpathE) if fpathE else maxE
+        if self._dG_max:
+            maxE = self.node[s1]['energy'] + self._dG_max + 1.00
+            fpathE = min(maxE, fpathE) if fpathE else maxE
 
         assert s1 != s2
 
@@ -277,7 +277,7 @@ class TrafoLandscape(nx.DiGraph):
             saddleE = 9999
 
         def findpath_wrap(s1, s2, maxE, fpath):
-            if maxE:
+            if maxE is not None:
                 dcal_bound = int(round(maxE * 100))
                 dcal_sE = fc.path_findpath_saddle(s1, s2, maxE=dcal_bound, width=fpath)
             else :
@@ -298,8 +298,9 @@ class TrafoLandscape(nx.DiGraph):
         elif ts:
             saddleE = min(saddleE, tsE)
 
-        if fpathE and saddleE:
-            assert saddleE <= fpathE
+        #if fpathE and saddleE:
+        #    if not (saddleE <= fpathE+0.0001):
+        #        print('Waring: {}: sE {} > fpE {}'.format(call, saddleE, fpathE))
 
         if saddleE is not None:  # Add the edge.
             e1 = self.node[s1]['energy']
@@ -778,7 +779,7 @@ class TrafoLandscape(nx.DiGraph):
 
         return time, iterations
 
-    def prune(self, p_min=None, maxh=None, mocca=None, detailed=False):
+    def prune(self, p_min=None, maxh=None, mocca=None, detailed=False, keep_reachables=True):
         """ Delete nodes or report them as still reachable.
 
         Use the occupancy cutoff to choose which nodes to keep and which ones to
@@ -825,7 +826,7 @@ class TrafoLandscape(nx.DiGraph):
             # lowest neighbor structure and energy
             best, been = nbrs[0], self.node[nbrs[0]]['energy']
 
-            if been - en > 0.0001:
+            if keep_reachables and been - en > 0.0001:
                 still_reachables += 1
                 continue
 

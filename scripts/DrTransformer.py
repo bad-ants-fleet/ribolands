@@ -621,7 +621,7 @@ def main(args):
             assert args.min_occupancy is not None
             # adjust minimum occupancy to size of current structure space:
             pmin = args.min_occupancy / len(nlist)
-            dn, sr, rj = CG.prune(p_min=pmin, detailed=args.detailed_pruning)
+            dn, sr, rj = CG.prune(p_min=pmin, detailed=args.detailed_pruning, keep_reachables=False)
 
             if args.track_basins:
                 # add or substract a 0.1 kcal/mol plot-minh for every structure
@@ -662,6 +662,7 @@ def main(args):
             ril.trafo.PROFILE['feature'] = 0
             ril.trafo.PROFILE['cogr'] = 0
             ril.trafo.PROFILE['prune'] = 0
+            sys.stdout.flush()
 
     # Write the last results
     if args.stdout == 'log' or lfh:
