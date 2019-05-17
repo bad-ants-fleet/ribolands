@@ -1,10 +1,10 @@
 #
-# DrTransformer.py -- co-transcriptional folding.
+# DrTransformer.py -- cotranscriptional folding.
 #
 # written by Stefan Badelt (stef@tbi.univie.ac.at)
 #
 
-from __future__ import absolute_import, division, print_function #, unicode_literals
+from __future__ import absolute_import, division, print_function
 
 from builtins import map
 from builtins import zip
@@ -643,7 +643,7 @@ def main(args):
             print("# Deleted {} nodes, {} still reachable, {} rejected deletions.".format(dn, sr, rj))
             print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format( norm, expo, plusI, fail))
             fp_tot = ril.trafo.PROFILE['findpath-calls']
-            fp_exp = ril.trafo.PROFILE['mfe'] + \
+            fp_exp = ril.trafo.PROFILE['mfe'] + ril.trafo.PROFILE['connect'] + \
                      ril.trafo.PROFILE['hb'] + ril.trafo.PROFILE['feature']
             fp_cgr = ril.trafo.PROFILE['cogr']
             fp_prn = ril.trafo.PROFILE['prune']
@@ -660,6 +660,7 @@ def main(args):
             ril.trafo.PROFILE['mfe'] = 0
             ril.trafo.PROFILE['hb'] = 0
             ril.trafo.PROFILE['feature'] = 0
+            ril.trafo.PROFILE['connect'] = 0
             ril.trafo.PROFILE['cogr'] = 0
             ril.trafo.PROFILE['prune'] = 0
 
