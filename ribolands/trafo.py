@@ -5,7 +5,7 @@ from builtins import range
 import re
 import math
 import networkx as nx
-import subprocess as s
+import subprocess as sub
 from struct import pack
 
 import RNA
@@ -221,7 +221,8 @@ class TrafoLandscape(nx.DiGraph):
         else:
             return 0
 
-    def add_transition_edge(self, s1, s2, ts=None, fpath=None, fpathE=None, call=None, fake=False):
+    def add_transition_edge(self, s1, s2, ts=None, 
+            fpath=None, fpathE=None, call=None, fake=False):
         """Calculates transition rates from direct path barrier heights.
 
         Uses the *findpath* direct path heuristic to find the lowest energy barrier
@@ -230,7 +231,10 @@ class TrafoLandscape(nx.DiGraph):
         "ts" is specified, the rate is computed as the minimum between the direct
         path s1 -> s2 and the indirect folding path s1 -> ts -> s2.
         Rates are computed using the Metropolis model. k0 and RT are global
-        variables in the ConformaitonGraph object.
+        variables in the TrafoLandscape object.
+
+        This function adds a node s2 to the graph, if it finds a valid saddle energy,
+        and s2 has not been present before.
 
         Args:
           s1 (str): start secondary structure (must be part of TrafoLandscape already)
@@ -245,7 +249,7 @@ class TrafoLandscape(nx.DiGraph):
             via an energetically *better* transition state.
 
         Returns:
-          bool: True if the transition edge was added to the graph, False otherwise.
+          bool: True if we found a non-zero rate between structures.
         """
 
         fullseq = self._full_sequence
@@ -258,11 +262,12 @@ class TrafoLandscape(nx.DiGraph):
         if fpath is None:
             fpath = self._fpath
 
-        if self._dG_max: #TODO: check + 1
+        if self._dG_max: 
             maxE = self.node[s1]['energy'] + self._dG_max + 1.00
             fpathE = min(maxE, fpathE) if fpathE else maxE
 
         assert s1 != s2
+        assert self.has_node(s1)
 
         # Lookup the in-direct path barrier first
         if ts:  # then we know that the indirect path has to be part of saddles
@@ -275,22 +280,22 @@ class TrafoLandscape(nx.DiGraph):
         # NOTE: This *hack* will ensure that findpath is *not called*, instead,
         # tsE is used as saddle energy.
         if fake and ts and saddleE is None:
-            saddleE = 9999
+            saddleE = float('inf')
 
         def findpath_wrap(s1, s2, maxE, fpath):
-            if maxE is not None:
+            if maxE is None or maxE == float('inf'):
+                dcal_sE = fc.path_findpath_saddle(s1, s2, width=fpath)
+            else:
                 dcal_bound = int(round(maxE * 100))
                 dcal_sE = fc.path_findpath_saddle(s1, s2, maxE=dcal_bound, width=fpath)
-                print(fc.path_findpath(s1, s2, maxE=dcal_bound, width=fpath))
-            else :
-                dcal_sE = fc.path_findpath_saddle(s1, s2, width=fpath)
-            return float(dcal_sE)/100 if dcal_sE else dcal_sE
+                #print(fc.path_findpath(s1, s2, maxE=dcal_bound, width=fpath))
+            return float(dcal_sE)/100 if dcal_sE is not None else float('inf')
 
         # Now this is the computationally heavy part ...
         if saddleE is None:
             if ts:
                 saddleE = findpath_wrap(s1, s2, tsE, fpath)
-                saddleE = tsE if saddleE is None else saddleE
+                saddleE = tsE if saddleE == float('inf') else saddleE
             else:
                 saddleE = findpath_wrap(s1, s2, fpathE, fpath)
 
@@ -300,7 +305,14 @@ class TrafoLandscape(nx.DiGraph):
         elif ts:
             saddleE = min(saddleE, tsE)
 
-        if saddleE is not None:  # Add the edge.
+        assert saddleE is not None
+
+        if saddleE == float('inf') and self.has_node(s2):  # Add the edge.
+            self.add_weighted_edges_from([(s1, s2, 0)])
+            self.add_weighted_edges_from([(s2, s1, 0)])
+            self[s1][s2]['saddle'] = float('inf')
+            self[s2][s1]['saddle'] = float('inf')
+        else:  # Add the edge.
             e1 = self.node[s1]['energy']
             e2 = self.node[s2]['energy'] if self.has_node(s2) \
                                          else round(fc.eval_structure(s2), 2)
@@ -319,11 +331,8 @@ class TrafoLandscape(nx.DiGraph):
             self.add_weighted_edges_from([(s2, s1, k_21)])
             self[s1][s2]['saddle'] = saddleE
             self[s2][s1]['saddle'] = saddleE
-            if 'meta' not in self[s1][s2] :
-                self[s1][s2]['meta'] = call
-                self[s2][s1]['meta'] = call
 
-        return not (saddleE is None)
+        return saddleE != float('inf')
 
     def expand(self, extend=1, exp_mode='default', mfree=6):
         """Find new secondary structures and add them to :obj:`TrafoLandscape()`
@@ -370,9 +379,13 @@ class TrafoLandscape(nx.DiGraph):
                           identity=self._nodeid, active=True, last_seen=0)
             self._nodeid += 1
 
-        # Keep track of all new nodes, so that we can connect them later with
-        # each other.
+        parents_set = set(n for n,d in self.nodes(data=True) if d['active'])
+        # 2) Fraying neighbors
+
+        # Keep track of all new nodes, so that we can 
+        # connect them later with each other:
         new_nodes = dict() 
+        new_nodes_set = set() 
         if exp_mode == 'default' or exp_mode == 'fraying-only':
             # Initialize a dictionary to store the feature expansion during each
             # graph expansion round: ext_moves[ext_seq] = [set((con,paren),...),
@@ -408,7 +421,7 @@ class TrafoLandscape(nx.DiGraph):
                     if ni == nbr: # Not a new structure
                         continue
 
-                    if self.has_edge(ni, nbr):
+                    if self.has_edge(ni, nbr) and self.has_edge(ni, nbr) != float('inf'):
                         # in case it was there but inactive
                         self.node[nbr]['active'] = True
                         self.node[nbr]['last_seen'] = 0
@@ -416,9 +429,7 @@ class TrafoLandscape(nx.DiGraph):
 
                     # add fraying helix transitions 
                     for con in connect:
-                        if con == nbr:
-                            raise DebuggingAlert('when does that happen?')
-                            continue
+                        assert con != nbr
                         if self.has_node(nbr):
                             if self.add_transition_edge(con, nbr, call='hb'):
                                 # in case it was there but inactive
@@ -432,14 +443,11 @@ class TrafoLandscape(nx.DiGraph):
                             self.node[nbr]['occupancy'] = 0.0
                             self.node[nbr]['identity'] = self._nodeid
                             self._nodeid += 1
-                        else:
-                            #msg = "# helix fraying: could not add transition edge!"
-                            #raise DebuggingAlert(msg)
-                            continue
 
                     if self.has_node(nbr) and self.node[nbr]['active']:
                         connect.append(nbr)
                         new_nodes[ni].append(nbr)
+                        new_nodes_set.add(nbr)
 
                     # Now connect the neighbor with *historic* transitions of parents.
                     # We store the exterior-open neighbor here, that means there are
@@ -455,62 +463,50 @@ class TrafoLandscape(nx.DiGraph):
                                 # no historic differences
                                 continue
 
+                            if not self.has_edge(parent, ni):
+                                # no need to worry about it.
+                                continue
+
+                            if self.get_saddle(parent, ni) == float('inf'):
+                                continue
+
                             # Now the case with historic differences ...
-                            if self.has_edge(parent, ni):
-                                if self.has_node(child) and self.has_node(nbr):
-                                    if self.has_edge(nbr, child):
-                                        continue
+                            if self.has_node(child) and self.has_node(nbr):
+                                if self.has_edge(nbr, child):
+                                    continue
 
-                                    # TODO: Calculate saddleE from saddleE of parents?
-                                    sP = self.get_saddle(ni, parent)
-                                    sC1 = round(self.node[child]['energy'] \
-                                            + sP - self.node[parent]['energy'], 2)
-                                    sC2 = round(self.node[nbr]['energy'] \
-                                            + sP - self.node[ni]['energy'], 2)
+                                # Calculate saddleE from saddleE of parents!
+                                sP = self.get_saddle(ni, parent)
+                                sC1 = round(self.node[child]['energy'] \
+                                        + sP - self.node[parent]['energy'], 2)
+                                sC2 = round(self.node[nbr]['energy'] \
+                                        + sP - self.node[ni]['energy'], 2)
 
-                                    if sC1 == sC2:  # avoid findpath!
-                                        self.add_weighted_edges_from([(nbr, child, None)])
-                                        self.add_weighted_edges_from([(child, nbr, None)])
-                                        self[nbr][child]['saddle'] = sC1
-                                        self[child][nbr]['saddle'] = sC1
-                                        if self.add_transition_edge(nbr, child, call='feature'):
-                                            # in case it was there but inactive
-                                            self.node[nbr]['active'] = True
-                                            self.node[nbr]['last_seen'] = 0
-                                            # in case it was there but inactive
-                                            self.node[child]['active'] = True
-                                            self.node[child]['last_seen'] = 0
-                                        else:
-                                            # Can only happen when using dG_max
-                                            self.remove_edge(nbr, child)
-                                            self.remove_edge(child, nbr)
-                                            continue
-                                    #else:
-                                    #    if self.add_transition_edge(nbr, child, call='feature'):
-                                    #        # in case it was there but inactive
-                                    #        self.node[nbr]['active'] = True
-                                    #        self.node[nbr]['last_seen'] = 0
-                                    #        # in case it was there but inactive
-                                    #        self.node[child]['active'] = True
-                                    #        self.node[child]['last_seen'] = 0
-                                #else:
-                                #    # Apparently, either child or nbr could not
-                                #    # be connected to the graph, but since
-                                #    # parents are connected we should give it a
-                                #    # try.. but then again, this can only
-                                #    # happen when using dG_max during rate
-                                #    # computation.
-                                #    continue
+                                if sC1 == sC2:  # avoid findpath!
+                                    self.add_weighted_edges_from([(nbr, child, None)])
+                                    self.add_weighted_edges_from([(child, nbr, None)])
+                                    self[nbr][child]['saddle'] = sC1
+                                    self[child][nbr]['saddle'] = sC1
+                                    if self.add_transition_edge(nbr, child, call='feature'):
+                                        # in case it was there but inactive
+                                        self.node[nbr]['active'] = True
+                                        self.node[nbr]['last_seen'] = 0
+                                        # in case it was there but inactive
+                                        self.node[child]['active'] = True
+                                        self.node[child]['last_seen'] = 0
+                                    else:
+                                        raise TrafoAlgoError('Did not add historic edge!')
 
                     # Track the final structure, every new identical ext-change will be
                     # connected, if the parents were connected.
                     ext_moves[ext_seq][0].add((ni, nbr))
 
+        # 3) Add enclosed helix neighbors
         from itertools import combinations, product
         for p1, p2 in combinations(new_nodes.keys(),2):
             if not self.has_edge(p1, p2):
                 continue
-            fpathE = 9999
+            fpathE = float('inf')
             #TODO: we should consider sorting this somehow ...
             for (np1, np2) in product(new_nodes[p1], new_nodes[p2]):
                 if np1 == np2:
@@ -522,28 +518,32 @@ class TrafoLandscape(nx.DiGraph):
                 barE = max(bar1, bar2, bar3)
                 pathE = min(barE, fpathE)
                 _ = self.add_transition_edge(
-                        np1, np2, fpathE=fpathE+0.10, call='connect')
-                if self.get_saddle(np1, np2) is not None:
-                    fpathE = self.get_saddle(np1, np2) \
-                                if self.get_saddle(np1, np2) < fpathE else fpathE
+                        np1, np2, fpathE=fpathE+1.00, call='connect')
+                assert self.get_saddle(np1, np2) is not None
+                fpathE = self.get_saddle(np1, np2) \
+                            if self.get_saddle(np1, np2) < fpathE else fpathE
+        
 
+        # 1) Try to connect the MFE structure to all occupied nodes.
         if exp_mode == 'default' or exp_mode == 'mfe-only':
             # Try to connect MFE to every existing state
-            fpathE = 9999
-            for ni in sorted(self.nodes(), key=lambda x: RNA.bp_distance(ss, x)):
+            fpathE = float('inf')
+            for ni in sorted(parents_set, key=lambda x: RNA.bp_distance(ss, x)):
                 if ni == ss:
                     continue
 
-                if self.node[ni]['active'] == False:
-                    continue
+                assert self.node[ni]['active']
 
+                # If there is an edge, update fpathE, and if it's a valid edge,
+                # then make sure the MFE becomes an active node.
                 if self.has_edge(ni, ss):
-                    # in case it was there but inactive
-                    self.node[ss]['active'] = True
-                    self.node[ss]['last_seen'] = 0
                     assert self.get_saddle(ss, ni) is not None
-                    fpathE = self.get_saddle(ss, ni) \
-                            if self.get_saddle(ss, ni) < fpathE else fpathE
+                    # in case it was there but inactive
+                    if self.get_saddle(ss, ni) != float('inf'):
+                        self.node[ss]['active'] = True
+                        self.node[ss]['last_seen'] = 0
+                        fpathE = self.get_saddle(ss, ni) \
+                                if self.get_saddle(ss, ni) < fpathE else fpathE
                     continue
 
                 if self.has_node(ss):  # from a previous iteration
@@ -560,16 +560,25 @@ class TrafoLandscape(nx.DiGraph):
                     self.node[ss]['occupancy'] = 0.0
                     self.node[ss]['identity'] = self._nodeid
                     self._nodeid += 1
+                    new_nodes_set.add(ss)
 
-                if self.get_saddle(ss, ni) is not None:
-                    fpathE = self.get_saddle(ss, ni) \
-                            if self.get_saddle(ss, ni) < fpathE else fpathE
-
+                assert self.get_saddle(ss, ni) is not None
+                fpathE = self.get_saddle(ss, ni) \
+                        if self.get_saddle(ss, ni) < fpathE else fpathE
 
 
         if not self.has_node(ss) or not self.node[ss]['active']:
             print("# WARNING: mfe secondary structure not connected\n# {}".format(
                 ss[0:self._transcript_length]))
+
+        # 4) Do triangle stuff
+        print(len(parents_set))
+        for p in parents_set:
+            print(p, self.node[p]['occupancy'], self.node[p]['identity'])
+        print(len(new_nodes_set))
+        for p in new_nodes_set:
+            print(p, self.node[p]['occupancy'], self.node[p]['identity'])
+
 
         # Post processing of graph after expansion:
         # remove nodes that have been inactive for a long time.
@@ -578,7 +587,7 @@ class TrafoLandscape(nx.DiGraph):
                 self.node[ni]['last_seen'] += 1
             else:
                 self.node[ni]['last_seen'] = 0
-            if self.node[ni]['last_seen'] >= 15:
+            if self.node[ni]['last_seen'] >= 5:
                 self.remove_node(ni)
 
         return self._nodeid - csid
@@ -630,8 +639,10 @@ class TrafoLandscape(nx.DiGraph):
             # get all active neighbors (low to high) including the high
             # neighbors, bec we have to connect them later
             nbrs = [x for x in sorted(self.successors(ni), 
-                key=lambda x: (self.node[x]['energy'], x), 
+                key=lambda y: (self.node[y]['energy'], y), 
                     reverse=False) if self.node[x]['active']]
+
+            nbrs = [x for x in nbrs if self.get_saddle(ni, x) != float('inf')]
 
             if nbrs == []:
                 break
@@ -785,7 +796,7 @@ class TrafoLandscape(nx.DiGraph):
         # http://www.regular-expressions.info/floatingpoint.html
         reg_flt = re.compile(b'[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
 
-        lastlines = s.check_output(['tail', '-2', tfile]).strip().split(b'\n')
+        lastlines = sub.check_output(['tail', '-2', tfile]).strip().split(b'\n')
         if not reg_flt.match(lastlines[0]):
             raise TrafoAlgoError('Cannot parse simulation output', tfile)
         else:
@@ -806,25 +817,21 @@ class TrafoLandscape(nx.DiGraph):
 
         return time, iterations
 
-    def prune(self, p_min=None, maxh=None, mocca=None, detailed=False, keep_reachables=True):
+    def prune(self, p_min=None, detailed=False, keep_reachables=True):
         """ Delete nodes or report them as still reachable.
 
         Use the occupancy cutoff to choose which nodes to keep and which ones to
         remove. Every node with occuancy < cutoff will be removed and its neighbors
-        connected with each other. You may set the *maxh* parameter to reject the
-        removal of a node that has a very high energy barrier to all its neighbors.
+        connected with each other. 
 
         Args:
           p_min (flt, optional): Occupancy cutoff for neighbor generation.
             Defaults to None: using global TrafoLandscape parameter.
-          maxh (flt, optional): Don't remove structures that are separated with
-            an energy barrier higher than maxh.
 
         Returns:
           int, int, int:
             number of deleted nodes,
             number of still reachable nodes,
-            number of rejected deletions due to maxh
 
         """
         if p_min is None:
@@ -832,7 +839,6 @@ class TrafoLandscape(nx.DiGraph):
 
         deleted_nodes = 0
         still_reachables = 0
-        rejected = 0
 
         for ni, data in self.sorted_nodes(descending=False):  # sort high to low..
             if data['occupancy'] >= p_min:
@@ -844,11 +850,10 @@ class TrafoLandscape(nx.DiGraph):
                 key=lambda x: self.node[x]['energy'], reverse=False) \
                         if self.node[x]['active']]
 
-            # looks good!
-            if mocca and len([x for x in nbrs \
-                    if self.node[x]['occupancy'] >= p_min]) > mocca:
-                rejected += 1
-                continue
+            nbrs = [x for x in nbrs if self.get_saddle(ni, x) != float('inf')]
+
+            if nbrs == []:
+                raise TrafoAlgoError('there must be some valid neighbors! :-/')
 
             # lowest neighbor structure and energy
             best, been = nbrs[0], self.node[nbrs[0]]['energy']
@@ -864,11 +869,6 @@ class TrafoLandscape(nx.DiGraph):
                 if sE - minsE < 0.0001:
                     (transfer, minsE) = (nbr, sE)
 
-            if maxh and (minsE - en - maxh > 0.0001):
-                # do not merge, if the barrier is too high.
-                rejected += 1
-                continue
-
             # remove the node
             self.node[ni]['active'] = False
             self.node[ni]['last_seen'] = 1
@@ -883,7 +883,7 @@ class TrafoLandscape(nx.DiGraph):
                     if always_true is False:
                         raise TrafoAlgoError('Did not add the transition edge!')
 
-        return deleted_nodes, still_reachables, rejected
+        return deleted_nodes, still_reachables
 
     def sorted_trajectories_iter(self, sorted_nodes, tfile, softmap=None):
         """ Yields the time course information using a treekin output file.

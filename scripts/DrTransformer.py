@@ -503,6 +503,10 @@ def main(args):
         mn = CG.coarse_grain()
         if args.verbose:
             print("# Merged {} nodes after expanding {} new nodes.".format(len(mn), nn))
+            #if len(mn) > nn:
+            #    print("#######################################")
+            #for k in mn:
+            #    print('{} => {}'.format(CG.node[k]['identity'], [CG.node[v]['identity'] for v in mn[k]]))
 
         if args.pyplot:
             ttt = CG._total_time
@@ -621,7 +625,7 @@ def main(args):
             assert args.min_occupancy is not None
             # adjust minimum occupancy to size of current structure space:
             pmin = args.min_occupancy / len(nlist)
-            dn, sr, rj = CG.prune(p_min=pmin, detailed=args.detailed_pruning, keep_reachables=False)
+            dn, sr = CG.prune(p_min=pmin, detailed=args.detailed_pruning, keep_reachables=False)
 
             if args.track_basins:
                 # add or substract a 0.1 kcal/mol plot-minh for every structure
@@ -634,26 +638,32 @@ def main(args):
                 CG.to_json(_fname)
 
         if args.verbose:
-            print("# Transcripton length: {}. Active graph size: {}. Hidden graph size: {}. Number of Edges: {}".format(tlen, len(nlist), len(CG), CG.number_of_edges()))
+            #nZedges = len([a for (a,b,d) in CG.edges(data=True) if d['weight'] != 0])
+            #nZedges = len(CG.edges(data=True))
+            nZedges = len([a for (a,b,d) in CG.edges(data=True) if d['saddle'] != float('inf') and CG.node[a]['active'] and CG.node[b]['active']])
+            #assert nZedges == nZedges2
+            print("# Transcripton length: {}. Active graph size: {}. Non-zero transition edges: {}.  Hidden graph size: {}. Number of Edges: {}".format(
+                tlen, len(nlist), nZedges, len(CG), CG.number_of_edges()))
             stime = datetime.now()
             algotime = (itime - atime).total_seconds()
             simutime = (stime - itime).total_seconds()
             tot_time = (stime - atime).total_seconds()
             print("# Computation time at current nucleotide: algo: {} simu: {} total: {}".format(algotime, simutime, tot_time))
-            print("# Deleted {} nodes, {} still reachable, {} rejected deletions.".format(dn, sr, rj))
+            print("# Deleted {} nodes, {} still reachable.".format(dn, sr))
             print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format( norm, expo, plusI, fail))
             fp_tot = ril.trafo.PROFILE['findpath-calls']
             fp_exp = ril.trafo.PROFILE['mfe'] + ril.trafo.PROFILE['connect'] + \
                      ril.trafo.PROFILE['hb'] + ril.trafo.PROFILE['feature']
+            fp_expc= ril.trafo.PROFILE['connect']
             fp_cgr = ril.trafo.PROFILE['cogr']
             fp_prn = ril.trafo.PROFILE['prune']
-            print("# Findpath stats: {} expansion, {} coarse-grain, {} prune, {} total.".format(fp_exp, fp_cgr, fp_prn, fp_tot))
-            print("{}  {} {} {}  {} {} {}  {} {} {}  {} {} {} {}  {} {} {} {}  {}".format(tlen, 
-                len(nlist), len(CG), CG.number_of_edges(),
+            print("# Findpath stats: {} expansion, {} connected, {} coarse-grain, {} prune, {} total.".format(fp_exp, fp_expc, fp_cgr, fp_prn, fp_tot))
+            print("{}  {} {} {} {}  {} {} {}  {} {}  {} {} {} {}  {} {} {} {}  {}".format(tlen, 
+                len(nlist), nZedges, len(CG), CG.number_of_edges(),
                 algotime, simutime, tot_time,
-                dn, sr, rj,
+                dn, sr,
                 norm, expo, plusI, fail,
-                fp_exp, fp_cgr, fp_prn, fp_tot, CG._dG_min))
+                fp_exp, fp_expc, fp_cgr, fp_prn, fp_tot, CG._dG_min))
 
             atime = stime
             ril.trafo.PROFILE['findpath-calls'] = 0
