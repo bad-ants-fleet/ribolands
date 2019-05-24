@@ -253,9 +253,9 @@ def add_drtrafo_args(parser):
 
     algo.add_argument("--min-occupancy", type=float, default=0.1, metavar='<flt>',
             help="""Occupancy threshold to determine which structures are
-            considered (relevant) when transcribing a new nucleotide. 
-            #If you have 10 structures every structure has to be occupied over 10*par times.
-            Probability threshold for secondary structure graph expansion.""")
+            relevant when transcribing a new nucleotide. A structure with
+            occupancy o <= 1 / (min-occupancy * population_size) gets pruned 
+            from the energy landscape. """)
 
     algo.add_argument("--t-fast", type=float, default=5e-6, metavar='<flt>',
             help="""Folding times faster than --t-fast are considered
@@ -275,14 +275,6 @@ def add_drtrafo_args(parser):
             increase the chances to find energetically better transition state
             energies.""")
 
-    algo.add_argument('--structure-search-mode', default='default',
-            choices=('default', 'mfe-only', 'fraying-only'),
-            help="""Specify one of three modes: *default*: find new secondary
-            structures using both the current MFE structure and fraying
-            neighbors.  *mfe-only*: only find the current MFE structure at
-            every transcription step.  *fraying-only*: only find local
-            fraying neighbors at every transcription step.""")
-
     algo.add_argument("--min-fraying", type=int, default=6, metavar='<int>',
             help="""Minimum number of freed bases during helix fraying.
             Fraying helices can vary greatly in length, starting with at
@@ -291,9 +283,6 @@ def add_drtrafo_args(parser):
             stack of two base-pairs and a loop region of 2 nucleotides. If less
             bases are freed and there exists a nested stacked helix, this helix
             is considered to fray as well.""")
-
-    algo.add_argument("--detailed-pruning", action="store_true",
-            help="""Calculate new direct path barriers during the pruning step.""")
 
     algo.add_argument("--k0", type=float, default=2e5, metavar='<flt>',
             help="""Arrhenius rate constant. Adjust the rate constant k0 of the
@@ -466,9 +455,7 @@ def main(args):
         fdata += "# --t-fast: {} sec\n".format(args.t_fast)
         fdata += "# --t-slow: {} sec\n".format(args.t_slow)
         fdata += "# --findpath-search-width: {}\n".format(args.findpath_search_width)
-        fdata += "# --structure-search-mode: {}\n".format(args.structure_search_mode)
         fdata += "# --min-fraying: {} nuc\n".format(args.min_fraying)
-        fdata += "# --detailed-pruning: {}\n".format(args.detailed_pruning)
         fdata += "# --k0: {}\n".format(args.k0)
         fdata += "#\n"
         fdata += "#\n"
@@ -498,7 +485,7 @@ def main(args):
     # now lets start...
     norm, plusI, expo, fail = 0, 0, 0, 0
     for tlen in range(args.start, args.stop):
-        nn = CG.expand(exp_mode=args.structure_search_mode)
+        nn = CG.expand()
 
         mn = CG.coarse_grain()
         if args.verbose:
@@ -625,7 +612,7 @@ def main(args):
             assert args.min_occupancy is not None
             # adjust minimum occupancy to size of current structure space:
             pmin = args.min_occupancy / len(nlist)
-            dn, sr = CG.prune(p_min=pmin, detailed=args.detailed_pruning, keep_reachables=False)
+            dn, sr = CG.prune(pmin, detailed=True, keep_reachables=False)
 
             if args.track_basins:
                 # add or substract a 0.1 kcal/mol plot-minh for every structure
