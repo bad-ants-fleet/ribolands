@@ -1036,8 +1036,19 @@ class TrafoLandscape(nx.DiGraph):
 
 
 def open_fraying_helices(seq, ss, free=6):
-    """ open all fraying helices, i.e. those that share a base-pair
-      with an exterior loop region
+    """Generate structures with opened fraying helices. 
+    
+    Fraying helices share a base-pair with an exterior loop region. The
+    function returns n structures, where the first n-1 correspond to individual
+    fraying helices opened respectively and structure n has all fraying helices
+    opened at once.
+
+    Args:
+        seq (str): Primary structure.
+        ss (str): Secondary structure.
+        free (int, optional): Minimal number of bases freed by a fraying helix
+            move. If less bases are freed, and there exists a nested helix, then
+            that helix is opened as well. Defaults to 6.
     """
     nbrs = set()
     pt = ril.make_pair_table(ss, base=0)
@@ -1052,18 +1063,22 @@ def open_fraying_helices(seq, ss, free=6):
     return nbrs
 
 def rec_fill_nbrs(nbrs, ss, mb, pt, myrange, free):
-    """ recursive helix opening
-    TODO: Test function, but looks good
+    """Recursive helix opening
 
-    :param nbrs: a set of all neighboring conformations
-    :param ss: reference secondary structure
-    :param mb: a mutable version of ss, which, after the final round will have
-      all fraying helices opened
-    :param pt: pair table (zero based)
-    :param (n,m): the range of the pt under current investigation
-    :param free: number of bases that should be freed
+    TODO: Function needs testing, but looks good.
 
-    :return:
+    Args:
+        nbrs (set): A set of all neighboring conformations.
+        ss (str): Reference secondary structure
+        mb (list): A mutable version of ss, which will have all fraying helices
+            opened at once.
+        pt (list): A pair table (zero based)
+        myrange (int,int): the range (n,m) of the pt under current
+            investigation.  
+        free: number of bases that should be freed
+
+    Returns:
+        None: mutates the mutable arguments.
     """
     (n, m) = myrange
     skip = 0  # fast forward in case we have deleted stuff
@@ -1108,31 +1123,31 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, myrange, free):
 
     return
 
-def fold_exterior_loop(md, seq, con, ext_moves):
+def fold_exterior_loop(md, seq, con, ext_moves, spacer='NNN'):
     """ Constrained folding of the exterior loop.
 
     All constrained helices are replaced with the motif:
-      NNNNNNN
-      ((xxx))
+        NNNNNNN
+        ((xxx))
     for example a helix with the closing-stack CG-UG:
-      CG ~ UG -> CGNNNUG
-      (( ~ )) -> ((xxx))
+        CG ~ UG -> CGNNNUG
+        (( ~ )) -> ((xxx))
     This reduces the sequence length (n) and therefore the runtime O(n^3),
     and it enables the identification of independent structures with the same
     exterior loop features.
 
     Args:
-      md (RNA.md()):      ViennaRNA model details (temperature, noLP, etc.)
-      seq (str):          RNA sequence
-      con (str):          RNA structure constraint
-      ext_moves (dict()): Dictionary storing all mappings from exterior-loop
-                          constraints (features) to parents.
+        md (RNA.md()):      ViennaRNA model details (temperature, noLP, etc.)
+        seq (str):          RNA sequence
+        con (str):          RNA structure constraint
+        ext_moves (dict()): Dictionary storing all mappings from exterior-loop
+                            constraints (features) to parents.
+        spacer (str, optional): Specify the sequence of the spacer region.
+                            Defaults to 'NNN'.
 
     Returns:
       (str, str):
     """
-
-    spacer = 'NNN'
     pt = ril.make_pair_table(con, base=0)
     ext_seq = ''
     ext_con = ''
