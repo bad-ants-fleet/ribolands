@@ -2,82 +2,107 @@
 
 import sys
 import unittest
+from unittest.mock import Mock
 import math
 
 import RNA
-import ribolands.trafo as trafo
 from ribolands.syswraps import sys_treekin
+import ribolands.trafo as trafo
 import ribolands.utils as ru
 
+skip = False
 
-class Test_TrafoLandscape(unittest.TestCase):
+def write_log(TL, nlist):
+    tlen = len(TL.transcript)
+    for e, (ni, data) in enumerate(nlist, 1):
+        print("{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d}".format(
+                tlen, e, ni[:tlen], 
+                data['energy'], data['occupancy'], data['identity']))
+
+@unittest.skipIf(skip, "slow tests are disabled by default")
+class Test_TrafoLand(unittest.TestCase):
     def setUp(self):
         pass
 
     def tearDown(self):
         pass
 
-    def dont_test_minitrafo(self):
+    def test_edge_attributes(self):
+        """testing:
+        TrafoLandscape.has_edge()
+        TrafoLandscape.has_active_edge()
+        TrafoLandscape.get_rate()
+        TrafoLandscape.get_saddle()
+        TrafoLandscape.get_fp_bounds()
+        """
+        fullseq = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCA"
+        TL = trafo.TrafoLandscape(fullseq, RNA.md())
+        s1 = ".....(((((......)).)))((((((((....)))))....)))..."
+        s2 = "..................((((.(((((((....)))))....))))))"
+
+        TL.add_weighted_edges_from([(s1, s2, 0)])
+        TL[s1][s2]['saddle'] = float('inf')
+        TL[s1][s2]['fp_bounds'] = (0, float('inf'))
+
+        self.assertTrue(TL.has_edge(s1, s2))
+        self.assertEqual(TL.get_saddle(s1, s2), float('inf'))
+        self.assertEqual(TL.get_rate(s1, s2), 0)
+        self.assertEqual(TL.get_fp_bounds(s1, s2), (0, float('inf')))
+
+        TL[s1][s2]['saddle'] = 9999
+        TL[s1][s2]['weight'] = 0.9999
+        TL[s1][s2]['fp_bounds'] = (20, 13)
+        self.assertTrue(TL.has_active_edge(s1, s2))
+        self.assertEqual(TL.get_saddle(s1, s2), 9999)
+        self.assertEqual(TL.get_rate(s1, s2), 0.9999)
+        self.assertEqual(TL.get_fp_bounds(s1, s2), (20, 13))
+
+    def test_minitrafo(self, verbose = False):
         # remove the dont_ for testing, but beware it writes files ...
         fullseq = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCA"
-        vrna_md = RNA.md()
+        TL = trafo.TrafoLandscape(fullseq, RNA.md())
+        fname = 'rudi'
 
-        CG = trafo.TrafoLandscape(fullseq, vrna_md)
+        self.assertEqual(list(TL.nodes), [])
+        self.assertEqual(TL.transcript, '')
+        self.assertEqual(TL._transcript_length, 0)
+        TL.expand()
+        self.assertEqual(len(TL), 1)
+        self.assertEqual(list(TL.nodes), ['.' * len(fullseq)])
+        self.assertEqual(TL._nodeid, 1)
 
-        self.assertEqual(list(CG.nodes), [])
+        [bfile, rfile, p0, nlist] = TL.get_simulation_files_tkn(fname)
 
-        CG._transcript_length = 0
-        CG.expand()
-        self.assertEqual(len(CG), 1)
-        self.assertEqual(list(CG.nodes), ['.' * len(fullseq)])
-        self.assertEqual(CG._nodeid, 1)
-
-        [bfile, rfile, p0, nlist] = CG.get_simulation_files_tkn('rudi')
-
-        self.assertEqual(CG._transcript_length, 1)
-
+        self.assertEqual(TL._transcript_length, 1)
+        self.assertEqual(TL.transcript, 'C')
         stepsize = 2
 
         for i in range(2, len(fullseq), stepsize):
-            seq = fullseq[0:i]
-            #print i, CG._transcript_length, i-CG._transcript_length
-            CG.expand(extend=i-CG._transcript_length)
-            self.assertEqual(i, CG._transcript_length)
-            # if i == 10:
-            #  CG.logfile = sys.stdout
-            [bfile, rfile, p0, nlist] = CG.get_simulation_files_tkn('rudi')
+            seq  = fullseq[0:i]
+            tlen = len(TL.transcript)
+            #print(i, tlen, i-tlen)
+            TL.expand(extend=i-tlen)
+            self.assertEqual(i, len(TL.transcript))
+            [bfile, rfile, p0, nlist] = TL.get_simulation_files_tkn(fname)
             if len(nlist) == 1:
-                CG._total_time += 0.2
+                TL.total_time += 0.2
             else:
-                # sometimes bfile causes a segfault, so let's leave it out.
-                bfile = None
-                tfile, _ = sys_treekin('rudi', seq, bfile, rfile, binrates=True,
-                                       treekin='treekin', p0=p0, t0=0, ti=1.5, t8=0.2,
-                                       exponent=False, useplusI=False, force=True, verb=False)
+                bfile = None # sometimes bfile causes a segfault, ...
+                tfile, _ = sys_treekin(fname, seq, bfile, rfile, 
+                        binrates=True, treekin='treekin', 
+                        p0=p0, t0=0, ti=1.5, t8=0.2, 
+                        exponent=False, useplusI=False, 
+                        force=True, verb=False)
 
-                time_inc, iterations = CG.update_occupancies_tkn(tfile, nlist)
-                CG._total_time += time_inc
+                time_inc, iterations = TL.update_occupancies_tkn(tfile, nlist)
+                TL.total_time += time_inc
 
-            dn, sr, rj = CG.prune()
+            if verbose:
+                write_log(TL, nlist)
 
-    def test_interface(self):
-        pass
+            dn, sr = TL.prune(0.01)
 
-    def test_transition_edge(self):
-        fullseq = "GGAACCGUCUCCCUCUGCCAAAAGGUAGAGGGAGAUGGAGCAUCUCUCUCUACGAAGCAGAGAGAGACGAAGG"
-        vrna_md = RNA.md()
-
-        CG = trafo.TrafoLandscape(fullseq, vrna_md)
-
-        self.assertEqual(list(CG.nodes()), [])
-
-        CG.expand()
-        self.assertEqual(len(CG), 1)
-        self.assertEqual(list(CG.nodes()), ['.' * len(fullseq)])
-        self.assertEqual(CG._nodeid, 1)
-
-    def test_expand_and_coarse_grain(self):
-
+    def test_expand_and_coarse_grain(self, verbose = False):
         seq = "AUAUAGCUUGUUUACUUUGGAUGAACUGGGGAGAAAAUCCUGGUAAAACU"
         sss = [
             "..........((((((..((((...((....))...)))).))))))...",
@@ -86,7 +111,7 @@ class Test_TrafoLandscape(unittest.TestCase):
             ".(((......(((.((((((.....))))))..)))......)))....."
         ]
 
-        CG = self.initialize_CG(seq, sss)
+        TL = self._init_TL(seq, sss)
 
         ess = [
             ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
@@ -94,11 +119,11 @@ class Test_TrafoLandscape(unittest.TestCase):
             [".......(((((((...)))))))((((((.......))).)))......", 0.25, True],
             [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
         for (ss, occ, active) in ess:
-            self.assertTrue(CG.has_node(ss))
-            self.assertEqual(CG.node[ss]['occupancy'], occ)
-            self.assertEqual(CG.node[ss]['active'], active)
+            self.assertTrue(TL.has_node(ss))
+            self.assertEqual(TL.node[ss]['occupancy'], occ)
+            self.assertEqual(TL.node[ss]['active'], active)
 
-        CG.expand(extend=0)
+        TL.expand(extend=0)
         ess = [
             ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
             ["........................((((((........))))))......", 0.00, True],
@@ -109,47 +134,50 @@ class Test_TrafoLandscape(unittest.TestCase):
             [".....(((..(((.((((((.....))))))..))).....)))......", 0.00, True],
             [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
         for (ss, occ, active) in ess:
-            self.assertTrue(CG.has_node(ss))
-            self.assertEqual(CG.node[ss]['occupancy'], occ)
-            self.assertEqual(CG.node[ss]['active'], active)
+            self.assertTrue(TL.has_node(ss))
+            self.assertEqual(TL.node[ss]['occupancy'], occ)
+            self.assertEqual(TL.node[ss]['active'], active)
 
-        # CG.get_simulation_files_tkn('expand')
+        if verbose:
+            TL.get_simulation_files_tkn('ecp1')
 
-        CG.coarse_grain(dG_min=4.3)
+        TL.coarse_grain(dG_min=4.3)
         ess = [
             ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
-            ["........................((((((........))))))......", 0.00, True],
-            [".......(((((((...)))))))((((((........))))))......", 0.50, True],
+            ["........................((((((........))))))......", 0.125, True],
+            [".......(((((((...)))))))((((((........))))))......", 0.375, True],
             [".........((((((....).))))).(((.......)))..........", 0.00, True],
-            ["........................((((((.......))).)))......",
-             0.00, False],
+            ["........................((((((.......))).)))......", 0.00, False],
             [".......(((((((...)))))))((((((.......))).)))......", 0.00, False],
             [".....(((..(((.((((((.....))))))..))).....)))......", 0.25, True],
             [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
         for (ss, occ, active) in ess:
-            self.assertTrue(CG.has_node(ss))
-            self.assertEqual(CG.node[ss]['occupancy'], occ)
-            self.assertEqual(CG.node[ss]['active'], active)
+            self.assertTrue(TL.has_node(ss))
+            self.assertEqual(TL.node[ss]['occupancy'], occ)
+            self.assertEqual(TL.node[ss]['active'], active)
+        
+        if verbose:
+            TL.get_simulation_files_tkn('ecp2')
 
-        CG.prune()
-        #CG.logfile = sys.stdout
-        # CG.get_simulation_files_tkn('expand_again')
+        TL.prune(0.01)
         ess = [
             ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
-            #["........................((((((........))))))......", 0.00, False],
-            ["........................((((((........))))))......", 0.00, True],
-            [".......(((((((...)))))))((((((........))))))......", 0.50, True],
+            ["........................((((((........))))))......", 0.125, True],
+            [".......(((((((...)))))))((((((........))))))......", 0.375, True],
             [".........((((((....).))))).(((.......)))..........", 0.00, False],
             ["........................((((((.......))).)))......", 0.00, False],
             [".......(((((((...)))))))((((((.......))).)))......", 0.00, False],
             [".....(((..(((.((((((.....))))))..))).....)))......", 0.25, True],
             [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
         for (ss, occ, active) in ess:
-            self.assertTrue(CG.has_node(ss))
-            self.assertEqual(CG.node[ss]['occupancy'], occ)
-            self.assertEqual(CG.node[ss]['active'], active)
+            self.assertTrue(TL.has_node(ss))
+            self.assertEqual(TL.node[ss]['occupancy'], occ)
+            self.assertEqual(TL.node[ss]['active'], active)
 
-    def initialize_CG(self, seq, sss):
+        if verbose:
+            TL.get_simulation_files_tkn('ecp3')
+
+    def _init_TL(self, seq, sss):
         fullseq = seq
         vrna_md = RNA.md()
 
@@ -172,7 +200,7 @@ class Test_TrafoLandscape(unittest.TestCase):
 
         return CG
 
-    def test_coarse_graining_dG(self):
+    def test_coarse_graining_dG(self, verbose = False):
         """
         A coarse graining test based on this example...
         All structures are connected based on the barrier-tree, 
@@ -200,7 +228,6 @@ class Test_TrafoLandscape(unittest.TestCase):
           19 .((.(((...........)))))(((((....)))))...  -9.50    2   2.70
           20 .......(((....((.....))(((((....))))))))  -9.30   16   1.30
         """
-
         bfile = 'tests/files/ex1.bar'
         bar = ru.parse_barfile(bfile)
 
@@ -247,30 +274,30 @@ class Test_TrafoLandscape(unittest.TestCase):
             CG.node[ss2]['occupancy'] = 0
 
         for (id, ss, en, fa, ba) in bar:
-            #print 'a', id, ss, en, fa, ba, CG.node[ss]['active']
-            #nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
-            #                  key=lambda x: (CG.node[x]['energy'], x), reverse=False))
-            #for (x,y) in zip(nbrs, map(lambda x: CG[ss][x]['saddle'], nbrs)):
-            #    print '   ', x, y
+            if verbose:
+                print('a', id, ss, en, fa, ba, CG.node[ss]['active'])
+            nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
+                              key=lambda x: (CG.node[x]['energy'], x), reverse=False))
             self.assertTrue(CG.has_node(ss))
             self.assertEqual(CG.node[ss]['active'], True)
 
         mn = CG.coarse_grain(dG_min=min_dG)
 
-        #for x in sorted(mn, key=lambda x:int(bmap[x])):
-        #    print bmap[x], bmap[mn[x]]
+        if verbose:
+            for x in sorted(mn, key=lambda x:int(bmap[x])):
+                sm = '-> {}'.format([bmap[y] for y in mn[x]])
+                print('b', "{} {} {:s}".format(x, bmap[x], sm))
 
         for (id, ss, en, fa, ba) in bar:
-            #print id, ss, en, fa, ba, CG.node[ss]['active']
+            if verbose:
+                print('c', id, ss, en, fa, ba, CG.node[ss]['active'])
             self.assertTrue(CG.has_node(ss))
             if ss in inactive:
                 self.assertFalse(CG.node[ss]['active'])
             else:
                 self.assertEqual(CG.node[ss]['active'], True)
 
-
-
-    def test_coarse_graining_by_rates(self):
+    def test_coarse_graining_by_rates(self, verbose = False):
         """
         A coarse graining test based on this example...
         All structures are connected based on rates in the corresponding 
@@ -278,7 +305,7 @@ class Test_TrafoLandscape(unittest.TestCase):
         estimated using dG = -RT * log(rate), but that is not consistent 
         with the barrier heights found in the bar file...
         Particularly, 3 gets merged to 2, at dG = 2.9, because 4 gets merged
-        into 3, and then also 
+        into 3, ...
 
              UGAAUGUGCCGCUAGACGACAUCCCGCCGGAUGGCGGGGC
            1 .....((.((((((..((.(.....).))..)))))).)) -14.90    0  20.00
@@ -302,7 +329,6 @@ class Test_TrafoLandscape(unittest.TestCase):
           19 .((.(((...........)))))(((((....)))))...  -9.50    2   2.70
           20 .......(((....((.....))(((((....))))))))  -9.30   16   1.30
         """
-
         bfile = 'tests/files/ex1.bar'
         rfile = 'tests/files/ex1.rts'
         bar = ru.parse_barfile(bfile)
@@ -314,8 +340,9 @@ class Test_TrafoLandscape(unittest.TestCase):
         CG = trafo.TrafoLandscape(fullseq, vrna_md)
         CG._transcript_length = len(fullseq)
 
-        #for (id, ss, en, fa, ba) in bar:
-        #    print 'aa', id, ss, en, fa, ba
+        if verbose:
+            for (id, ss, en, fa, ba) in bar:
+                print('a', id, ss, en, fa, ba)
 
         min_dG = 4
 
@@ -340,45 +367,45 @@ class Test_TrafoLandscape(unittest.TestCase):
 
                     if en1 > en2 and dG < min_dG:
                         inactive.add(s1)
-                        #print m1+1, m2+1, s1, s2, dG, rate, bar[m1][4], sE
+                        if verbose:
+                            print('{} -> {} | {:.2f} {:.5f} {} {}'.format(
+                                m1+1, m2+1, dG, rate, bar[m1][4], sE))
 
             CG.node[s1]['active'] = True
             CG.node[s1]['energy'] = en1
             CG.node[s1]['occupancy'] = 0
 
         for (id, ss, en, fa, ba) in bar:
-            #print 'a', id, ss, en, fa, ba, CG.node[ss]['active']
-            #nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
-            #                  key=lambda x: (CG.node[x]['energy'], x), reverse=False))
+            #print('b', id, ss, en, fa, ba, CG.node[ss]['active'])
+            nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
+                              key=lambda x: (CG.node[x]['energy'], x), reverse=False))
             #for (x,y) in zip(nbrs, map(lambda x: CG[ss][x]['saddle'], nbrs)):
-            #    print '   ', x, y
+            #    print('   ', x, y)
             self.assertTrue(CG.has_node(ss))
-            self.assertEqual(CG.node[ss]['active'], True)
+            self.assertTrue(CG.node[ss]['active'])
 
         CG.coarse_grain(dG_min=min_dG)
 
         for (id, ss, en, fa, ba) in bar:
-            #print id, ss, en, fa, ba, CG.node[ss]['active']
             nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
                               key=lambda x: (CG.node[x]['energy'], x), reverse=False))
-            #print nbrs
+            if verbose:
+                print(id, ss, en, fa, ba, CG.node[ss]['active'], end='')
+                print(' ', list(map(lambda x: CG[ss][x]['saddle'], nbrs)))
             self.assertTrue(CG.has_node(ss))
             if ss in inactive:
                 self.assertFalse(CG.node[ss]['active'])
-            else:
+            elif int(id) == 3:
                 # This is interesting, staring from min_dG=2.9 you can see that 
                 # the assertTrue would break.. because based on transition rates,
                 # there exists a path 3->4->2 which is energetically favorable 
                 # over 3->2, so after 4 is merged into 3, 3 can be merged into 2.
-                #self.assertEqual(CG.node[ss]['active'], True)
-                #print map(lambda x: CG[ss][x]['saddle'], nbrs)
-                pass
+                self.assertFalse(CG.node[ss]['active'])
+            else:
+                self.assertTrue(CG.node[ss]['active'])
 
-        return
-
-
-#@unittest.skipIf(True, "slow tests are disabled by default")
-class test_stuff(unittest.TestCase):
+@unittest.skipIf(skip, "slow tests are disabled by default")
+class Test_HelperFunctions(unittest.TestCase):
 
     def setUp(self):
         pass
