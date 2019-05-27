@@ -496,7 +496,7 @@ def main(args):
             #    print('{} => {}'.format(CG.node[k]['identity'], [CG.node[v]['identity'] for v in mn[k]]))
 
         if args.pyplot:
-            ttt = CG._total_time
+            ttt = CG.total_time
             if ttt == 0:
                 all_courses.extend([[] for i in range(nn)])
             else:
@@ -533,17 +533,17 @@ def main(args):
         dn, sr, rj = 0, 0, 0
         if len(nlist) == 1:
             # Fake simulation results for DrForna
-            CG._total_time += _t8
+            CG.total_time += _t8
             if args.stdout == 'drf' or dfh:
                 ss = nlist[0][0]
                 fdata = "{:d} {:03.9f} {:03.3f} {:s} {:6.2f}\n".format(CG.node[ss]['identity'],
-                        CG._total_time, 1.0, ss[:len(CG.transcript)], CG.node[ss]['energy'])
+                        CG.total_time, 1.0, ss[:len(CG.transcript)], CG.node[ss]['energy'])
                 write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
 
             if args.pyplot:
                 ss = nlist[0][0]
                 ident = CG.node[ss]['identity']
-                all_courses[ident].append((CG._total_time, 1.0))
+                all_courses[ident].append((CG.total_time, 1.0))
 
         else:
             seq = ''
@@ -606,7 +606,7 @@ def main(args):
                     fdata = "{:d} {:03.9f} {:03.3f} {:s} {:6.2f}\n".format(*rdata)
                     write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
 
-            CG._total_time += time_inc
+            CG.total_time += time_inc
 
             # Prune
             assert args.min_occupancy is not None

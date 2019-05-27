@@ -148,7 +148,7 @@ class TrafoLandscape(nx.DiGraph):
 
         # Private instance variables:
         self._transcript_length = 0
-        self._total_time = 0
+        self.total_time = 0
         self._nodeid = 0
 
         # Default parameters:
@@ -990,7 +990,7 @@ class TrafoLandscape(nx.DiGraph):
         # http://www.regular-expressions.info/floatingpoint.html
         reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
 
-        ttime = self._total_time
+        ttime = self.total_time
 
         with open(tfile) as tkn:
             # this is ugly, but used to check if we're at the last line
