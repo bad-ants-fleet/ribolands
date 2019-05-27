@@ -161,7 +161,7 @@ def add_drtrafo_args(parser):
     # DrTransformer output #
     ########################
     output.add_argument("--stdout", default=None, action='store',
-            choices=('log', 'drf', 'OFF'),
+            choices=('log', 'drf', 'shape', 'OFF'),
             help="""Choose STDOUT formats to follow the cotranscriptional
             folding progress in real time: *log*: a human readable output
             format.  *drf*: DrForna visalization input format. *OFF*: actively
@@ -186,7 +186,7 @@ def add_drtrafo_args(parser):
             {--outdir}/{--name}.log""")
 
     output.add_argument("--visualize", nargs='+', default='', action='store',
-            choices=('pdf', 'svg', 'png', 'gr', 'drf'),
+            choices=('pdf', 'svg', 'png', 'gr', 'drf', 'shape'),
             help="""Plot the simulation using matplotlib (pdf, svg, png) and/or
             write an input file for xmgrace (gr) and/or write an input file for
             DrForna (drf). Interpret the legend using STDOUT or --logfile.
@@ -330,9 +330,10 @@ def main(args):
         filepath = args.name
 
     dfh = open(filepath + '.drf', 'w') if 'drf' in args.visualize else None
+    sfh = open(filepath + '.shape', 'w') if 'shape' in args.visualize else None
     lfh = open(filepath + '.log', 'w') if args.logfile else None
 
-    args.pyplot = list(filter(lambda x: x != 'drf', args.visualize))
+    args.pyplot = [x for x in args.visualize if x not in ('drf', 'shape')]
 
     # Adjust filehandle-stuff
     if args.stdout is None and lfh is None:
@@ -467,6 +468,9 @@ def main(args):
     if args.stdout == 'drf' or dfh:
         fdata = "id time conc struct energy\n"
         write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
+    if args.stdout == 'shape' or sfh:
+        sdata = "Reactivity,{}\n".format(",".join(map(str,range(args.start,args.stop+1))))
+        write_output(sdata, stdout=(args.stdout == 'shape'), fh = sfh)
 
     # initialize a directed conformation graph
     CG = TrafoLandscape(fullseq, vrna_md)
@@ -526,6 +530,13 @@ def main(args):
                 fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                     tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
                 write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
+        if args.stdout == 'shape' or sfh:
+            profile = [0] * tlen
+            for (ni, data) in nlist:
+                for e, b in enumerate(ni[:tlen]):
+                    if b == '.': profile[e] += data['occupancy']
+            sdata = '{},{}{}\n'.format(tlen, ','.join(map(str, profile)), ',NA' * (args.stop - args.start - tlen + 1))
+            write_output(sdata, stdout=(args.stdout == 'shape'), fh = sfh)
 
         if args.verbose:
             itime = datetime.now()
@@ -671,6 +682,13 @@ def main(args):
             fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                 tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
+    if args.stdout == 'shape' or sfh:
+        profile = [0] * (tlen+1)
+        for (ni, data) in nlist:
+            for e, b in enumerate(ni[:tlen]):
+                if b == '.': profile[e] += data['occupancy']
+        sdata = '{},{}{}\n'.format(tlen+1, ','.join(map(str, profile)), ',NA' * (args.stop - args.start - len(profile) + 1))
+        write_output(sdata, stdout=(args.stdout == 'shape'), fh = sfh)
 
     # CLEANUP file handles
     if lfh: lfh.close()
