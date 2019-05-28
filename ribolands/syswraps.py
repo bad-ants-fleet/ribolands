@@ -11,14 +11,12 @@
 #  Use double quotes or '#' for comments, such that single quotes are available
 #  for uncommenting large parts during testing
 #
-
-# Python 3 compatibility
-from __future__ import absolute_import, division, print_function, unicode_literals
-
+from __future__ import division, print_function
 from builtins import str
 from builtins import zip
 from builtins import map
 from builtins import range
+
 import os
 import re
 import sys
@@ -26,7 +24,6 @@ import gzip
 import math
 import subprocess as sub
 from struct import pack, unpack, calcsize
-
 
 def check_version(program, rv):
     if which(program) is None:
@@ -148,7 +145,7 @@ def sys_treekin(name, seq, bfile, rfile,
         raise ExecError(treekin,
                         "treekin", 'http://www.tbi.univie.ac.at/RNA/Treekin')
 
-    reg_flt = re.compile(b'[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
+    reg_flt = re.compile(b'[-+]?[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?.')
     # http://www.regular-expressions.info/floatingpoint.html
 
     tfile = name + '.tkn'

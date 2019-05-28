@@ -1,9 +1,6 @@
 #!/usr/bin/env python
+
 # -*- coding: utf-8 -*-
-
-# Python 3 compatibility
-from __future__ import absolute_import
-
 from setuptools import setup, find_packages
 
 LONG_DESCRIPTION="""
@@ -35,9 +32,9 @@ Two scripts for cotranscriptional folding are part of `ribolands`:
 
 setup(
     name='ribolands',
-    description='energy landscapes and folding kinetics of nucleic acids',
+    description='nucleic acid energy landscapes and kinetic folding',
     long_description=LONG_DESCRIPTION,
-    version='0.6.1',
+    version='0.7',
     license='MIT',
     author='Stefan Badelt',
     author_email='stef@tbi.univie.ac.at',
@@ -47,7 +44,12 @@ setup(
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
         ],
-    install_requires=['matplotlib', 'networkx', 'future', 'pandas', 'seaborn', 'crnsimulator>=0.4'],
+    install_requires=[
+        'networkx', 
+        'matplotlib', 
+        'future', 
+        'seaborn', 'pandas', 
+        'crnsimulator>=0.4'],
     test_suite='tests',
     packages=['ribolands'],
     scripts=['scripts/BarMap.py',

@@ -1,11 +1,12 @@
+#!/usr/bin/env python
+
 #
 # DrTransformer.py -- cotranscriptional folding.
 #
 # written by Stefan Badelt (stef@tbi.univie.ac.at)
 #
 
-from __future__ import absolute_import, division, print_function
-
+from __future__ import division, print_function
 from builtins import map
 from builtins import zip
 from builtins import str
@@ -14,23 +15,20 @@ from builtins import range
 import os
 import sys
 import math
-import argparse
-import subprocess as s
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 import shutil
 import tempfile
+import argparse
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from datetime import datetime
+import seaborn
+seaborn.set_style("darkgrid")
 
 import RNA
 import ribolands as ril
 from ribolands.syswraps import SubprocessError, ExecError, check_version, VersionError
 from ribolands.crnwrapper import DiGraphSimulator
 from ribolands.trafo import TrafoLandscape
-
-import seaborn as sns
-sns.set_style("darkgrid")
-#sns.set_style("ticks")
 
 def plot_xmgrace(trajectories, filename):
     head = """
@@ -423,17 +421,16 @@ def main(args):
     ############################
 
     #RNA.read_parameter_file('xyz.par')
-
     # Set model details.
     vrna_md = RNA.md()
     vrna_md.noLP = 1
     vrna_md.temperature = args.temperature
-    #vrna_md.dangles = 2
-    #vrna_md.logML = 0
-    #vrna_md.special_hp = 1
-    #vrna_md.gquad = 0
-    #vrna_md.noGU = 0
-    #vrna_md.noGUclosure = 0
+    vrna_md.dangles = 2
+    vrna_md.logML = 0
+    vrna_md.special_hp = 1
+    vrna_md.noGU = 0
+    vrna_md.noGUclosure = 0
+    #vrna_md.gquad = 0 G-Quads cannot be turned on.
 
     if args.pyplot:
         all_courses = []
@@ -711,7 +708,6 @@ def main(args):
                 fpath = filepath,
                 formats = args.pyplot,
                 title = args.name)
-
     return
 
 if __name__ == '__main__':

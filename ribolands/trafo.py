@@ -47,9 +47,9 @@ Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
 University of Vienna, Department of Theoretical Chemistry
 """
 from __future__ import division, print_function
-
 from builtins import map
 from builtins import range
+
 import re
 import math
 import networkx as nx

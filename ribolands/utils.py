@@ -1,4 +1,3 @@
-from __future__ import division
 #
 #  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
 #  University of Vienna, Department of Theoretical Chemistry
@@ -11,10 +10,9 @@ from __future__ import division
 #
 #  -*- Content -*-
 #  *) parsers for stdin, barfiles and rate-matrix
+#
 
-# Python 3 compatibility
-#from __future__ import absolute_import, division, print_function, unicode_literals
-
+from __future__ import division, print_function
 from builtins import str
 from builtins import map
 from builtins import zip
@@ -41,7 +39,7 @@ class ProgressBar(object):
     def inc(self):
         self.clock += 1
         if self.clock % 10 == 0:
-            sys.stdout.write(str(self.clock/10))
+            sys.stdout.write(str(int(self.clock/10)))
         elif self.clock % 5 == 0:
             sys.stdout.write(",")
         else:
@@ -50,7 +48,6 @@ class ProgressBar(object):
         sys.stdout.flush()
         if self.clock == self.clockmax:
             sys.stdout.write("| 100%\n")
-
 
 def argparse_add_arguments(parser,
                            RNAsubopt=False, barriers=False, treekin=False,

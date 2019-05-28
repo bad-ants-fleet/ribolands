@@ -63,10 +63,10 @@ If you are using `BarMap` or `DrTransformer` please cite:
 ```
  
 ## Version
-0.6.1
+0.7
 
 ## Development / Unittests
-  python setup.py test
+  pytest tests/
 
 ## Build the documentation
   sphinx-build -b html docs ~/your/html/sourcedir/

@@ -1,9 +1,11 @@
 #!/usr/bin/env python
+from __future__ import print_function, division
 
-import sys
-import unittest
-from unittest.mock import Mock
+import os
 import math
+import shutil
+import unittest
+import tempfile
 
 import RNA
 from ribolands.syswraps import sys_treekin
@@ -22,10 +24,12 @@ def write_log(TL, nlist):
 @unittest.skipIf(skip, "slow tests are disabled by default")
 class Test_TrafoLand(unittest.TestCase):
     def setUp(self):
-        pass
+        self.tmpdir = tempfile.mkdtemp(prefix='DrTest_')
+        print("\nWriting temporary files to: {}".format(self.tmpdir))
 
     def tearDown(self):
-        pass
+        print("Removing temporary file directory: {}".format(self.tmpdir))
+        shutil.rmtree(self.tmpdir)
 
     def test_edge_attributes(self):
         """testing:
@@ -61,7 +65,7 @@ class Test_TrafoLand(unittest.TestCase):
         # remove the dont_ for testing, but beware it writes files ...
         fullseq = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCA"
         TL = trafo.TrafoLandscape(fullseq, RNA.md())
-        fname = 'rudi'
+        fname = self.tmpdir + '/' + 'minitrafo'
 
         self.assertEqual(list(TL.nodes), [])
         self.assertEqual(TL.transcript, '')
@@ -102,7 +106,7 @@ class Test_TrafoLand(unittest.TestCase):
 
             dn, sr = TL.prune(0.01)
 
-    def test_expand_and_coarse_grain(self, verbose = False):
+    def test_expand_and_coarse_grain(self, verbose = True):
         seq = "AUAUAGCUUGUUUACUUUGGAUGAACUGGGGAGAAAAUCCUGGUAAAACU"
         sss = [
             "..........((((((..((((...((....))...)))).))))))...",
@@ -139,7 +143,7 @@ class Test_TrafoLand(unittest.TestCase):
             self.assertEqual(TL.node[ss]['active'], active)
 
         if verbose:
-            TL.get_simulation_files_tkn('ecp1')
+            TL.get_simulation_files_tkn(self.tmpdir+'/ecp1')
 
         TL.coarse_grain(dG_min=4.3)
         ess = [
@@ -157,7 +161,7 @@ class Test_TrafoLand(unittest.TestCase):
             self.assertEqual(TL.node[ss]['active'], active)
         
         if verbose:
-            TL.get_simulation_files_tkn('ecp2')
+            TL.get_simulation_files_tkn(self.tmpdir+'/ecp2')
 
         TL.prune(0.01)
         ess = [
@@ -175,7 +179,7 @@ class Test_TrafoLand(unittest.TestCase):
             self.assertEqual(TL.node[ss]['active'], active)
 
         if verbose:
-            TL.get_simulation_files_tkn('ecp3')
+            TL.get_simulation_files_tkn(self.tmpdir+'/ecp3')
 
     def _init_TL(self, seq, sss):
         fullseq = seq
