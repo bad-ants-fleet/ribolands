@@ -64,12 +64,14 @@ import ribolands as ril
 # Tracks findpath calls for profiling output.                                  #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 PROFILE = {'findpath-calls': 0,
+           'fraying1': 0,
+           'fraying2': 0,
            'mfe': 0,
-           'hb': 0,
            'connect': 0,
-           'feature': 0,
            'cogr': 0,
            'prune': 0}
+
+
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -510,10 +512,10 @@ class TrafoLandscape(nx.DiGraph):
                     self.node[nbr]['active'] = True
                     self.node[nbr]['last_seen'] = 0
                 elif self.has_node(nbr):
-                    if self.add_transition_edge(ni, nbr, call='hb'):
+                    if self.add_transition_edge(ni, nbr, call='fraying1'):
                         self.node[nbr]['active'] = True
                         self.node[nbr]['last_seen'] = 0
-                elif self.add_transition_edge(ni, nbr, call='hb'):
+                elif self.add_transition_edge(ni, nbr, call='fraying1'):
                     enbr = round(fc.eval_structure(nbr), 2)
                     self.node[nbr]['energy'] = enbr
                     self.node[nbr]['active'] = True
@@ -563,7 +565,7 @@ class TrafoLandscape(nx.DiGraph):
                                 self.add_weighted_edges_from([(child, nbr, None)])
                                 self[nbr][child]['saddle'] = sC1
                                 self[child][nbr]['saddle'] = sC1
-                                if self.add_transition_edge(nbr, child, call='feature'):
+                                if self.add_transition_edge(nbr, child):
                                     # in case it was there but inactive
                                     self.node[nbr]['active'] = True
                                     self.node[nbr]['last_seen'] = 0
@@ -599,7 +601,7 @@ class TrafoLandscape(nx.DiGraph):
                     tsE = max(tsE1, tsE2)
                     assert tsE != float('inf')
                     _ = self.add_transition_edge(n1, n2, 
-                            fpathE=tsE+1.00, call='connect')
+                            fpathE=tsE+1.00, call='fraying2')
 
         for p1, p2 in combinations(new_nodes.keys(), 2):
             if not self.has_active_edge(p1, p2): continue
@@ -616,7 +618,7 @@ class TrafoLandscape(nx.DiGraph):
                     tsE = max(tsE1, tsE2, tsE3)
                     assert tsE != float('inf')
                     _ = self.add_transition_edge(np1, np2, 
-                            fpathE=tsE+1.00, call='connect')
+                            fpathE=tsE+1.00, call='fraying2')
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Connect MFE to the parent ensemble.                                  #

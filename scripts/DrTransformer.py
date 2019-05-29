@@ -484,7 +484,7 @@ def main(args):
         atime = datetime.now()
 
     # now lets start...
-    norm, plusI, expo, fail = 0, 0, 0, 0
+    tnorm, tplusI, texpo, tfail, tfake = 0, 0, 0, 0, 0
     for tlen in range(args.start, args.stop):
         nn = CG.expand()
 
@@ -542,6 +542,7 @@ def main(args):
         if len(nlist) == 1:
             # Fake simulation results for DrForna
             CG.total_time += _t8
+            tfake += 1
             if args.stdout == 'drf' or dfh:
                 ss = nlist[0][0]
                 fdata = "{:d} {:03.9f} {:03.3f} {:s} {:6.2f}\n".format(CG.node[ss]['identity'],
@@ -562,14 +563,14 @@ def main(args):
                         treekin=args.treekin, p0=p0, t0=_t0, ti=args.t_inc, t8=_t8,
                         mpack_method=args.mpack_method,
                         exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
-                norm += 1
+                tnorm += 1
             except SubprocessError:
                 try:  # - Simulate with treekin and --exponent
                     tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
                             mpack_method=args.mpack_method,
                             treekin=args.treekin, p0=p0, t0=_t0, ti=args.t_inc, t8=_t8,
                             exponent=True, useplusI=False, force=True, verb=(args.verbose > 1))
-                    expo += 1
+                    texpo += 1
                 except SubprocessError:
                     try:  # - Simulate with treekin and --useplusI
                         tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
@@ -578,7 +579,7 @@ def main(args):
                                 ti=args.t_inc, t8=_t8, exponent=False,
                                 useplusI=True, force=True,
                                 verb=(args.verbose > 1))
-                        plusI += 1
+                        tplusI += 1
                     except SubprocessError:
                         if args.verbose > 1:
                             print("After {} nucleotides: treekin cannot find a solution!".format(tlen))
@@ -590,7 +591,7 @@ def main(args):
                                                  t_log=t_log,
                                                  jacobian=False,  # faster!
                                                  verb=(args.verbose > 1))
-                        fail += 1
+                        tfail += 1
 
             ## NOTE: Enable this hack to avoid treekin simulations in the first place
             #except ExecError as e:
@@ -645,26 +646,28 @@ def main(args):
             tot_time = (stime - atime).total_seconds()
             print("# Computation time at current nucleotide: algo: {} simu: {} total: {}".format(algotime, simutime, tot_time))
             print("# Deleted {} nodes, {} still reachable.".format(dn, sr))
-            print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail".format( norm, expo, plusI, fail))
+            print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail, {} fake".format(tnorm, texpo, tplusI, tfail, tfake))
             fp_tot = ril.trafo.PROFILE['findpath-calls']
-            fp_exp = ril.trafo.PROFILE['mfe'] + ril.trafo.PROFILE['connect'] + \
-                     ril.trafo.PROFILE['hb'] + ril.trafo.PROFILE['feature']
-            fp_expc= ril.trafo.PROFILE['connect']
+            fp_fr1 = ril.trafo.PROFILE['fraying1']
+            fp_fr2 = ril.trafo.PROFILE['fraying2']
+            fp_mfe = ril.trafo.PROFILE['mfe']
+            fp_con = ril.trafo.PROFILE['connect']
             fp_cgr = ril.trafo.PROFILE['cogr']
             fp_prn = ril.trafo.PROFILE['prune']
-            print("# Findpath stats: {} expansion, {} connected, {} coarse-grain, {} prune, {} total.".format(fp_exp, fp_expc, fp_cgr, fp_prn, fp_tot))
-            print("{}  {} {} {} {}  {} {} {}  {} {}  {} {} {} {}  {} {} {} {}  {}".format(tlen, 
+            print("# Findpath stats: {} fraying, {} mfe connect, {} triangle connect, {} coarse-grain, {} prune, {} total.".format(fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot))
+            print("{}  {} {} {} {}  {} {} {}  {} {}  {} {} {} {} {}  {} {} {} {} {}  {}".format(tlen, 
                 len(nlist), nZedges, len(CG), CG.number_of_edges(),
                 algotime, simutime, tot_time,
                 dn, sr,
-                norm, expo, plusI, fail,
-                fp_exp, fp_expc, fp_cgr, fp_prn, fp_tot, CG._dG_min))
+                tnorm, texpo, tplusI, tfail, tfake,
+                fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot, 
+                CG._dG_min))
 
             atime = stime
             ril.trafo.PROFILE['findpath-calls'] = 0
+            ril.trafo.PROFILE['fraying1'] = 0
+            ril.trafo.PROFILE['fraying2'] = 0
             ril.trafo.PROFILE['mfe'] = 0
-            ril.trafo.PROFILE['hb'] = 0
-            ril.trafo.PROFILE['feature'] = 0
             ril.trafo.PROFILE['connect'] = 0
             ril.trafo.PROFILE['cogr'] = 0
             ril.trafo.PROFILE['prune'] = 0
@@ -690,6 +693,7 @@ def main(args):
     # CLEANUP file handles
     if lfh: lfh.close()
     if dfh: dfh.close()
+    if sfh: sfh.close()
 
     # CLEANUP the /tmp/directory
     if not args.tmpdir:
