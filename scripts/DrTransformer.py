@@ -399,12 +399,12 @@ def main(args):
                 args.t_slow, dG_max, 1/args.t_slow, args.k0))
 
     if args.t_fast * 10 > args.t_ext:
-        raise Exception("""Conflicting Settings: rate for equilibration must be
-                much faster than for nucleotide extension.""")
+        raise Exception("Conflicting Settings: " + \
+                "The rate for equilibration must be at least 10x faster than for nucleotide extension.")
 
     if args.t_slow is not None and args.t_end * 100 > args.t_slow:
-        raise Exception("""Conflicting Settings: 1/--min-rate should be much
-                longer than the simulation time --t_end.""")
+        raise Exception("Conflicting Settings: " + \
+        "A negligible rate must be at least 100x slower than the final simulation time --t-end.")
 
     try:
         check_version(args.treekin, ril._MIN_TREEKIN_VERSION)

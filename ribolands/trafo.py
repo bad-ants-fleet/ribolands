@@ -392,7 +392,7 @@ class TrafoLandscape(nx.DiGraph):
             self.add_weighted_edges_from([(s2, s1, 0)])
             self[s1][s2]['saddle'] = float('inf')
             self[s2][s1]['saddle'] = float('inf')
-        else:  # Add the edge.
+        elif saddleE < float('inf'):  # Add the edge.
             e1 = self.node[s1]['energy']
             e2 = self.node[s2]['energy'] if self.has_node(s2) \
                                          else round(fc.eval_structure(s2), 2)
@@ -412,12 +412,13 @@ class TrafoLandscape(nx.DiGraph):
             self[s1][s2]['saddle'] = saddleE
             self[s2][s1]['saddle'] = saddleE
 
-        if fp_eval:
-            self[s1][s2]['fp_bounds'] = (fpathW, fpathE)
-            self[s2][s1]['fp_bounds'] = (fpathW, fpathE)
-        elif 'fp_bounds' not in self[s1][s2]:
-            self[s1][s2]['fp_bounds'] = (0, float('inf'))
-            self[s2][s1]['fp_bounds'] = (0, float('inf'))
+        if self.has_node(s2):
+            if fp_eval:
+                self[s1][s2]['fp_bounds'] = (fpathW, fpathE)
+                self[s2][s1]['fp_bounds'] = (fpathW, fpathE)
+            elif 'fp_bounds' not in self[s1][s2]:
+                self[s1][s2]['fp_bounds'] = (0, float('inf'))
+                self[s2][s1]['fp_bounds'] = (0, float('inf'))
 
         return saddleE != float('inf')
 
@@ -454,14 +455,14 @@ class TrafoLandscape(nx.DiGraph):
             raise TrafoUsageError('DEPRECATED expansion mode argument used!')
 
         # Calculate MFE of current transcript
-        ss, mfe = fc.backtrack(len(seq))
+        mfess, mfe = fc.backtrack(len(seq))
         future = '.' * (len(fseq) - len(seq))
-        ss = ss + future
+        mfess = mfess + future
 
         # If there is no node because we are in the beginning, add the node.
         if len(self) == 0:
-            en = round(fc.eval_structure(ss), 2)
-            self.add_node(ss, energy=en, occupancy=1.0, 
+            en = round(fc.eval_structure(mfess), 2)
+            self.add_node(mfess, energy=en, occupancy=1.0, 
                           identity=self._nodeid, active=True, last_seen=0)
             self._nodeid += 1
 
@@ -470,14 +471,12 @@ class TrafoLandscape(nx.DiGraph):
 
         # Keep track of all new nodes to connect them with each other.
         new_nodes = dict() 
-        new_nodes_set = set() 
 
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-        # Fraying neighbors part 1 of 2 #
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+        # Fraying neighbors (1/2): find and connect new structures to parents. #
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
-        # Initialize a dictionary to store the feature expansion during each
-        # graph expansion round: 
+        # This dictionary is a cache for feature expansion:
         #   ext_moves[ext_seq] = [set((con,paren),...), structure]
         # where ext_seq = exterior-loop sequence with ((xxx)) constraints
         ext_moves = dict()
@@ -491,42 +490,40 @@ class TrafoLandscape(nx.DiGraph):
             # compute a set of all helix fraying open steps
             opened = open_fraying_helices(seq, sss, mfree)
 
-            # do a constrained exterior loop folding for all fraying structures
-            # and connect them to the parent conformation and to each other.
-            connect = [ni] # add the parent
+            # Do a constrained exterior loop folding for all fraying structures
+            # and connect them to the parent conformation.
+            connected = set([ni]) # add the parent
             for onbr in opened:
                 nbr, ext_seq = fold_exterior_loop(md, seq, onbr, ext_moves)
 
                 future = '.' * (len(ni) - len(nbr))
                 nbr += future
 
-                if nbr in connect: # Not a new structure
+                if nbr in connected: # Not a new structure
                     continue
-                
+                connected.add(nbr)
+
                 # Add fraying helix transitions 
-                # NOTE: this may activate a node that has been coarse grained earlier...
-                # That's not pretty, but at least it is not wrong.
-                for con in connect:
-                    if self.has_active_edge(con, nbr):
+                if self.has_active_edge(ni, nbr):
+                    # NOTE: this may activate a previously coarse-grained node ...
+                    # That's not pretty, but at least it is not wrong.
+                    self.node[nbr]['active'] = True
+                    self.node[nbr]['last_seen'] = 0
+                elif self.has_node(nbr):
+                    if self.add_transition_edge(ni, nbr, call='hb'):
                         self.node[nbr]['active'] = True
                         self.node[nbr]['last_seen'] = 0
-                    elif self.has_node(nbr):
-                        if self.add_transition_edge(con, nbr, call='hb'):
-                            self.node[nbr]['active'] = True
-                            self.node[nbr]['last_seen'] = 0
-                    elif self.add_transition_edge(con, nbr, call='hb'):
-                        enbr = round(fc.eval_structure(nbr), 2)
-                        self.node[nbr]['energy'] = enbr
-                        self.node[nbr]['active'] = True
-                        self.node[nbr]['last_seen'] = 0
-                        self.node[nbr]['occupancy'] = 0.0
-                        self.node[nbr]['identity'] = self._nodeid
-                        self._nodeid += 1
+                elif self.add_transition_edge(ni, nbr, call='hb'):
+                    enbr = round(fc.eval_structure(nbr), 2)
+                    self.node[nbr]['energy'] = enbr
+                    self.node[nbr]['active'] = True
+                    self.node[nbr]['last_seen'] = 0
+                    self.node[nbr]['occupancy'] = 0.0
+                    self.node[nbr]['identity'] = self._nodeid
+                    self._nodeid += 1
 
                 if self.has_node(nbr) and self.node[nbr]['active']:
-                    connect.append(nbr)
                     new_nodes[ni].append(nbr)
-                    new_nodes_set.add(nbr)
 
                 # Now connect the neighbor with *historic* transitions of parents.
                 # We store the exterior-open neighbor here, that means there are
@@ -580,94 +577,123 @@ class TrafoLandscape(nx.DiGraph):
                 # connected, if the parents were connected.
                 ext_moves[ext_seq][0].add((ni, nbr))
 
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-        # Fraying neighbors part 2 of 2 #
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+        # Fraying neighbors (2/2): connect all new neighbors to each other.    #
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
-        for p1, p2 in combinations(new_nodes.keys(),2):
-            if not self.has_active_edge(p1, p2):
-                continue
-            fpathE = float('inf')
-            #TODO: we should consider sorting this to be deterministic.
-            for (np1, np2) in product(new_nodes[p1], new_nodes[p2]):
-                if np1 == np2:
+        for ni in parents_set:
+            nbrs = [n for n in self.successors(ni) if self.node[n]['active'] and \
+                    self.has_active_edge(n,ni)]
+
+            # Connect all new fraying nbrs and the old parent neighbors to each other,
+            # but don't add the edge if there exists a known, better connection.
+            for n1, n2 in combinations(nbrs,2):
+                if self.has_active_edge(n1, n2):
                     continue
-                bar1 = self.get_saddle(np1, p1)
-                bar2 = self.get_saddle(p1, p2)
-                bar3 = self.get_saddle(p2, np2)
-                assert None not in (bar1, bar2, bar3)
-                barE = max(bar1, bar2, bar3)
-                pathE = min(barE, fpathE)
-                _ = self.add_transition_edge(
-                        np1, np2, fpathE=fpathE+1.00, call='connect')
-                fpathE = self.get_saddle(np1, np2) \
-                        if self.get_saddle(np1, np2) < fpathE else fpathE
+                dd = get_bpd_cache(n1, n2)
+                d1 = get_bpd_cache(ni, n1)
+                d2 = get_bpd_cache(ni, n2)
+                if dd <= max(d1, d2):
+                    tsE1 = self.get_saddle(ni, n1)
+                    tsE2 = self.get_saddle(ni, n2)
+                    tsE = max(tsE1, tsE2)
+                    assert tsE != float('inf')
+                    _ = self.add_transition_edge(n1, n2, 
+                            fpathE=tsE+1.00, call='connect')
 
-        # ~~~~~~~~~~~ #
-        # MFE connect #
-        # ~~~~~~~~~~~ #
+        for p1, p2 in combinations(new_nodes.keys(), 2):
+            if not self.has_active_edge(p1, p2): continue
+            for (np1, np2) in product(new_nodes[p1], new_nodes[p2]):
+                if np1 == np2: continue
+                dd = get_bpd_cache(np1, np2)
+                d1 = get_bpd_cache(np1, p1)
+                d2 = get_bpd_cache(p1, p2)
+                d3 = get_bpd_cache(p2, np2)
+                if dd <= max(d1, d2, d3):
+                    tsE1 = self.get_saddle(np1, p1)
+                    tsE2 = self.get_saddle(p1, p2)
+                    tsE3 = self.get_saddle(p2, np2)
+                    tsE = max(tsE1, tsE2, tsE3)
+                    assert tsE != float('inf')
+                    _ = self.add_transition_edge(np1, np2, 
+                            fpathE=tsE+1.00, call='connect')
 
-        # 1) Try to connect the MFE structure to all parents.
-        fpathE = float('inf')
-        for ni in sorted(parents_set, key=lambda x: get_bpd_cache(ss, x)):
-            if ni == ss:
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+        # Connect MFE to the parent ensemble.                                  #
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+
+        barrier = float('inf')
+        for parent in sorted(parents_set, key=lambda x: get_bpd_cache(mfess, x)):
+            if parent == mfess:
                 continue
 
-            assert self.node[ni]['active']
+            assert self.node[parent]['active']
+            fpathE = self.node[parent]['energy'] + barrier
 
             # If there is an edge, update fpathE, and if it's a valid edge,
             # then make sure the MFE becomes an active node.
-            if self.has_active_edge(ni, ss):
-                self.node[ss]['active'] = True
-                self.node[ss]['last_seen'] = 0
+            if self.has_active_edge(parent, mfess):
+                self.node[mfess]['active'] = True
+                self.node[mfess]['last_seen'] = 0
 
-            elif self.has_node(ss):  # from a previous iteration
-                if self.add_transition_edge(ni, ss, fpathE=fpathE+1.00, call='mfe'):
+            elif self.has_node(mfess):
+                if self.add_transition_edge(parent, mfess, 
+                        fpathE=fpathE+1.00, call='mfe'):
                     # in case it was there but inactive
-                    self.node[ss]['active'] = True
-                    self.node[ss]['last_seen'] = 0
+                    self.node[mfess]['active'] = True
+                    self.node[mfess]['last_seen'] = 0
 
-            elif self.add_transition_edge(ni, ss, fpathE=fpathE+1.00, call='mfe'):
-                en = round(fc.eval_structure(ss), 2)
-                self.node[ss]['active'] = True
-                self.node[ss]['last_seen'] = 0
-                self.node[ss]['energy'] = en
-                self.node[ss]['occupancy'] = 0.0
-                self.node[ss]['identity'] = self._nodeid
-                self._nodeid += 1
-                new_nodes_set.add(ss)
+            elif self.add_transition_edge(parent, mfess, 
+                        fpathE=fpathE+1.00, call='mfe'):
+                    en = round(fc.eval_structure(mfess), 2)
+                    self.node[mfess]['active'] = True
+                    self.node[mfess]['last_seen'] = 0
+                    self.node[mfess]['energy'] = en
+                    self.node[mfess]['occupancy'] = 0.0
+                    self.node[mfess]['identity'] = self._nodeid
+                    self._nodeid += 1
 
-            assert self.get_saddle(ss, ni) is not None
-            fpathE = self.get_saddle(ss, ni) \
-                    if self.get_saddle(ss, ni) < fpathE else fpathE
+            if self.get_saddle(mfess, parent) is None:
+                continue
+            new_barrier = self.get_saddle(mfess, parent) - self.node[parent]['energy']
+            if new_barrier < barrier:
+                barrier = new_barrier
 
-        if not self.has_node(ss) or not self.node[ss]['active']:
-            print("# WARNING: mfe secondary structure not connected\n# {}".format(
-                ss[0:self._transcript_length]))
+        if not self.has_node(mfess) or \
+            (self.has_node(mfess) and not self.node[mfess]['active']):
+                print("# WARNING: mfe secondary structure not connected\n# {}".format(
+                    mfess[0:self._transcript_length]))
+                raise SystemExit
 
-        # ~~~~~~~~~~~~~~~~ #
-        # Triangle connect #
-        # ~~~~~~~~~~~~~~~~ #
-        # for each node, if two neighbors are not connected, and if the
-        # basepair distance between neighbors is shorter than one of the
-        # distances to the neighbor, then try connect them with the present
-        # upperbound. 
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+        # Triangle connect:                                                    #
+        # -----------------                                                    #
+        # For each node, if two neighbors are not connected, and if the        #
+        # basepair distance between neighbors is shorter than one of the       #
+        # distances to the neighbor, then try connect them with upperbound.    #
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         update = True
         while (update):
             update = False
-            for ni in parents_set:
-                nbrs = [n for n in self.successors(ni) if self.node[n]['active'] and \
-                        self.has_active_edge(n,ni)]
+            for parent in parents_set:
+                nbrs = [n for n in self.successors(parent) if self.node[n]['active'] and \
+                        self.has_active_edge(n,parent)]
 
                 for n1, n2 in combinations(nbrs,2):
                     if self.has_active_edge(n1, n2):
                         continue
 
                     dd = get_bpd_cache(n1, n2)
-                    d1 = get_bpd_cache(ni, n1)
-                    d2 = get_bpd_cache(ni, n2)
-                    if dd < max(d1, d2):
-                        _ = self.add_transition_edge(n1, n2, ts=ni, call='connect')
+                    d1 = get_bpd_cache(parent, n1)
+                    d2 = get_bpd_cache(parent, n2)
+
+                    if dd <= max(d1, d2):
+                        tsE1 = self.get_saddle(parent, n1)
+                        tsE2 = self.get_saddle(parent, n2)
+                        tsE = max(tsE1, tsE2)
+                        assert tsE != float('inf')
+                        _ = self.add_transition_edge(n1, n2, 
+                                fpathE=tsE+1.00, call='connect')
                         update = update or _
 
         clear_bpd_cache(self)
@@ -675,7 +701,7 @@ class TrafoLandscape(nx.DiGraph):
         # Post processing of graph after expansion:
         # remove nodes that have been inactive for a long time.
         for ni in list(self.nodes()):
-            if self.node[ni]['active'] == False:
+            if not self.node[ni]['active']:
                 self.node[ni]['last_seen'] += 1
             else:
                 self.node[ni]['last_seen'] = 0
