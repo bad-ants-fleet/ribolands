@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import sys
 import argparse
 import pandas as pd
@@ -6,17 +8,18 @@ import seaborn as sns
 
 
 def main(args):
-    outname = args.name if args.name else '{}.pdf'.format(args.input_filename)
+    outname = args.name if args.name else '{}.pdf'.format(args.input_filename.replace('.','_'))
     df = pd.read_csv(args.input_filename, header=None, 
         names=['length', 
             'number_structures', 'number_edges', 
             'hidden_graph_size', 'hidden_number_edges', 
             'time_algorithm', 'time_simulations', 'time_total', 
             'deleted_nodes', 'still_reachables',
-            'treekin_default', 'treekin_expo', 'treekin_plusI', 'treekin_fail', 'treekin_fake',
+            'treekin_default', 'treekin_expo', 'treekin_plusI', 
+            'treekin_fail', 'treekin_fake',
             'fp_fraying', 'fp_mfe', 'fp_connect',  
             'fp_coarse_grain', 'fp_prune', 'fp_total', 
-            'dG_min'],
+            'dG_min', 'dG_max'],
         comment='#', delim_whitespace=True, float_precision='2')
 
     mi = None

@@ -65,7 +65,7 @@ def plot_simulation(trajectories,
     """
     """
 
-    # # Get the relevant arguments from args
+    # Get the relevant arguments from args
     lin_time = steps * float(t_ext)
     log_time = lin_time + t_end if (lin_time + t_end) >= lin_time * 10 else lin_time * 10
 
@@ -473,7 +473,7 @@ def main(args):
     CG = TrafoLandscape(fullseq, vrna_md)
     CG._k0 = args.k0
     CG.t_fast = args.t_fast
-    dG_min = CG._dG_min 
+    dG_min = CG._dG_min # currently: CG._dG_min is set via t-fast
     CG.t_slow = args.t_slow
 
     CG.findpath_search_width = args.findpath_search_width
@@ -489,12 +489,8 @@ def main(args):
         nn = CG.expand()
 
         mn = CG.coarse_grain()
-        if args.verbose:
-            print("# Merged {} nodes after expanding {} new nodes.".format(len(mn), nn))
-            #if len(mn) > nn:
-            #    print("#######################################")
-            #for k in mn:
-            #    print('{} => {}'.format(CG.node[k]['identity'], [CG.node[v]['identity'] for v in mn[k]]))
+        #if args.verbose:
+        #    print("# Merged {} nodes after expanding {} new nodes.".format(len(mn), nn))
 
         if args.pyplot:
             ttt = CG.total_time
@@ -634,10 +630,7 @@ def main(args):
                 CG.to_json(_fname)
 
         if args.verbose:
-            #nZedges = len([a for (a,b,d) in CG.edges(data=True) if d['weight'] != 0])
-            #nZedges = len(CG.edges(data=True))
             nZedges = len([a for (a,b,d) in CG.edges(data=True) if d['saddle'] != float('inf') and CG.node[a]['active'] and CG.node[b]['active']])
-            #assert nZedges == nZedges2
             print("# Transcripton length: {}. Active graph size: {}. Non-zero transition edges: {}.  Hidden graph size: {}. Number of Edges: {}".format(
                 tlen, len(nlist), nZedges, len(CG), CG.number_of_edges()))
             stime = datetime.now()
@@ -655,13 +648,14 @@ def main(args):
             fp_cgr = ril.trafo.PROFILE['cogr']
             fp_prn = ril.trafo.PROFILE['prune']
             print("# Findpath stats: {} fraying, {} mfe connect, {} triangle connect, {} coarse-grain, {} prune, {} total.".format(fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot))
-            print("{}  {} {} {} {}  {} {} {}  {} {}  {} {} {} {} {}  {} {} {} {} {}  {}".format(tlen, 
+            print("# dG-min: {} dG-max: {}".format(CG._dG_min, CG._dG_max))
+            print("{}  {} {} {} {}  {} {} {}  {} {}  {} {} {} {} {}  {} {} {} {} {} {}  {} {}".format(tlen, 
                 len(nlist), nZedges, len(CG), CG.number_of_edges(),
                 algotime, simutime, tot_time,
                 dn, sr,
                 tnorm, texpo, tplusI, tfail, tfake,
                 fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot, 
-                CG._dG_min))
+                CG._dG_min, CG._dG_max))
 
             atime = stime
             ril.trafo.PROFILE['findpath-calls'] = 0
