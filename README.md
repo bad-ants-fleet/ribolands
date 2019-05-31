@@ -1,10 +1,9 @@
-# ribolands 
-energy landscapes and folding kinetics of nucleic acids
+# ribolands - kinetic analysis of nucleic acids
 
-**ribolands** is a package to compute folding kinetics on dynamic or
-bimolecular energy landscapes. It provides wrapper functions for the programs
-`RNAsubopt`, `barriers` and `treekin`, which have to installed separately. See
-below for an example workflow.
+**ribolands** is a package to analyze nucleic acid folding kinetics. It
+provides wrapper functions for the programs `RNAsubopt`, `barriers` and
+`treekin`, which have to installed separately. See below for an example
+workflow.
 
 Two scripts for cotranscriptional folding are part of `ribolands`: 
 
@@ -17,7 +16,7 @@ Two scripts for cotranscriptional folding are part of `ribolands`:
     echo "CUGCGGCUUUGGCUCUAGCC" | DrTransformer.py --visualize pdf
     ```
 
-  * **BarMap**: folding kinetics on dynamic energy landscapes. For each
+  * **BarMap**: Folding kinetics on dynamic energy landscapes. For each
     sequence length, the coarse-grained barriers landscape is computed. During
     kinetic simulations, a mapping between subsequent landscapes is used to
     transfer occupancy from one landscape to the next. This is mostly a
@@ -27,18 +26,19 @@ Two scripts for cotranscriptional folding are part of `ribolands`:
     echo "CUGCGGCUUUGGCUCUAGCC" | BarMap.py --pyplot
     ```
 
-## ViennaRNA dependencies
-`ribolands` uses [RNAsubopt] from the [ViennaRNA package], [barriers] and
-[treekin] for landscape computations. Make sure that you have the latest
-versions installed, i.e. `treekin-v0.4.1`, `barriers-v1.6` and, recommended,
-`ViennaRNA-v2.2` or later.
+## Installation
+```sh
+  ~$ python setup.py install
+  ~$ pytest tests/
+```
 
-## Python dependencies
-- RNA (installed with the ViennaRNA package)
-- pandas
-- networkx
-- matplotlib
-- crnsimulator (https://github.com/bad-ants-fleet/crnsimulator)
+## ViennaRNA dependencies
+ribolands uses [RNAsubopt] from the [ViennaRNA package], as well as [barriers]
+and [treekin] for landscape computations. Make sure that you have recent
+versions installed: 
+ - `ViennaRNA-v2.4.13`
+ - `treekin-v0.4.2`
+ - `barriers-v1.7` 
 
 ### Examples
 ```
@@ -56,17 +56,9 @@ versions installed, i.e. `treekin-v0.4.1`, `barriers-v1.6` and, recommended,
 If you are using `BarMap` or `DrTransformer` please cite: 
   - Stefan Badelt. [Control of RNA function by conformational design.] PhD thesis, University of Vienna, 2016
   - BarMap: RNA folding on dynamic energy landscapes [Hofacker et al. (2010)] 
-
-## Installation
-```sh
-  python setup.py install
-```
  
 ## Version
 0.7
-
-## Development / Unittests
-  pytest tests/
 
 ## Build the documentation
   sphinx-build -b html docs ~/your/html/sourcedir/

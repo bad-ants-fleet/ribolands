@@ -4,7 +4,7 @@
   BarMap.py -- cotranscriptional folding using *barriers* and *treekin*
 """
 
-from __future__ import absolute_import, division, print_function, unicode_literals
+from __future__ import division, print_function
 
 import os
 import re
@@ -46,7 +46,7 @@ def get_plot_data(tfiles, plist, args):
     # List of trajectories
     tlist = [[] for i in range(len(plist) + 1)]
 
-    reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
+    reg_flt = re.compile('[-+]?[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?.')
     # http://www.regular-expressions.info/floatingpoint.html
 
     for el, l in enumerate(range(start, stop + 1)):
@@ -270,7 +270,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
     p0 = args.p0
     tt = 0
     tfiles = []
-    reg_flt = re.compile(b'[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
+    reg_flt = re.compile(b'[-+]?[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?.')
     # http://www.regular-expressions.info/floatingpoint.html
 
     for e, l in enumerate(range(start, stop + 1)):

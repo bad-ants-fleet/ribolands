@@ -915,7 +915,7 @@ class TrafoLandscape(nx.DiGraph):
           Update the occupancy in the Graph and the total simulation time
         """
         # http://www.regular-expressions.info/floatingpoint.html
-        reg_flt = re.compile(b'[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
+        reg_flt = re.compile(b'[-+]?[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?.')
 
         lastlines = sub.check_output(['tail', '-2', tfile]).strip().split(b'\n')
         if not reg_flt.match(lastlines[0]):
@@ -1016,7 +1016,7 @@ class TrafoLandscape(nx.DiGraph):
           list: ID, time, occupancy, structure, energy
         """
         # http://www.regular-expressions.info/floatingpoint.html
-        reg_flt = re.compile('[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?.')
+        reg_flt = re.compile('[-+]?[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?.')
 
         ttime = self.total_time
 

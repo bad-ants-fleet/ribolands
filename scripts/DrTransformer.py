@@ -262,6 +262,8 @@ def add_drtrafo_args(parser):
             translates to an energy barrier separating conforations using:
             dG=-RT*ln(1/t_fast/k0).""")
 
+    algo.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
+
     algo.add_argument("--t-slow", type=float, default=None, metavar='<flt>',
             help="""Only accept new structures as neighboring conformations if
             the transition is faster than --t-slow. This parameter may be
@@ -286,8 +288,8 @@ def add_drtrafo_args(parser):
             help="""Arrhenius rate constant. Adjust the rate constant k0 of the
             Arrhenius equation to relate free energy changes to experimentally
             confirmed folding time in seconds.""")
-
     return
+
 
 def write_output(data, stdout = False, fh = None):
     # Helper function to print data to filehandle, STDOUT, or both.
@@ -295,6 +297,7 @@ def write_output(data, stdout = False, fh = None):
         sys.stdout.write(data)
     if fh:
         fh.write(data)
+    return
 
 
 def main(args):
@@ -318,7 +321,7 @@ def main(args):
         name = args.name
 
     if os.path.split(args.name)[0]:
-        raise NotImplementedError('Name must not contain filepath.')
+        raise SystemExit('ERROR: Argument "--name" must not contain filepath.')
 
     if args.outdir:
         if not os.path.exists(args.outdir):
@@ -354,8 +357,8 @@ def main(args):
         args.stop = len(fullseq) + 1
 
     if args.t_end < args.t_ext:
-        raise ValueError(
-            'Simulation time after transcription --t-end must be >= --t-ext')
+        raise SystemExit('ERROR: Conflicting Settings: ' + \
+                'Arguments must be such that "--t-end" >= "--t-ext"')
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
     # Adjust the simulation window for treekin:
@@ -398,13 +401,15 @@ def main(args):
             print('# --t-slow {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
                 args.t_slow, dG_max, 1/args.t_slow, args.k0))
 
-    if args.t_fast * 10 > args.t_ext:
-        raise Exception("Conflicting Settings: " + \
-                "The rate for equilibration must be at least 10x faster than for nucleotide extension.")
+    if not args.force and args.t_fast * 10 > args.t_ext:
+        raise SystemExit('ERROR: Conflicting Settings: ' + \
+                'Arguments must be such that "--t-fast" * 10 > "--t-ext"\n' + \
+                'The rate for equilibration must be at least 10x faster than for nucleotide extension. You may use --force to ignore this error.')
 
-    if args.t_slow is not None and args.t_end * 100 > args.t_slow:
-        raise Exception("Conflicting Settings: " + \
-        "A negligible rate must be at least 100x slower than the final simulation time --t-end.")
+    if not args.force and args.t_slow is not None and args.t_end * 100 > args.t_slow:
+        raise SystemExit('ERROR: Conflicting Settings: ' + \
+                'Arguments must be such that "--t-slow" < "--t-end" * 100\n' + \
+                'A negligible rate must be at least 100x slower than the final simulation time --t-end. You may use --force to ignore this error.')
 
     try:
         check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
