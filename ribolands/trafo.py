@@ -657,9 +657,10 @@ class TrafoLandscape(nx.DiGraph):
 
             if self.get_saddle(mfess, parent) is None:
                 continue
-            new_barrier = self.get_saddle(mfess, parent) - self.node[parent]['energy']
-            if new_barrier < barrier:
-                barrier = new_barrier
+            current_barrier = self.get_saddle(mfess, parent) - self.node[parent]['energy']
+            current_barrier = max(current_barrier, self._dG_min)
+            if current_barrier < barrier:
+                barrier = current_barrier
 
         if not self.has_node(mfess) or \
             (self.has_node(mfess) and not self.node[mfess]['active']):
