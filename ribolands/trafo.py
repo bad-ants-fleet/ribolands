@@ -78,19 +78,19 @@ PROFILE = {'findpath-calls': 0,
 # Cache to look-up base-pair distances                                         #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 BPD_CACHE = {}
-def get_bpd_cache(s1,s2):
+def get_bpd_cache(s1, s2):
     global BPD_CACHE
-    if (s1,s2) in BPD_CACHE:
-        return BPD_CACHE[(s1,s2)]
-    elif (s2,s1) in BPD_CACHE:
-        return BPD_CACHE[(s2,s1)]
+    if (s1, s2) in BPD_CACHE:
+        return BPD_CACHE[(s1, s2)]
+    elif (s2, s1) in BPD_CACHE:
+        return BPD_CACHE[(s2, s1)]
     else :
         dist = RNA.bp_distance(s1, s2)
-        BPD_CACHE[(s1,s2)] = dist
+        BPD_CACHE[(s1, s2)] = dist
         return dist
 
 def clear_bpd_cache(TL):
-    for k,v in list(BPD_CACHE.items()):
+    for k, v in list(BPD_CACHE.items()):
         if not TL.has_edge(*k):
             del BPD_CACHE[k]
 
@@ -227,8 +227,8 @@ class TrafoLandscape(nx.DiGraph):
         transcript length, current node ID, current time, etc.
         """
         copy = TrafoLandscape(self.full_sequence, self._model_details)
-        copy.add_nodes_from(self.nodes(data=True))
-        copy.add_edges_from(self.edges(data=True))
+        copy.add_nodes_from(self.nodes(data = True))
+        copy.add_edges_from(self.edges(data = True))
         return copy
 
     def graph_to_json(self, name):
@@ -256,7 +256,7 @@ class TrafoLandscape(nx.DiGraph):
         plt.savefig(name)
         plt.clf()
 
-    def sorted_nodes(self, descending=False):
+    def sorted_nodes(self, descending = False):
         """ Returns active nodes and their attributes sorted by energy.
 
         Args:
@@ -266,9 +266,9 @@ class TrafoLandscape(nx.DiGraph):
             Defaults to False.
 
         """
-        active = [n_d for n_d in self.nodes(data=True) if n_d[1]['active']]
-        return sorted(active, key=lambda x: (
-            x[1]['energy'], x[0]), reverse=descending)
+        active = [n_d for n_d in self.nodes(data = True) if n_d[1]['active']]
+        return sorted(active, key = lambda x: (
+            x[1]['energy'], x[0]), reverse = descending)
 
     def has_active_edge(self, s1, s2):
         return self.has_edge(s1, s2) and self.get_saddle(s1, s2) < float('inf')
@@ -294,8 +294,8 @@ class TrafoLandscape(nx.DiGraph):
         else:
             return 0
 
-    def add_transition_edge(self, s1, s2, ts=None, 
-            fpathW=None, fpathE=float('inf'), call=None, fake=False):
+    def add_transition_edge(self, s1, s2, ts = None, 
+            fpathW = None, fpathE = float('inf'), call = None, fake = False):
         """Calculates transition rates from direct path barrier heights.
 
         Uses the *findpath* direct path heuristic to find the lowest energy barrier
@@ -324,6 +324,8 @@ class TrafoLandscape(nx.DiGraph):
         Returns:
           bool: True if we found a non-zero rate between structures.
         """
+        assert s1 != s2
+        assert self.has_node(s1)
 
         fullseq = self._full_sequence
         md = self._model_details
@@ -338,9 +340,6 @@ class TrafoLandscape(nx.DiGraph):
         if self._dG_max: 
             maxE = self.node[s1]['energy'] + self._dG_max + 1.00
             fpathE = min(maxE, fpathE)
-
-        assert s1 != s2
-        assert self.has_node(s1)
 
         # Lookup the in-direct path barrier first
         if ts:
@@ -358,6 +357,7 @@ class TrafoLandscape(nx.DiGraph):
             if (fpathE > opathE) or (fpathW > opathW):
                 saddleE = None
 
+
         # NOTE: This will ensure that findpath is *not called*, instead,
         # tsE is used as saddle energy.
         if fake and ts and saddleE is None:
@@ -365,11 +365,10 @@ class TrafoLandscape(nx.DiGraph):
 
         def findpath_wrap(s1, s2, maxE, fpathW):
             if maxE is None or maxE == float('inf'):
-                dcal_sE = fc.path_findpath_saddle(s1, s2, width=fpathW)
+                dcal_sE = fc.path_findpath_saddle(s1, s2, width = fpathW)
             else:
                 dcal_bound = int(round(maxE * 100))
-                dcal_sE = fc.path_findpath_saddle(s1, s2, maxE=dcal_bound, width=fpathW)
-                #print(fc.path_findpath(s1, s2, maxE=dcal_bound, width=fpathW))
+                dcal_sE = fc.path_findpath_saddle(s1, s2, maxE = dcal_bound, width = fpathW)
             return float(dcal_sE)/100 if dcal_sE is not None else float('inf')
 
         fp_eval = False
@@ -424,7 +423,7 @@ class TrafoLandscape(nx.DiGraph):
 
         return saddleE != float('inf')
 
-    def expand(self, extend=1, exp_mode='default', mfree=6):
+    def expand(self, extend = 1, exp_mode = 'default', mfree = 6):
         """Find new secondary structures and add them to :obj:`TrafoLandscape()`
 
         The function supports two move-sets: 1) The mfe structure for the current
@@ -464,12 +463,12 @@ class TrafoLandscape(nx.DiGraph):
         # If there is no node because we are in the beginning, add the node.
         if len(self) == 0:
             en = round(fc.eval_structure(mfess), 2)
-            self.add_node(mfess, energy=en, occupancy=1.0, 
-                          identity=self._nodeid, active=True, last_seen=0)
+            self.add_node(mfess, energy = en, occupancy = 1.0, 
+                          identity = self._nodeid, active = True, last_seen = 0)
             self._nodeid += 1
 
         # Save the set of active parent nodes for later.
-        parents_set = set(n for n,d in self.nodes(data=True) if d['active'])
+        parents_set = set(n for n, d in self.nodes(data = True) if d['active'])
 
         # Keep track of all new nodes to connect them with each other.
         new_nodes = dict() 
@@ -479,7 +478,7 @@ class TrafoLandscape(nx.DiGraph):
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
         # This dictionary is a cache for feature expansion:
-        #   ext_moves[ext_seq] = [set((con,paren),...), structure]
+        #   ext_moves[ext_seq] = [set((con, paren), ...), structure]
         # where ext_seq = exterior-loop sequence with ((xxx)) constraints
         ext_moves = dict()
 
@@ -512,10 +511,10 @@ class TrafoLandscape(nx.DiGraph):
                     self.node[nbr]['active'] = True
                     self.node[nbr]['last_seen'] = 0
                 elif self.has_node(nbr):
-                    if self.add_transition_edge(ni, nbr, call='fraying1'):
+                    if self.add_transition_edge(ni, nbr, call = 'fraying1'):
                         self.node[nbr]['active'] = True
                         self.node[nbr]['last_seen'] = 0
-                elif self.add_transition_edge(ni, nbr, call='fraying1'):
+                elif self.add_transition_edge(ni, nbr, call = 'fraying1'):
                     enbr = round(fc.eval_structure(nbr), 2)
                     self.node[nbr]['energy'] = enbr
                     self.node[nbr]['active'] = True
@@ -582,14 +581,13 @@ class TrafoLandscape(nx.DiGraph):
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Fraying neighbors (2/2): connect all new neighbors to each other.    #
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-
         for ni in parents_set:
             nbrs = [n for n in self.successors(ni) if self.node[n]['active'] and \
-                    self.has_active_edge(n,ni)]
+                    self.has_active_edge(n, ni)]
 
             # Connect all new fraying nbrs and the old parent neighbors to each other,
             # but don't add the edge if there exists a known, better connection.
-            for n1, n2 in combinations(nbrs,2):
+            for n1, n2 in combinations(nbrs, 2):
                 if self.has_active_edge(n1, n2):
                     continue
                 dd = get_bpd_cache(n1, n2)
@@ -601,7 +599,7 @@ class TrafoLandscape(nx.DiGraph):
                     tsE = max(tsE1, tsE2)
                     assert tsE != float('inf')
                     _ = self.add_transition_edge(n1, n2, 
-                            fpathE=tsE+1.00, call='fraying2')
+                            fpathE = tsE + 1.00, call = 'fraying2')
 
         for p1, p2 in combinations(new_nodes.keys(), 2):
             if not self.has_active_edge(p1, p2): continue
@@ -618,14 +616,14 @@ class TrafoLandscape(nx.DiGraph):
                     tsE = max(tsE1, tsE2, tsE3)
                     assert tsE != float('inf')
                     _ = self.add_transition_edge(np1, np2, 
-                            fpathE=tsE+1.00, call='fraying2')
+                            fpathE = tsE + 1.00, call = 'fraying2')
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Connect MFE to the parent ensemble.                                  #
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
         barrier = float('inf')
-        for parent in sorted(parents_set, key=lambda x: get_bpd_cache(mfess, x)):
+        for parent in sorted(parents_set, key = lambda x: get_bpd_cache(mfess, x)):
             if parent == mfess:
                 continue
 
@@ -680,9 +678,9 @@ class TrafoLandscape(nx.DiGraph):
             update = False
             for parent in parents_set:
                 nbrs = [n for n in self.successors(parent) if self.node[n]['active'] and \
-                        self.has_active_edge(n,parent)]
+                        self.has_active_edge(n, parent)]
 
-                for n1, n2 in combinations(nbrs,2):
+                for n1, n2 in combinations(nbrs, 2):
                     if self.has_active_edge(n1, n2):
                         continue
 
@@ -713,7 +711,7 @@ class TrafoLandscape(nx.DiGraph):
 
         return self._nodeid - csid
 
-    def coarse_grain(self, dG_min=None):
+    def coarse_grain(self, dG_min = None):
         """Landscape coarse-graining base on energy barriers.
 
         Every structure gets assigned to an energetically better or equal
@@ -750,8 +748,8 @@ class TrafoLandscape(nx.DiGraph):
         assert dG_min is not None
 
         # sort by energy (high to low)
-        for ni, data in sorted(self.nodes(data=True),
-                               key=lambda x: (x[1]['energy'], x), reverse=True):
+        for ni, data in sorted(self.nodes(data = True),
+                               key = lambda x: (x[1]['energy'], x), reverse = True):
 
             if data['active'] == False:
                 continue
@@ -760,8 +758,8 @@ class TrafoLandscape(nx.DiGraph):
             # get all active neighbors (low to high) including the high
             # neighbors, bec we have to connect them later
             nbrs = [x for x in sorted(self.successors(ni), 
-                key=lambda y: (self.node[y]['energy'], y), 
-                    reverse=False) if self.node[x]['active']]
+                key = lambda y: (self.node[y]['energy'], y), 
+                    reverse = False) if self.node[x]['active']]
 
             nbrs = [x for x in nbrs if self.get_saddle(ni, x) != float('inf')]
 
@@ -801,7 +799,7 @@ class TrafoLandscape(nx.DiGraph):
                         (s1, s2) = (nb1, trans) 
                     else:
                         (s1, s2) = (trans, nb1) 
-                    always_true = self.add_transition_edge(s1, s2, ts=ni, call='cogr')
+                    always_true = self.add_transition_edge(s1, s2, ts = ni, call = 'cogr')
                     if always_true is False:
                         raise TrafoAlgoError('Did not add the transition edge!')
 
@@ -830,13 +828,13 @@ class TrafoLandscape(nx.DiGraph):
 
         return merged_nodes
 
-    def simulate(self, t0, t8, tmpfile=None):
+    def simulate(self, t0, t8, tmpfile = None):
         # treekin wrapper function using:
         #   "self.get_simulation_files_tkn"
         #   "self.update_occupancies_tkn"
         raise NotImplementedError
 
-    def get_simulation_files_tkn(self, name, binrates=True):
+    def get_simulation_files_tkn(self, name, binrates = True):
         """ Print a rate matrix and the initial occupancy vector.
 
         This function prints files and parameters to simulate dynamics using the
@@ -862,7 +860,7 @@ class TrafoLandscape(nx.DiGraph):
         """
         seq = self.transcript
 
-        sorted_nodes = self.sorted_nodes(descending=False)
+        sorted_nodes = self.sorted_nodes(descending = False)
 
         bfile = name + '.bar'
         rfile = name + '.rts'
@@ -883,7 +881,7 @@ class TrafoLandscape(nx.DiGraph):
                         nMsE.add((ee, sE))
                 mystr = ' '.join(['({:3d} {:6.2f})'.format(
                     x_y[0], x_y[1] - data['energy']) for x_y in sorted(
-                        list(nMsE), key=lambda x: x[0])])
+                        list(nMsE), key = lambda x: x[0])])
 
                 # Print structures and neighbors to bfile:
                 bar.write("{:4d} {} {:6.2f} {}\n".format(
@@ -939,7 +937,7 @@ class TrafoLandscape(nx.DiGraph):
 
         return time, iterations
 
-    def prune(self, p_min, detailed=True, keep_reachables=True):
+    def prune(self, p_min, detailed = True, keep_reachables = True):
         """ Delete nodes or report them as still reachable.
 
         Use the occupancy cutoff to choose which nodes to keep and which ones to
@@ -959,14 +957,14 @@ class TrafoLandscape(nx.DiGraph):
         deleted_nodes = 0
         still_reachables = 0
 
-        for ni, data in self.sorted_nodes(descending=False):  # sort high to low..
+        for ni, data in self.sorted_nodes(descending = False):  # sort high to low..
             if data['occupancy'] >= p_min:
                 continue
             en = data['energy']
 
             # get all active neighbors (low to high)
             nbrs = [x for x in sorted(self.successors(ni), 
-                key=lambda x: self.node[x]['energy'], reverse=False) \
+                key=lambda x: self.node[x]['energy'], reverse = False) \
                         if self.node[x]['active']]
 
             nbrs = [x for x in nbrs if self.get_saddle(ni, x) != float('inf')]
@@ -997,14 +995,14 @@ class TrafoLandscape(nx.DiGraph):
 
             for e, nb1 in enumerate(nbrs, 1):
                 for nb2 in nbrs[e:]:
-                    always_true = self.add_transition_edge(nb2, nb1, ts=ni, 
-                            call='prune', fake=not detailed)
+                    always_true = self.add_transition_edge(nb2, nb1, ts = ni, 
+                            call = 'prune', fake = not detailed)
                     if always_true is False:
                         raise TrafoAlgoError('Did not add the transition edge!')
 
         return deleted_nodes, still_reachables
 
-    def sorted_trajectories_iter(self, sorted_nodes, tfile, softmap=None):
+    def sorted_trajectories_iter(self, sorted_nodes, tfile, softmap = None):
         """ Yields the time course information using a treekin output file.
 
         Args:
@@ -1064,7 +1062,7 @@ class TrafoLandscape(nx.DiGraph):
         return
 
 
-def open_fraying_helices(seq, ss, free=6):
+def open_fraying_helices(seq, ss, free = 6):
     """Generate structures with opened fraying helices. 
     
     Fraying helices share a base-pair with an exterior loop region. The
@@ -1080,7 +1078,7 @@ def open_fraying_helices(seq, ss, free=6):
             that helix is opened as well. Defaults to 6.
     """
     nbrs = set()
-    pt = ril.make_pair_table(ss, base=0)
+    pt = ril.make_pair_table(ss, base = 0)
 
     # mutable secondary structure
     nbr = list(ss)
@@ -1102,7 +1100,7 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, myrange, free):
         mb (list): A mutable version of ss, which will have all fraying helices
             opened at once.
         pt (list): A pair table (zero based)
-        myrange (int,int): the range (n,m) of the pt under current
+        myrange (int, int): the range (n, m) of the pt under current
             investigation.  
         free: number of bases that should be freed
 
@@ -1126,7 +1124,6 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, myrange, free):
         while p < q and (l == 0 or o < free):
             if pt[p] != q or p != pt[q]:
                 """ this is a multiloop """
-                # i,j = 1, len(pt)
                 rec_fill_nbrs(nbrs, ''.join(nb), mb, pt, (p, q), free - o)
                 add = False
                 break
@@ -1152,7 +1149,7 @@ def rec_fill_nbrs(nbrs, ss, mb, pt, myrange, free):
 
     return
 
-def fold_exterior_loop(md, seq, con, ext_moves, spacer='NNN'):
+def fold_exterior_loop(md, seq, con, ext_moves, spacer = 'NNN'):
     """ Constrained folding of the exterior loop.
 
     All constrained helices are replaced with the motif:
@@ -1177,7 +1174,7 @@ def fold_exterior_loop(md, seq, con, ext_moves, spacer='NNN'):
     Returns:
       (str, str):
     """
-    pt = ril.make_pair_table(con, base=0)
+    pt = ril.make_pair_table(con, base = 0)
     ext_seq = ''
     ext_con = ''
 
