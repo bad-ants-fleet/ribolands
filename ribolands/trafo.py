@@ -452,8 +452,8 @@ class TrafoLandscape(nx.DiGraph):
         md = self._model_details
         fc = self._fold_compound
 
-        if exp_mode != 'default':
-            raise TrafoUsageError('DEPRECATED expansion mode argument used!')
+        if exp_mode not in ('default', 'fullconnect'):
+            raise TrafoUsageError('Invalid expansion mode used!')
 
         # Calculate MFE of current transcript
         mfess, mfe = fc.backtrack(len(seq))
@@ -469,6 +469,53 @@ class TrafoLandscape(nx.DiGraph):
 
         # Save the set of active parent nodes for later.
         parents_set = set(n for n, d in self.nodes(data = True) if d['active'])
+
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+        # Connect MFE to the parent ensemble.                                  #
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+
+        barrier = float('inf')
+        for parent in sorted(parents_set, key = lambda x: get_bpd_cache(mfess, x)):
+            if parent == mfess:
+                continue
+
+            assert self.node[parent]['active']
+            fpathE = self.node[parent]['energy'] + barrier
+
+            # If there is an edge, update fpathE, and if it's a valid edge,
+            # then make sure the MFE becomes an active node.
+            if self.has_active_edge(parent, mfess):
+                self.node[mfess]['active'] = True
+                self.node[mfess]['last_seen'] = 0
+
+            elif self.has_node(mfess):
+                if self.add_transition_edge(parent, mfess, 
+                        fpathE=fpathE+1.00, call='mfe'):
+                    # in case it was there but inactive
+                    self.node[mfess]['active'] = True
+                    self.node[mfess]['last_seen'] = 0
+
+            elif self.add_transition_edge(parent, mfess, 
+                        fpathE=fpathE+1.00, call='mfe'):
+                    en = round(fc.eval_structure(mfess), 2)
+                    self.node[mfess]['active'] = True
+                    self.node[mfess]['last_seen'] = 0
+                    self.node[mfess]['energy'] = en
+                    self.node[mfess]['occupancy'] = 0.0
+                    self.node[mfess]['identity'] = self._nodeid
+                    self._nodeid += 1
+
+            if self.get_saddle(mfess, parent) is None:
+                continue
+            current_barrier = self.get_saddle(mfess, parent) - self.node[parent]['energy']
+            current_barrier = max(current_barrier, self._dG_min)
+            if current_barrier < barrier:
+                barrier = current_barrier
+
+        if not self.has_node(mfess) or \
+            (self.has_node(mfess) and not self.node[mfess]['active']):
+                print("# WARNING: mfe secondary structure not connected\n# {}".format(
+                    mfess[0:self._transcript_length]))
 
         # Keep track of all new nodes to connect them with each other.
         new_nodes = dict() 
@@ -578,6 +625,24 @@ class TrafoLandscape(nx.DiGraph):
                 # connected, if the parents were connected.
                 ext_moves[ext_seq][0].add((ni, nbr))
 
+        # Post processing of graph after expansion:
+        # remove nodes that have been inactive for a long time.
+        for ni in list(self.nodes()):
+            if self.node[ni]['active']:
+                self.node[ni]['last_seen'] = 0
+            else:
+                self.node[ni]['last_seen'] += 1
+            if self.node[ni]['last_seen'] >= 5:
+                self.remove_node(ni)
+
+        if exp_mode == 'fullconnect':
+            # Just connect everything to everything and be done with it.
+            nlist = self.sorted_nodes()
+            for ((ni, di), (nj, dj)) in combinations(nlist, 2):
+                _ = self.add_transition_edge(ni, nj, call='connect')
+                assert _
+            return self._nodeid - csid
+
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Fraying neighbors (2/2): connect all new neighbors to each other.    #
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -617,55 +682,6 @@ class TrafoLandscape(nx.DiGraph):
                     assert tsE != float('inf')
                     _ = self.add_transition_edge(np1, np2, 
                             fpathE = tsE + 1.00, call = 'fraying2')
-
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-        # Connect MFE to the parent ensemble.                                  #
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-
-        barrier = float('inf')
-        for parent in sorted(parents_set, key = lambda x: get_bpd_cache(mfess, x)):
-            if parent == mfess:
-                continue
-
-            assert self.node[parent]['active']
-            fpathE = self.node[parent]['energy'] + barrier
-
-            # If there is an edge, update fpathE, and if it's a valid edge,
-            # then make sure the MFE becomes an active node.
-            if self.has_active_edge(parent, mfess):
-                self.node[mfess]['active'] = True
-                self.node[mfess]['last_seen'] = 0
-
-            elif self.has_node(mfess):
-                if self.add_transition_edge(parent, mfess, 
-                        fpathE=fpathE+1.00, call='mfe'):
-                    # in case it was there but inactive
-                    self.node[mfess]['active'] = True
-                    self.node[mfess]['last_seen'] = 0
-
-            elif self.add_transition_edge(parent, mfess, 
-                        fpathE=fpathE+1.00, call='mfe'):
-                    en = round(fc.eval_structure(mfess), 2)
-                    self.node[mfess]['active'] = True
-                    self.node[mfess]['last_seen'] = 0
-                    self.node[mfess]['energy'] = en
-                    self.node[mfess]['occupancy'] = 0.0
-                    self.node[mfess]['identity'] = self._nodeid
-                    self._nodeid += 1
-
-            if self.get_saddle(mfess, parent) is None:
-                continue
-            current_barrier = self.get_saddle(mfess, parent) - self.node[parent]['energy']
-            current_barrier = max(current_barrier, self._dG_min)
-            if current_barrier < barrier:
-                barrier = current_barrier
-
-        if not self.has_node(mfess) or \
-            (self.has_node(mfess) and not self.node[mfess]['active']):
-                print("# WARNING: mfe secondary structure not connected\n# {}".format(
-                    mfess[0:self._transcript_length]))
-                raise SystemExit
-
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Triangle connect:                                                    #
         # -----------------                                                    #
@@ -698,16 +714,6 @@ class TrafoLandscape(nx.DiGraph):
                         update = update or _
 
         clear_bpd_cache(self)
-
-        # Post processing of graph after expansion:
-        # remove nodes that have been inactive for a long time.
-        for ni in list(self.nodes()):
-            if not self.node[ni]['active']:
-                self.node[ni]['last_seen'] += 1
-            else:
-                self.node[ni]['last_seen'] = 0
-            if self.node[ni]['last_seen'] >= 5:
-                self.remove_node(ni)
 
         return self._nodeid - csid
 

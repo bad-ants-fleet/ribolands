@@ -275,6 +275,15 @@ def add_drtrafo_args(parser):
             increase the chances to find energetically better transition state
             energies.""")
 
+    algo.add_argument('--structure-search-mode', default='default',
+            choices=('default', 'fullconnect'),
+            help=argparse.SUPPRESS)
+            #help="""Specify one of three modes: *default*: find new secondary
+            #structures using both the current MFE structure and fraying
+            #neighbors.  *mfe-only*: only find the current MFE structure at
+            #every transcription step.  *fraying-only*: only find local
+            #fraying neighbors at every transcription step.""")
+
     algo.add_argument("--min-fraying", type=int, default=6, metavar='<int>',
             help="""Minimum number of freed bases during helix fraying.
             Fraying helices can vary greatly in length, starting with at
@@ -298,7 +307,6 @@ def write_output(data, stdout = False, fh = None):
     if fh:
         fh.write(data)
     return
-
 
 def main(args):
     """ DrTransformer - cotranscriptional folding """
@@ -491,7 +499,7 @@ def main(args):
     # now lets start...
     tnorm, tplusI, texpo, tfail, tfake = 0, 0, 0, 0, 0
     for tlen in range(args.start, args.stop):
-        nn = CG.expand()
+        nn = CG.expand(exp_mode = args.structure_search_mode)
 
         mn = CG.coarse_grain()
         #if args.verbose:
