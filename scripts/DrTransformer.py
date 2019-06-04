@@ -105,23 +105,23 @@ def plot_simulation(trajectories,
     fig.text(0.5, 0.95, title, ha='center', va='center')
 
     #for tlen in range(1, args.stop-args.start, 10) :
-    #  ax.axvline(x=tlen*t_ext, linewidth=0.01, color='black', linestyle='--')
+    #  ax.axvline(x = tlen*t_ext, linewidth = 0.01, color = 'black', linestyle = '--')
 
     # Add ticks for 1 minute, 1 hour, 1 day, 1 year
-    axLog.axvline(x=lin_time, linewidth=5, color='black', linestyle='-')
-    axLog.axvline(x=60, linewidth=1, color='black', linestyle='--')
-    axLog.axvline(x=3600, linewidth=1, color='black', linestyle='--')
-    axLog.axvline(x=86400, linewidth=1, color='black', linestyle='--')
-    axLog.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
+    axLog.axvline(x = lin_time, linewidth = 5, color = 'black', linestyle = '-')
+    axLog.axvline(x = 60, linewidth = 1, color = 'black', linestyle = '--')
+    axLog.axvline(x = 3600, linewidth = 1, color = 'black', linestyle = '--')
+    axLog.axvline(x = 86400, linewidth = 1, color = 'black', linestyle = '--')
+    axLog.axvline(x = 31536000, linewidth = 1, color = 'black', linestyle = '--')
     plt.legend()
 
-    ax.set_ylabel('occupancy [mol/l]', fontsize=11)
-    ax.set_xlabel('time [s]', ha='center', va='center', fontsize=11)
+    ax.set_ylabel('occupancy [mol/l]', fontsize = 11)
+    ax.set_xlabel('time [s]', ha = 'center', va = 'center', fontsize = 11)
     ax.xaxis.set_label_coords(.9, -0.15)
 
     for ending in formats:
         pfile = fpath + '.' + ending
-        plt.savefig(pfile, bbox_inches='tight')
+        plt.savefig(pfile, bbox_inches = 'tight')
 
     return
 
@@ -137,73 +137,73 @@ def add_drtrafo_args(parser):
     ###################
     # Default options #
     ###################
-    parser.add_argument('--version', action='version', 
-            version='%(prog)s ' + ril.__version__)
-    parser.add_argument("-v", "--verbose", action='count', default=0,
-            help="""Track process by writing verbose output to STDOUT during
+    parser.add_argument('--version', action = 'version', 
+            version = '%(prog)s ' + ril.__version__)
+    parser.add_argument("-v", "--verbose", action = 'count', default = 0,
+            help = """Track process by writing verbose output to STDOUT during
             calculations. Use --logfile if you want to see *just* verbose
             information via STDOUT.""")
 
     ##############################
     # DrTransformer dependencies #
     ##############################
-    environ.add_argument("--treekin", default='treekin', action='store', metavar='<str>', 
-            help="Path to the *treekin* executable.")
+    environ.add_argument("--treekin", default = 'treekin', action = 'store', metavar = '<str>', 
+            help = "Path to the *treekin* executable.")
 
-    environ.add_argument("--mpack-method", action='store',
-            choices=(['FLOAT128', 'LD', 'QD', 'DD']),
-            help="""Increase the precision of treekin simulations. Requires a development
+    environ.add_argument("--mpack-method", action = 'store',
+            choices = (['FLOAT128', 'LD', 'QD', 'DD']),
+            help = """Increase the precision of treekin simulations. Requires a development
                     version of treekin with mpack support.""")
 
     ########################
     # DrTransformer output #
     ########################
-    output.add_argument("--stdout", default=None, action='store',
-            choices=('log', 'drf', 'shape', 'OFF'),
-            help="""Choose STDOUT formats to follow the cotranscriptional
+    output.add_argument("--stdout", default = None, action = 'store',
+            choices = ('log', 'drf', 'shape', 'OFF'),
+            help = """Choose STDOUT formats to follow the cotranscriptional
             folding progress in real time: *log*: a human readable output
             format.  *drf*: DrForna visalization input format. *OFF*: actively
             suppress output. The default (None) switches between *OFF*, if --logfile is
             specified, or *log* otherwise.""")
 
-    output.add_argument("--tmpdir", default='', action='store', metavar='<str>',
-            help="""Specify path for storing temporary output files. These
+    output.add_argument("--tmpdir", default = '', action = 'store', metavar = '<str>',
+            help = """Specify path for storing temporary output files. These
             files will not be removed when the program terminates. Defaults to
             the default directory for temporary files on your System.""")
 
-    output.add_argument("--outdir", default='', action='store', metavar='<str>',
-            help="""Place regular output files, into this directory. Creates
+    output.add_argument("--outdir", default = '', action = 'store', metavar = '<str>',
+            help = """Place regular output files, into this directory. Creates
             the directory if it does not exist. """)
 
-    output.add_argument("--name", default='', metavar='<str>',
-            help="""Name your output files, name the header of your plots, etc.
+    output.add_argument("--name", default = '', metavar = '<str>',
+            help = """Name your output files, name the header of your plots, etc.
             this option overwrites the fasta-header.""")
 
-    output.add_argument("--logfile", action="store_true",
-            help="""Write verbose information to a file:
+    output.add_argument("--logfile", action = "store_true",
+            help = """Write verbose information to a file:
             {--outdir}/{--name}.log""")
 
-    output.add_argument("--visualize", nargs='+', default='', action='store',
-            choices=('pdf', 'svg', 'png', 'gr', 'drf', 'shape'),
-            help="""Plot the simulation using matplotlib (pdf, svg, png) and/or
+    output.add_argument("--visualize", nargs = '+', default = '', action = 'store',
+            choices = ('pdf', 'svg', 'png', 'gr', 'drf', 'shape'),
+            help = """Plot the simulation using matplotlib (pdf, svg, png) and/or
             write an input file for xmgrace (gr) and/or write an input file for
             DrForna (drf). Interpret the legend using STDOUT or --logfile.
             Files: {--outdir}/{--name}.{--visualize}""")
 
-    output.add_argument("--tinc", type=float, default=None, metavar='<flt>',
+    output.add_argument("--tinc", type = float, default = None, metavar = '<flt>',
             #NOTE: Deprecated: use --t-inc!
-            help=argparse.SUPPRESS)
+            help = argparse.SUPPRESS)
 
-    output.add_argument("--t-inc", type=float, default=1.2, metavar='<flt>',
-            help="""Adjust the plotting time resolution via the time-increment of
+    output.add_argument("--t-inc", type = float, default = 1.2, metavar = '<flt>',
+            help = """Adjust the plotting time resolution via the time-increment of
             the solver (t1 * t-inc = t2).""")
 
-    output.add_argument("--soft-minh", type=float, default=0, metavar='<flt>',
+    output.add_argument("--soft-minh", type = float, default = 0, metavar = '<flt>',
             #NOTE: Deprecated: use --plot-minh!
-            help=argparse.SUPPRESS)
+            help = argparse.SUPPRESS)
 
-    output.add_argument("--plot-minh", type=float, default=0, metavar='<flt>',
-            help="""Reduce the resolution of visualized structures. This
+    output.add_argument("--plot-minh", type = float, default = 0, metavar = '<flt>',
+            help = """Reduce the resolution of visualized structures. This
             parameter merges structures which are separated by a barrier
             smaller than --plot-minh *for visualzation only*. The dynamics will
             still be caculated based on the more detailed network. This
@@ -211,81 +211,81 @@ def add_drtrafo_args(parser):
             coarse-graining than the simulation paramter --t-fast.  
             
             This parameter corresponds to folding time as: 
-            t=1/(k0*exp(-dG/RT)), where dG is the parameter --plot-minh.
-            E.g.  --plot-minh: 5.1 kcal/mol ~= 0.02 s [default t-ext]. """)
+            t = 1/(k0*exp(-dG/RT)), where dG is the parameter --plot-minh.
+            E.g.  --plot-minh: 5.1 kcal/mol ~=  0.02 s [default t-ext]. """)
 
-    output.add_argument("--draw-graphs", action="store_true",
-            #help="""Export every landscape as json file. Uses --tempdir. """)
-            help=argparse.SUPPRESS)
+    output.add_argument("--draw-graphs", action = "store_true",
+            #help = """Export every landscape as json file. Uses --tempdir. """)
+            help = argparse.SUPPRESS)
 
-    output.add_argument("--t-lin", type=int, default=30, metavar='<int>',
-            #help="""Evenly space output *t-lin* times during transcription on a linear time scale.""")
-            help=argparse.SUPPRESS)
-    output.add_argument("--t-log", type=int, default=300, metavar='<int>',
-            #help="""Evenly space output *t-log* times after transcription on a logarithmic time scale.""")
-            help=argparse.SUPPRESS)
+    output.add_argument("--t-lin", type = int, default = 30, metavar = '<int>',
+            #help = """Evenly space output *t-lin* times during transcription on a linear time scale.""")
+            help = argparse.SUPPRESS)
+    output.add_argument("--t-log", type = int, default = 300, metavar = '<int>',
+            #help = """Evenly space output *t-log* times after transcription on a logarithmic time scale.""")
+            help = argparse.SUPPRESS)
 
-    output.add_argument("--t0", type=float, default=0, metavar='<flt>',
-            help=argparse.SUPPRESS)
+    output.add_argument("--t0", type = float, default = 0, metavar = '<flt>',
+            help = argparse.SUPPRESS)
 
     ############################
     # Transcription parameters #
     ############################
-    trans.add_argument("--t-ext", type=float, default=0.02, metavar='<flt>',
-            help="""Transcription speed, i.e. time per nucleotide extension
+    trans.add_argument("--t-ext", type = float, default = 0.02, metavar = '<flt>',
+            help = """Transcription speed, i.e. time per nucleotide extension
             [seconds per nucleotide].""")
-    trans.add_argument("--t-end", type=float, default=60, metavar='<flt>',
-            help="Post-transcriptional simulation time [seconds].")
-    trans.add_argument("-T", "--temperature", type=float, default=37.0, metavar='<flt>', 
-            help="The temperature for ViennaRNA computations.")
-    trans.add_argument("--start", type=int, default=1, metavar='<int>',
-            help="Start transcription at this nucleotide.")
-    trans.add_argument("--stop", type=int, default=None, metavar='<int>',
-            help="Stop transcription before this nucleotide")
+    trans.add_argument("--t-end", type = float, default = 60, metavar = '<flt>',
+            help = "Post-transcriptional simulation time [seconds].")
+    trans.add_argument("-T", "--temperature", type = float, default = 37.0, metavar = '<flt>', 
+            help = "The temperature for ViennaRNA computations.")
+    trans.add_argument("--start", type = int, default = 1, metavar = '<int>',
+            help = "Start transcription at this nucleotide.")
+    trans.add_argument("--stop", type = int, default = None, metavar = '<int>',
+            help = "Stop transcription before this nucleotide")
 
     ###########################
     # DrTransformer algorithm #
     ###########################
-    algo.add_argument("--track-basins", type=float, default=None, metavar='<flt>',
-            help="""TODO.""")
+    algo.add_argument("--track-basins", type = float, default = None, metavar = '<flt>',
+            help = """TODO.""")
 
-    algo.add_argument("--min-occupancy", type=float, default=0.1, metavar='<flt>',
-            help="""Occupancy threshold to determine which structures are
+    algo.add_argument("--min-occupancy", type = float, default = 0.1, metavar = '<flt>',
+            help = """Occupancy threshold to determine which structures are
             relevant when transcribing a new nucleotide. A structure with
-            occupancy o <= 1 / (min-occupancy * population_size) gets pruned 
+            occupancy o <=  1 / (min-occupancy * population_size) gets pruned 
             from the energy landscape. """)
 
-    algo.add_argument("--t-fast", type=float, default=5e-6, metavar='<flt>',
-            help="""Folding times faster than --t-fast are considered
+    algo.add_argument("--t-fast", type = float, default = 5e-6, metavar = '<flt>',
+            help = """Folding times faster than --t-fast are considered
             instantaneous.  Structural transitions that are faster than
             --t-fast are considerd part of the same macrostate. Directly
             translates to an energy barrier separating conforations using:
-            dG=-RT*ln(1/t_fast/k0).""")
+            dG = -RT*ln(1/t_fast/k0).""")
 
-    algo.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
+    algo.add_argument("--force", action = "store_true", help = argparse.SUPPRESS)
 
-    algo.add_argument("--t-slow", type=float, default=None, metavar='<flt>',
-            help="""Only accept new structures as neighboring conformations if
+    algo.add_argument("--t-slow", type = float, default = None, metavar = '<flt>',
+            help = """Only accept new structures as neighboring conformations if
             the transition is faster than --t-slow. This parameter may be
             useful to prevent numeric instabilities, otherwise, better avoid
             it.""")
 
-    algo.add_argument("--findpath-search-width", type=int, default=20, metavar='<int>',
-            help="""Search width for the *findpath* heuristic. Higher values
+    algo.add_argument("--findpath-search-width", type = int, default = 20, metavar = '<int>',
+            help = """Search width for the *findpath* heuristic. Higher values
             increase the chances to find energetically better transition state
             energies.""")
 
-    algo.add_argument('--structure-search-mode', default='default',
-            choices=('default', 'fullconnect'),
-            help=argparse.SUPPRESS)
-            #help="""Specify one of three modes: *default*: find new secondary
+    algo.add_argument('--structure-search-mode', default = 'default',
+            choices = ('default', 'fullconnect'),
+            help = argparse.SUPPRESS)
+            #help = """Specify one of three modes: *default*: find new secondary
             #structures using both the current MFE structure and fraying
             #neighbors.  *mfe-only*: only find the current MFE structure at
             #every transcription step.  *fraying-only*: only find local
             #fraying neighbors at every transcription step.""")
 
-    algo.add_argument("--min-fraying", type=int, default=6, metavar='<int>',
-            help="""Minimum number of freed bases during helix fraying.
+    algo.add_argument("--min-fraying", type = int, default = 6, metavar = '<int>',
+            help = """Minimum number of freed bases during helix fraying.
             Fraying helices can vary greatly in length, starting with at
             least two base-pairs. This parameter defines the minimum amount of
             bases freed by helix fraying. For example, 6 corresponds to a
@@ -293,8 +293,8 @@ def add_drtrafo_args(parser):
             bases are freed and there exists a nested stacked helix, this helix
             is considered to fray as well.""")
 
-    algo.add_argument("--k0", type=float, default=2e5, metavar='<flt>',
-            help="""Arrhenius rate constant. Adjust the rate constant k0 of the
+    algo.add_argument("--k0", type = float, default = 2e5, metavar = '<flt>',
+            help = """Arrhenius rate constant. Adjust the rate constant k0 of the
             Arrhenius equation to relate free energy changes to experimentally
             confirmed folding time in seconds.""")
     return
@@ -568,26 +568,26 @@ def main(args):
             # sometimes bfile causes a segfault, so let's leave it out.
             bfile = None
             try:  # - Simulate with treekin
-                tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
-                        treekin=args.treekin, p0=p0, t0=_t0, ti=args.t_inc, t8=_t8,
-                        mpack_method=args.mpack_method,
-                        exponent=False, useplusI=False, force=True, verb=(args.verbose > 1))
+                tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates = True,
+                        treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
+                        mpack_method = args.mpack_method,
+                        exponent = False, useplusI = False, force = True, verb = (args.verbose > 1))
                 tnorm += 1
             except SubprocessError:
                 try:  # - Simulate with treekin and --exponent
-                    tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
-                            mpack_method=args.mpack_method,
-                            treekin=args.treekin, p0=p0, t0=_t0, ti=args.t_inc, t8=_t8,
-                            exponent=True, useplusI=False, force=True, verb=(args.verbose > 1))
+                    tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates = True,
+                            mpack_method = args.mpack_method,
+                            treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
+                            exponent = True, useplusI = False, force = True, verb = (args.verbose > 1))
                     texpo += 1
                 except SubprocessError:
                     try:  # - Simulate with treekin and --useplusI
-                        tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates=True,
-                                mpack_method=args.mpack_method,
-                                treekin=args.treekin, p0=p0, t0=_t0,
-                                ti=args.t_inc, t8=_t8, exponent=False,
-                                useplusI=True, force=True,
-                                verb=(args.verbose > 1))
+                        tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates = True,
+                                mpack_method = args.mpack_method,
+                                treekin = args.treekin, p0 = p0, t0 = _t0,
+                                ti = args.t_inc, t8 = _t8, exponent = False,
+                                useplusI = True, force = True,
+                                verb = (args.verbose > 1))
                         tplusI += 1
                     except SubprocessError:
                         if args.verbose > 1:
@@ -596,10 +596,10 @@ def main(args):
                         _odename = name + str(tlen)
                         _t0 = args.t0  if args.t0 > 0 and t_log else 1e-6
                         tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
-                                                 t_lin=t_lin,
-                                                 t_log=t_log,
-                                                 jacobian=False,  # faster!
-                                                 verb=(args.verbose > 1))
+                                                 t_lin = t_lin,
+                                                 t_log = t_log,
+                                                 jacobian = False,  # faster!
+                                                 verb = (args.verbose > 1))
                         tfail += 1
 
             ## NOTE: Enable this hack to avoid treekin simulations in the first place
@@ -607,10 +607,10 @@ def main(args):
             #    _odename = name + str(tlen)
             #    _t0 = args.t0  if args.t0 > 0 and t_log else 1e-6
             #    tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
-            #                             t_lin=t_lin,
-            #                             t_log=t_log,
-            #                             jacobian=False,  # faster!
-            #                             verb=(args.verbose > 1))
+            #                             t_lin = t_lin,
+            #                             t_log = t_log,
+            #                             jacobian = False,  # faster!
+            #                             verb = (args.verbose > 1))
 
             # Get Results
             time_inc, iterations = CG.update_occupancies_tkn(tfile, nlist)
@@ -622,7 +622,7 @@ def main(args):
                         all_courses[id_].append((tt_, oc_))
 
                     fdata = "{:d} {:03.9f} {:03.3f} {:s} {:6.2f}\n".format(*rdata)
-                    write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
+                    write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
 
             CG.total_time += time_inc
 
@@ -630,7 +630,7 @@ def main(args):
             assert args.min_occupancy is not None
             # adjust minimum occupancy to size of current structure space:
             pmin = args.min_occupancy / len(nlist)
-            dn, sr = CG.prune(pmin, detailed=True, keep_reachables=False)
+            dn, sr = CG.prune(pmin, detailed = True, keep_reachables = False)
 
             if args.track_basins:
                 # add or substract a 0.1 kcal/mol plot-minh for every structure
@@ -643,7 +643,7 @@ def main(args):
                 CG.to_json(_fname)
 
         if args.verbose:
-            nZedges = len([a for (a,b,d) in CG.edges(data=True) if d['saddle'] != float('inf') and CG.node[a]['active'] and CG.node[b]['active']])
+            nZedges = len([a for (a, b, d) in CG.edges(data = True) if d['saddle'] != float('inf') and CG.node[a]['active'] and CG.node[b]['active']])
             print("# Transcripton length: {}. Active graph size: {}. Non-zero transition edges: {}.  Hidden graph size: {}. Number of Edges: {}".format(
                 tlen, len(nlist), nZedges, len(CG), CG.number_of_edges()))
             stime = datetime.now()
@@ -723,10 +723,10 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        # formatter_class=argparse.RawTextHelpFormatter,
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        # formatter_class=argparse.MetavarTypeHelpFormatter,
-        description='echo sequence | %(prog)s [options]')
+        # formatter_class = argparse.RawTextHelpFormatter,
+        formatter_class = argparse.ArgumentDefaultsHelpFormatter,
+        # formatter_class = argparse.MetavarTypeHelpFormatter,
+        description = 'echo sequence | %(prog)s [options]')
 
     add_drtrafo_args(parser)
 
