@@ -310,7 +310,7 @@ def write_output(data, stdout = False, fh = None):
 
 def main(args):
     """ DrTransformer - cotranscriptional folding """
-    (name, fullseq) = ril.parse_vienna_stdin(sys.stdin)
+    (name, fullseq) = ril.parse_vienna_stdin(sys.stdin, chars=list('ACGUN'))
 
     # Argument deprecation Warnings
     if args.tinc:
