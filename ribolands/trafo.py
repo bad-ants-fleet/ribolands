@@ -347,6 +347,7 @@ class TrafoLandscape(nx.DiGraph):
             tsE2 = self.get_saddle(s2, ts)
             tsE = max(tsE1, tsE2)
             assert tsE != float('inf')
+            fpathE = min(tsE, fpathE)
 
         # Make sure that we don't accept 'inf' as a saddle energy if we actually 
         # want to calculate it with a more relaxed bound.
@@ -356,7 +357,6 @@ class TrafoLandscape(nx.DiGraph):
             # If fpathE or fpathW are more relaxed, recalculate!
             if (fpathE > opathE) or (fpathW > opathW):
                 saddleE = None
-
 
         # NOTE: This will ensure that findpath is *not called*, instead,
         # tsE is used as saddle energy.
