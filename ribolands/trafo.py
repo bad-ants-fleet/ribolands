@@ -72,8 +72,6 @@ PROFILE = {'findpath-calls': 0,
            'prune': 0}
 
 
-
-
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Cache to look-up base-pair distances                                         #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -89,10 +87,13 @@ def get_bpd_cache(s1, s2):
         BPD_CACHE[(s1, s2)] = dist
         return dist
 
+
 def clear_bpd_cache(TL):
     for k, v in list(BPD_CACHE.items()):
         if not TL.has_edge(*k):
             del BPD_CACHE[k]
+    return
+
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Custom error definitions                                                     #
@@ -505,7 +506,7 @@ class TrafoLandscape(nx.DiGraph):
                     self.node[mfess]['identity'] = self._nodeid
                     self._nodeid += 1
 
-            if self.get_saddle(mfess, parent) is None:
+            if not self.has_edge(mfess, parent):
                 continue
             current_barrier = self.get_saddle(mfess, parent) - self.node[parent]['energy']
             current_barrier = max(current_barrier, self._dG_min)
@@ -517,9 +518,6 @@ class TrafoLandscape(nx.DiGraph):
                 print("# WARNING: mfe secondary structure not connected\n# {}".format(
                     mfess[0:self._transcript_length]))
 
-        # Keep track of all new nodes to connect them with each other.
-        new_nodes = dict() 
-
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Fraying neighbors (1/2): find and connect new structures to parents. #
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -528,6 +526,9 @@ class TrafoLandscape(nx.DiGraph):
         #   ext_moves[ext_seq] = [set((con, paren), ...), structure]
         # where ext_seq = exterior-loop sequence with ((xxx)) constraints
         ext_moves = dict()
+
+        # Keep track of all new nodes to connect them with each other.
+        new_nodes = dict() 
 
         for ni in parents_set:
             new_nodes[ni] = []
@@ -589,9 +590,6 @@ class TrafoLandscape(nx.DiGraph):
 
                         if not self.has_active_edge(parent, ni):
                             # no need to worry about it.
-                            continue
-
-                        if self.get_saddle(parent, ni) == float('inf'):
                             continue
 
                         # Now the case with historic differences ...
