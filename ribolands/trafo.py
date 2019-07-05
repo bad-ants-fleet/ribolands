@@ -6,11 +6,14 @@ features: expansion, coarse graining, simulation and pruning.
 
 TrafoLandscape.expand: 
     Identifies parent structures (all sufficiently populated local minima --
-    whatever remains after previous coarse graining, simulation and pruning).
-    Every parent structure produces and connects its fraying neighbors. The
-    current MFE structure gets connected to the parent structure with the
-    lowest direct-path saddle point (and potentially to other structures with a
-    lower base-pair distance.
+    or whatever remains after previous coarse graining, simulation and pruning).
+     * The parent structures get connected to the current MFE structure. This
+        is a heuristic, that sorts parents by base-pair distance to the MFE, and
+        then uses the barrier energy as an upper bound for subsequent searches.
+        Eventually, the MFE structure is connected to the parent structure with
+        the highest rate into the MFE structure (and potentially to other
+        structures with a lower base-pair distance).
+    Every parent structure produces and connects its fraying neighbors. 
 
 TrafoLandscape.coarse_grain: 
     Identifies all active structures (parent structures and newly identified
@@ -341,6 +344,11 @@ class TrafoLandscape(nx.DiGraph):
         if self._dG_max: 
             maxE = self.node[s1]['energy'] + self._dG_max + 1.00
             fpathE = min(maxE, fpathE)
+        elif ts:
+            # Just to be sure, because right now there should be no situation
+            # where fpathE and ts are both non-default. You may very well
+            # remove this statement if that changes.
+            assert fpathE == float('inf')
 
         # Lookup the in-direct path barrier first
         if ts:
@@ -469,159 +477,23 @@ class TrafoLandscape(nx.DiGraph):
             self._nodeid += 1
 
         # Save the set of active parent nodes for later.
-        parents_set = set(n for n, d in self.nodes(data = True) if d['active'])
+        parents = [n for n, d in self.nodes(data = True) if d['active']]
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Connect MFE to the parent ensemble.                                  #
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-
-        barrier = float('inf')
-        for parent in sorted(parents_set, key = lambda x: get_bpd_cache(mfess, x)):
-            if parent == mfess:
-                continue
-
-            assert self.node[parent]['active']
-            fpathE = self.node[parent]['energy'] + barrier
-
-            # If there is an edge, update fpathE, and if it's a valid edge,
-            # then make sure the MFE becomes an active node.
-            if self.has_active_edge(parent, mfess):
-                self.node[mfess]['active'] = True
-                self.node[mfess]['last_seen'] = 0
-
-            elif self.has_node(mfess):
-                if self.add_transition_edge(parent, mfess, 
-                        fpathE=fpathE+1.00, call='mfe'):
-                    # in case it was there but inactive
-                    self.node[mfess]['active'] = True
-                    self.node[mfess]['last_seen'] = 0
-
-            elif self.add_transition_edge(parent, mfess, 
-                        fpathE=fpathE+1.00, call='mfe'):
-                    en = round(fc.eval_structure(mfess), 2)
-                    self.node[mfess]['active'] = True
-                    self.node[mfess]['last_seen'] = 0
-                    self.node[mfess]['energy'] = en
-                    self.node[mfess]['occupancy'] = 0.0
-                    self.node[mfess]['identity'] = self._nodeid
-                    self._nodeid += 1
-
-            if not self.has_edge(mfess, parent):
-                continue
-            current_barrier = self.get_saddle(mfess, parent) - self.node[parent]['energy']
-            current_barrier = max(current_barrier, self._dG_min)
-            if current_barrier < barrier:
-                barrier = current_barrier
-
-        if not self.has_node(mfess) or \
-            (self.has_node(mfess) and not self.node[mfess]['active']):
-                print("# WARNING: mfe secondary structure not connected\n# {}".format(
+        num = self.expand_connect_mfe(parents, mfess, ddG = float('inf'))
+        if num == 0 and len(parents) > 1:
+            assert (not self.has_node(mfess) or \
+                (self.has_node(mfess) and not self.node[mfess]['active']))
+            print("# WARNING: mfe secondary structure not connected\n# {}".format(
                     mfess[0:self._transcript_length]))
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Fraying neighbors (1/2): find and connect new structures to parents. #
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
-        # This dictionary is a cache for feature expansion:
-        #   ext_moves[ext_seq] = [set((con, paren), ...), structure]
-        # where ext_seq = exterior-loop sequence with ((xxx)) constraints
-        ext_moves = dict()
-
-        # Keep track of all new nodes to connect them with each other.
-        new_nodes = dict() 
-
-        for ni in parents_set:
-            new_nodes[ni] = []
-
-            # short secondary structure (without its future)
-            sss = ni[0:len(seq)]
-
-            # compute a set of all helix fraying open steps
-            opened = open_fraying_helices(seq, sss, mfree)
-
-            # Do a constrained exterior loop folding for all fraying structures
-            # and connect them to the parent conformation.
-            connected = set([ni]) # add the parent
-            for onbr in opened:
-                nbr, ext_seq = fold_exterior_loop(md, seq, onbr, ext_moves)
-
-                future = '.' * (len(ni) - len(nbr))
-                nbr += future
-
-                if nbr in connected: # Not a new structure
-                    continue
-                connected.add(nbr)
-
-                # Add fraying helix transitions 
-                if self.has_active_edge(ni, nbr):
-                    # NOTE: this may activate a previously coarse-grained node ...
-                    # That's not pretty, but at least it is not wrong.
-                    self.node[nbr]['active'] = True
-                    self.node[nbr]['last_seen'] = 0
-                elif self.has_node(nbr):
-                    if self.add_transition_edge(ni, nbr, call = 'fraying1'):
-                        self.node[nbr]['active'] = True
-                        self.node[nbr]['last_seen'] = 0
-                elif self.add_transition_edge(ni, nbr, call = 'fraying1'):
-                    enbr = round(fc.eval_structure(nbr), 2)
-                    self.node[nbr]['energy'] = enbr
-                    self.node[nbr]['active'] = True
-                    self.node[nbr]['last_seen'] = 0
-                    self.node[nbr]['occupancy'] = 0.0
-                    self.node[nbr]['identity'] = self._nodeid
-                    self._nodeid += 1
-
-                if self.has_node(nbr) and self.node[nbr]['active']:
-                    new_nodes[ni].append(nbr)
-
-                # Now connect the neighbor with *historic* transitions of parents.
-                # We store the exterior-open neighbor here, that means there are
-                # three possible reasons for duplication:
-                #   1) different (or longer) helix was opened / same historic features
-                #   2) the same helix was opened / difference is in historic features
-                #   3) different helix / different history
-                if ext_moves[ext_seq][0]:
-                    for (parent, child) in ext_moves[ext_seq][0]:
-                        assert parent != ni  # Parents may never be the same
-                        if child == nbr:
-                            # the parents differ in fraying helices, 
-                            # no historic differences
-                            continue
-
-                        if not self.has_active_edge(parent, ni):
-                            # no need to worry about it.
-                            continue
-
-                        # Now the case with historic differences ...
-                        if self.has_node(child) and self.has_node(nbr):
-                            if self.has_active_edge(nbr, child):
-                                continue
-
-                            # Calculate saddleE from saddleE of parents!
-                            sP = self.get_saddle(ni, parent)
-                            sC1 = round(self.node[child]['energy'] \
-                                    + sP - self.node[parent]['energy'], 2)
-                            sC2 = round(self.node[nbr]['energy'] \
-                                    + sP - self.node[ni]['energy'], 2)
-
-                            if sC1 == sC2:  # avoid findpath!
-                                self.add_weighted_edges_from([(nbr, child, None)])
-                                self.add_weighted_edges_from([(child, nbr, None)])
-                                self[nbr][child]['saddle'] = sC1
-                                self[child][nbr]['saddle'] = sC1
-                                if self.add_transition_edge(nbr, child):
-                                    # in case it was there but inactive
-                                    self.node[nbr]['active'] = True
-                                    self.node[nbr]['last_seen'] = 0
-                                    # in case it was there but inactive
-                                    self.node[child]['active'] = True
-                                    self.node[child]['last_seen'] = 0
-                                else:
-                                    raise TrafoAlgoError('Did not add historic edge!')
-
-                # Track the final structure, every new identical ext-change will be
-                # connected, if the parents were connected.
-                ext_moves[ext_seq][0].add((ni, nbr))
+        new_nodes = self.expand_fraying_neighbors(parents, mfree = 6)
 
         # Post processing of graph after expansion:
         # remove nodes that have been inactive for a long time.
@@ -644,7 +516,7 @@ class TrafoLandscape(nx.DiGraph):
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Fraying neighbors (2/2): connect all new neighbors to each other.    #
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-        for ni in parents_set:
+        for ni in parents:
             nbrs = [n for n in self.successors(ni) if self.node[n]['active'] and \
                     self.has_active_edge(n, ni)]
 
@@ -690,7 +562,7 @@ class TrafoLandscape(nx.DiGraph):
         update = True
         while (update):
             update = False
-            for parent in parents_set:
+            for parent in parents:
                 nbrs = [n for n in self.successors(parent) if self.node[n]['active'] and \
                         self.has_active_edge(n, parent)]
 
@@ -714,6 +586,180 @@ class TrafoLandscape(nx.DiGraph):
         clear_bpd_cache(self)
 
         return self._nodeid - csid
+
+
+    def expand_connect_mfe(self, parents, mfess, ddG = float('inf')):
+        """ Connect the MFE structure to parent structures.
+
+        This function checks the node attibutes:
+            TL.node.data: active, energy
+        and sets:
+            TL.node.data: active, last_seen
+    
+        Args:
+            parents (list): List of secondary structures, they must be 'active'.
+            mfess (str): The MFE structure.
+            ddG (float): An upper bound on the barrier energy from parents to MFE
+    
+        Returns: 
+          int: The number of active connections from/to the MFE structure.
+        """
+        TL = self
+        fc = TL._fold_compound
+    
+        connections = 0
+        for parent in sorted(parents, key = lambda x: get_bpd_cache(mfess, x)):
+            if parent == mfess: continue
+            assert TL.node[parent]['active']
+    
+            fpathE = TL.node[parent]['energy'] + ddG
+    
+            # If there is an active edge, make sure the MFE becomes an active node.
+            if TL.has_active_edge(parent, mfess):
+                TL.node[mfess]['active'] = True
+                TL.node[mfess]['last_seen'] = 0
+    
+            # If there is a node, but no active edge, try to add it and activate the node.
+            elif TL.has_node(mfess):
+                if TL.add_transition_edge(parent, mfess, 
+                        fpathE = fpathE + 0.01, call = 'mfe'):
+                    # in case it was there but inactive
+                    TL.node[mfess]['active'] = True
+                    TL.node[mfess]['last_seen'] = 0
+    
+            # If there is no node, try to add a new edge & initialize the node.
+            elif TL.add_transition_edge(parent, mfess, 
+                        fpathE = fpathE + 0.01, call = 'mfe'):
+                    en = round(fc.eval_structure(mfess), 2)
+                    TL.node[mfess]['active'] = True
+                    TL.node[mfess]['last_seen'] = 0
+                    TL.node[mfess]['energy'] = en
+                    TL.node[mfess]['occupancy'] = 0.0
+                    TL.node[mfess]['identity'] = TL._nodeid
+                    TL._nodeid += 1
+    
+            if TL.has_active_edge(mfess, parent):
+                barrier = TL.get_saddle(mfess, parent) - TL.node[parent]['energy']
+                barrier = max(barrier, TL._dG_min)
+                if barrier < ddG:
+                    ddG = barrier
+                connections += 1
+    
+        return connections
+
+    def expand_fraying_neighbors(self, parents, mfree = 6):
+        """Eyoo -- test me!"""
+        seq = self.transcript
+        fc = self._fold_compound
+        md = self._model_details
+
+        # This dictionary is a cache for feature expansion:
+        #   ext_moves[ext_seq] = [structure, set((con, paren), ...)]
+        # where ext_seq = exterior-loop sequence with ((xxx)) constraints
+        ext_moves = dict()
+
+        # Keep track of all new nodes to connect them with each other.
+        new_nodes = dict() 
+
+        def ext_move_speedup(ext_seq):
+            """ Connect the neighbor with *historic* transitions of parents.
+
+            We store the exterior-open neighbor here, that means there are three
+            possible reasons for duplication:
+              1) different (or longer) helix was opened / same historic features
+              2) the same helix was opened / difference is in historic features
+              3) different helix / different history
+            """
+            for (parent, child) in ext_moves[ext_seq][1]:
+                assert parent != ni  # Parents may never be the same
+                if child == nbr:
+                    # the parents differ in fraying helices, 
+                    # no historic differences
+                    continue
+
+                if not self.has_active_edge(parent, ni):
+                    # no need to worry about it.
+                    continue
+
+                # Now the case with historic differences ...
+                assert self.has_node(child) and self.has_node(nbr)
+                assert self.node[child]['active'] and self.node[nbr]['active']
+
+                if self.has_active_edge(nbr, child):
+                    continue
+
+                # Calculate saddleE from saddleE of parents!
+                # The forward barrier parent -> saddle and reverse barrier ni -> saddle
+                # are added to the new structures child -> sp and nbr -> sp
+                sp = self.get_saddle(parent, ni)
+                fwbar = sp - self.node[parent]['energy'] 
+                bwbar = sp - self.node[ni]['energy'] 
+                fwsp = round(self.node[child]['energy'] + fwbar, 2)
+                bwsp = round(self.node[nbr]['energy'] + bwbar, 2)
+
+                if fwsp == bwsp:  # avoid findpath!
+                    self.add_weighted_edges_from([(child, nbr, None)])
+                    self.add_weighted_edges_from([(nbr, child, None)])
+                    self[child][nbr]['saddle'] = fwsp
+                    self[nbr][child]['saddle'] = bwsp
+                    if self.add_transition_edge(nbr, child):
+                        pass
+                    else:
+                        raise TrafoAlgoError('Did not add historic edge!')
+            return
+
+        for ni in parents:
+            new_nodes[ni] = []
+
+            # short secondary structure (without its future)
+            sss = ni[0:len(seq)]
+
+            # compute a set of all helix fraying open steps
+            opened = open_fraying_helices(seq, sss, mfree)
+
+            # Do a constrained exterior loop folding for all fraying structures
+            # and connect them to the parent conformation.
+            connected = set([ni]) # add the parent
+            for onbr in opened:
+                nbr, ext_seq = fold_exterior_loop(md, seq, onbr, ext_moves)
+
+                future = '.' * (len(ni) - len(nbr))
+                nbr += future
+
+                # Not a new structure
+                if nbr in connected: 
+                    continue
+                connected.add(nbr)
+
+                # Add fraying helix transitions 
+                if self.has_active_edge(ni, nbr):
+                    # NOTE: this may activate a previously coarse-grained node ...
+                    # That's not pretty, but at least it is not wrong.
+                    self.node[nbr]['active'] = True
+                    self.node[nbr]['last_seen'] = 0
+                elif self.has_node(nbr):
+                    if self.add_transition_edge(ni, nbr, call = 'fraying1'):
+                        self.node[nbr]['active'] = True
+                        self.node[nbr]['last_seen'] = 0
+                elif self.add_transition_edge(ni, nbr, call = 'fraying1'):
+                    enbr = round(fc.eval_structure(nbr), 2)
+                    self.node[nbr]['energy'] = enbr
+                    self.node[nbr]['active'] = True
+                    self.node[nbr]['last_seen'] = 0
+                    self.node[nbr]['occupancy'] = 0.0
+                    self.node[nbr]['identity'] = self._nodeid
+                    self._nodeid += 1
+
+                if self.has_node(nbr) and self.node[nbr]['active']:
+                    new_nodes[ni].append(nbr)
+                    # This is a shortcut to pre-calculate an edge from the next step:
+                    # Every identical ext-change will be connected, if the parents
+                    # were connected.
+                    if ext_moves[ext_seq][1]:
+                        ext_move_speedup(ext_seq)
+                    ext_moves[ext_seq][1].add((ni, nbr))
+
+        return new_nodes
 
     def coarse_grain(self, dG_min = None):
         """Landscape coarse-graining base on energy barriers.
@@ -1202,13 +1248,13 @@ def fold_exterior_loop(md, seq, con, ext_moves, spacer = 'NNN'):
     # If we have seen this exterior loop before, then we don't need to
     # calculate again, and we have to trace back if the parents are connected.
     if ext_seq in ext_moves:
-        css = ext_moves[ext_seq][1]
+        css = ext_moves[ext_seq][0]
     else:
         fc_tmp = RNA.fold_compound(ext_seq, md)
         fc_tmp.constraints_add(
             ext_con, RNA.CONSTRAINT_DB_DEFAULT | RNA.CONSTRAINT_DB_ENFORCE_BP)
         css, cfe = fc_tmp.mfe()
-        ext_moves[ext_seq] = [set(), css]
+        ext_moves[ext_seq] = [css, set()]
         del fc_tmp
 
     # replace characters in constraint

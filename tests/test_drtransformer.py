@@ -1,16 +1,17 @@
 #!/usr/bin/env python
-from __future__ import print_function, division
-
 import os
 import math
-import shutil
+
 import unittest
+
+import shutil
 import tempfile
 
 import RNA
 from ribolands.syswraps import sys_treekin
 import ribolands.trafo as trafo
 import ribolands.utils as ru
+from ribolands.parser import parse_barriers
 
 skip = False
 
@@ -61,8 +62,96 @@ class Test_TrafoLand(unittest.TestCase):
         self.assertEqual(TL.get_rate(s1, s2), 0.9999)
         self.assertEqual(TL.get_fp_bounds(s1, s2), (20, 13))
 
+    def test_TL_fraying_helices(self):
+        seq = "CCCCGGAAGGAAUGGGUAGUGACAGCAGCUUAGGUCGCUGCAUCAUCCCC"
+        sss = """
+        .............(((...((...(((((.......)))))..))..)))
+        ....(((.....(((((((((((..........)))))))).))))))..
+        ........((.((((((((((((..........)))))))).))))))..
+        ........((.((((((((((((..(......))))))))).)))).)).
+        ........((.(((.((((((((..........))))))))..))).)).
+        ........(((.(((((((((((..........)))))))).))))))..
+        ........(((.(((((((((((((...))...)))))))).))))))..
+        .....(..(((....((((((((..(......)))))))))....))).)
+        ........(((.((.((((((((((...))...))))))))..)))))..
+        ..((....))...(((..((((..(((((.......))))).))))))).
+        ..((....))...((((.(((.((((.((....)).))))))).))))..
+        ..((....))...(((..((((((((.((....)).))))..))))))).
+        ........((...((((.(((.((((.((....)).))))))).))))))
+        ((......))...((((.(((.((((.((....)).))))))).).))).
+        """.split()
+
+        TL = self._init_TL(seq, sss, add_edges = True)
+        mss, mfe = TL._fold_compound.backtrack(len(seq))
+        num = TL.expand_connect_mfe(sss, mss, ddG = float('inf'))
+        self.assertEqual(num, 3)
+        nn = TL.expand_fraying_neighbors(sss)
+        self.assertEqual(len(nn), len(sss))
+
+        self.assertEqual(len(nn['((......))...((((.(((.((((.((....)).))))))).).))).']), 3)
+        self.assertListEqual(sorted(nn['((......))...((((.(((.((((.((....)).))))))).).))).']), 
+            sorted(['..((....))...((((.(((.((((.((....)).))))))).).))).', 
+                    '..((....))...((((.(((.((((.((....)).))))))).))))..', 
+                    '((......))...((((.(((.((((.((....)).))))))).))))..']))
+
+        self.assertTrue(TL.has_active_edge('........((.((((((((((((..........)))))))).)))).)).', '........((.((((((((((((((...))...)))))))).)))).)).'))
+        self.assertTrue(TL.has_active_edge('........((.((((((((((((((...))...)))))))).)))).)).', '........((.(((.((((((((((...))...))))))))..))).)).'))
+        self.assertTrue(TL.has_active_edge('........((.((((((((((((..........)))))))).)))).)).', '........((.(((.((((((((((...))...))))))))..))).)).'))
+
+
+    def test_TL_connect_mfe(self):
+        rbar = """# A random barriers example:
+             CCCCGGAAGGAAUGGGUAGUGACAGCAGCUUAGGUCGCUGCAUCAUCCCC
+           1 ........((.((((((((((((..........)))))))).)))).)). -15.10    0  15.00
+           2 ..((....))...((((.(((.((((.((....)).))))))).)))).. -15.00    1  13.50
+           3 ..((....))...(((..((((..(((((.......))))).))))))). -14.90    2  11.90
+           4 ........(((.(((((((((((..........)))))))).)))))).. -14.90    1   3.30
+           5 ..((....))...(((..((((..(((((.......))))).)))).))) -14.40    3   5.60
+           6 ..((....))...(((..(((.((((.((....)).)))))))...))). -14.30    2   6.20
+           7 ..((....)).((((((((((((..........)))))))).)))).... -13.70    1   3.30
+           8 .((.....))...((((.(((.((((.((....)).))))))).)))).. -13.60    2   3.30
+           9 .((((.......))))..((((..(((((.......))))).)))).... -13.50    3   7.20
+          10 .((.....))...(((..((((..(((((.......))))).))))))). -13.50    3   3.30
+          11 ..((....))...(((..((((((((.((....)).))))..))))))). -13.50    6   4.20
+          12 .((.....))...(((..((((..(((((.......))))).)))).))) -13.00    5   3.30
+          13 ..((....))...(((..((((((((.((....)).))))..)))).))) -13.00    2   5.60
+          14 .((.....))...(((..(((.((((.((....)).)))))))...))). -12.90    6   3.30
+        """
+
+        lm = parse_barriers(rbar, is_file = False)
+
+        seq = lm[0][1]
+        assert lm[1][1][0] == 'structure'
+        mss = lm[1][1][1]
+        assert lm[1][2][0] == 'energy'
+        mfe = float(lm[1][2][1])
+
+        sss = []
+        for l in lm[2:]:
+            assert l[1][0] == 'structure'
+            sss.append(l[1][1])
+
+        TL = self._init_TL(seq, sss)
+
+        num = TL.expand_connect_mfe(sss, mss, ddG = 3.30)
+        self.assertEqual(num, 2)
+        self.assertFalse(TL.has_edge(lm[1][1][1], lm[1][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[2][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[3][1][1]))
+        self.assertTrue(TL.has_active_edge(lm[1][1][1], lm[4][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[5][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[6][1][1]))
+        self.assertTrue(TL.has_active_edge(lm[1][1][1], lm[7][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[8][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[9][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[10][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[11][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[12][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[13][1][1]))
+        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[14][1][1]))
+
+
     def test_minitrafo(self, verbose = False):
-        # remove the dont_ for testing, but beware it writes files ...
         fullseq = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCA"
         TL = trafo.TrafoLandscape(fullseq, RNA.md())
         fname = self.tmpdir + '/' + 'minitrafo'
@@ -181,7 +270,7 @@ class Test_TrafoLand(unittest.TestCase):
         if verbose:
             TL.get_simulation_files_tkn(self.tmpdir+'/ecp3')
 
-    def _init_TL(self, seq, sss):
+    def _init_TL(self, seq, sss, add_edges = True):
         fullseq = seq
         vrna_md = RNA.md()
 
@@ -200,7 +289,8 @@ class Test_TrafoLand(unittest.TestCase):
                     CG.add_node(s2, energy=en, occupancy=1.0 / len(sss),
                                 identity=CG._nodeid, active=True, last_seen=0)
                     CG._nodeid += 1
-                assert CG.add_transition_edge(s1, s2)
+                if add_edges:
+                    assert CG.add_transition_edge(s1, s2)
 
         return CG
 
@@ -429,8 +519,8 @@ class Test_HelperFunctions(unittest.TestCase):
         self.assertEqual(
             nbr, '.....(((((......)).)))((((((((....))))....))))..')
         self.assertEqual(ext, 'CUCGUCGNNNCGGGNNNCCGC')
-        self.assertEqual(ext_moves[ext][1], '.....((...))((...))..')
-        self.assertEqual(ext_moves[ext][0], set())
+        self.assertEqual(ext_moves[ext][0], '.....((...))((...))..')
+        self.assertEqual(ext_moves[ext][1], set())
 
     def test_open_fraying_helices(self):
         se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
