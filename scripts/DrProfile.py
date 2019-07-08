@@ -22,10 +22,6 @@ def main(args):
             'dG_min', 'dG_max'],
         comment='#', delim_whitespace=True, float_precision='2')
 
-    mi = None
-    ma = None
-
-
     #fig = plt.figure(figsize(10,5))
     #ax = fig.add_subplot(2, 2, 2)
     #fig.get_axes().set_xlim(20, 30)
@@ -63,6 +59,9 @@ def main(args):
     if args.dG_min:
         disp.append('dG_min')
 
+    mi = args.start
+    ma = args.stop
+
     if mi is not None and ma is not None:
         df.iloc[mi:ma, :].plot(x='length', y=disp, subplots=True)
     else:
@@ -91,6 +90,12 @@ if __name__ == '__main__':
 
     parser.add_argument('--files', default=None, nargs='+', metavar='<str>',
             help="Input files.")
+
+    parser.add_argument('--start', type = int, default = None, metavar = '<int>',
+            help = "Start at nucleotide ...")
+
+    parser.add_argument('--stop', type = int, default = None, metavar = '<int>',
+            help = "Stop at nucleotide ...")
 
     parser.add_argument('--name', action='store', help="Graph output name.")
 
