@@ -247,7 +247,7 @@ def add_drtrafo_args(parser):
     # DrTransformer algorithm #
     ###########################
     algo.add_argument("--track-basins", type = float, default = None, metavar = '<flt>',
-            help = """TODO.""")
+            help = argparse.SUPPRESS)
 
     algo.add_argument("--min-occupancy", type = float, default = 0.1, metavar = '<flt>',
             help = """Occupancy threshold to determine which structures are
@@ -262,7 +262,8 @@ def add_drtrafo_args(parser):
             translates to an energy barrier separating conforations using:
             dG = -RT*ln(1/t_fast/k0).""")
 
-    algo.add_argument("--force", action = "store_true", help = argparse.SUPPRESS)
+    algo.add_argument("--force", action = "store_true", 
+            help = argparse.SUPPRESS)
 
     algo.add_argument("--t-slow", type = float, default = None, metavar = '<flt>',
             help = """Only accept new structures as neighboring conformations if
@@ -479,7 +480,7 @@ def main(args):
         fdata = "id time conc struct energy\n"
         write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
     if args.stdout == 'shape' or sfh:
-        sdata = "Reactivity,{}\n".format(",".join(map(str,range(args.start,args.stop+1))))
+        sdata = "length,{}\n".format(",".join(map(str,range(args.start,args.stop+1))))
         write_output(sdata, stdout=(args.stdout == 'shape'), fh = sfh)
 
     # initialize a directed conformation graph
