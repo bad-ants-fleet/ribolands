@@ -125,6 +125,27 @@ def plot_simulation(trajectories,
 
     return
 
+def parse_model_details(parser):
+    """ ViennaRNA Model Details Argument Parser.  """
+    model = parser.add_argument_group('ViennaRNA model details')
+
+    model.add_argument("-T", "--temp", type = float, default = 37.0, metavar = '<flt>',
+        help = 'Rescale energy parameters to a temperature of temp C.')
+
+    model.add_argument("-4", "--noTetra", action = "store_true",
+        help = 'Do not include special tabulated stabilizing energies for tri-, tetra- and hexaloop hairpins.')
+
+    model.add_argument("-d", "--dangles", type = int, default = 2, metavar = '<int>',
+        help = 'How to treat "dangling end" energies for bases adjacent to helices in free ends and multi-loops.')
+
+    model.add_argument("--noGU", action = "store_true",
+        help = 'Do not allow GU/GT pairs.')
+
+    model.add_argument("--noClosingGU", action = "store_true",
+        help = 'Do not allow GU/GT pairs at the end of helices.')
+
+    model.add_argument("-P", "--paramFile", action = "store", default = None, metavar = '<str>',
+        help = 'Read energy parameters from paramfile, instead of using the default parameter set.')
 
 def add_drtrafo_args(parser):
     """ A collection of arguments that are used by DrTransformer """
@@ -236,8 +257,6 @@ def add_drtrafo_args(parser):
             [seconds per nucleotide].""")
     trans.add_argument("--t-end", type = float, default = 60, metavar = '<flt>',
             help = "Post-transcriptional simulation time [seconds].")
-    trans.add_argument("-T", "--temperature", type = float, default = 37.0, metavar = '<flt>', 
-            help = "The temperature for ViennaRNA computations.")
     trans.add_argument("--start", type = int, default = 1, metavar = '<int>',
             help = "Start transcription at this nucleotide.")
     trans.add_argument("--stop", type = int, default = None, metavar = '<int>',
@@ -358,8 +377,8 @@ def main(args):
 
     # Adjust simulation parameters
     _RT = 0.61632077549999997
-    if args.temperature != 37.0:
-        kelvin = 273.15 + args.temperature
+    if args.temp != 37.0:
+        kelvin = 273.15 + args.temp
         _RT = (_RT / 310.15) * kelvin
 
     if args.stop is None:
@@ -434,16 +453,18 @@ def main(args):
     # Start with DrTransformer #
     ############################
 
-    #RNA.read_parameter_file('xyz.par')
+    if args.paramFile:
+        RNA.read_parameter_file(args.paramFile)
+
     # Set model details.
     vrna_md = RNA.md()
     vrna_md.noLP = 1
-    vrna_md.temperature = args.temperature
-    vrna_md.dangles = 2
+    vrna_md.temperature = args.temp
+    vrna_md.dangles = args.dangles
     vrna_md.logML = 0
-    vrna_md.special_hp = 1
-    vrna_md.noGU = 0
-    vrna_md.noGUclosure = 0
+    vrna_md.special_hp = not args.noTetra
+    vrna_md.noGU = args.noGU
+    vrna_md.noGUclosure = args.noClosingGU
     #vrna_md.gquad = 0 G-Quads cannot be turned on.
 
     if args.pyplot:
@@ -458,7 +479,6 @@ def main(args):
         fdata += "# Co-transcriptional folding paramters:\n"
         fdata += "# --t-ext: {} sec\n".format(args.t_ext)
         fdata += "# --t-end: {} sec\n".format(args.t_end)
-        fdata += "# --temperature: {} C\n".format(args.temperature)
         fdata += "# --start: {}\n".format(args.start)
         fdata += "# --stop: {}\n".format(args.stop)
         fdata += "#\n"
@@ -469,6 +489,14 @@ def main(args):
         fdata += "# --findpath-search-width: {}\n".format(args.findpath_search_width)
         fdata += "# --min-fraying: {} nuc\n".format(args.min_fraying)
         fdata += "# --k0: {}\n".format(args.k0)
+        fdata += "#\n"
+        fdata += "# ViennaRNA model details:\n"
+        fdata += "# --temp: {} C\n".format(args.temp)
+        fdata += "# --dangles: {}\n".format(args.dangles)
+        fdata += "# --paramFile: {}\n".format(args.paramFile)
+        fdata += "# --noTetra: {}\n".format(args.noTetra)
+        fdata += "# --noGU: {}\n".format(args.noGU)
+        fdata += "# --noClosingGU: {}\n".format(args.noClosingGU)
         fdata += "#\n"
         fdata += "#\n"
         fdata += "# Results:\n"
@@ -730,6 +758,7 @@ if __name__ == '__main__':
         description = 'echo sequence | %(prog)s [options]')
 
     add_drtrafo_args(parser)
+    parse_model_details(parser)
 
     args = parser.parse_args()
 
