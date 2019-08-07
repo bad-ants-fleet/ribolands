@@ -56,17 +56,17 @@ def plot_xmgrace(trajectories, filename):
 
 
 def plot_simulation(trajectories, 
-        steps, 
-        t_ext, 
-        t_end,
+        tprofile,
         fpath,
         formats = ['pdf'],
         title = ''):
     """
     """
 
+    t_end = tprofile[-1]
+
     # Get the relevant arguments from args
-    lin_time = steps * float(t_ext)
+    lin_time = sum(tprofile[:-1])
     log_time = lin_time + t_end if (lin_time + t_end) >= lin_time * 10 else lin_time * 10
 
     # Do the plotting
@@ -104,8 +104,8 @@ def plot_simulation(trajectories,
     fig.set_size_inches(7, 3)
     fig.text(0.5, 0.95, title, ha='center', va='center')
 
-    #for tlen in range(1, args.stop-args.start, 10) :
-    #  ax.axvline(x = tlen*t_ext, linewidth = 0.01, color = 'black', linestyle = '--')
+    #for tlen in range(len(tprofile)-1):
+    #    ax.axvline(x = sum(tprofile[:tlen]), linewidth = 0.01, color = 'black', linestyle = '--')
 
     # Add ticks for 1 minute, 1 hour, 1 day, 1 year
     axLog.axvline(x = lin_time, linewidth = 5, color = 'black', linestyle = '-')
@@ -257,6 +257,10 @@ def add_drtrafo_args(parser):
             [seconds per nucleotide].""")
     trans.add_argument("--t-end", type = float, default = 60, metavar = '<flt>',
             help = "Post-transcriptional simulation time [seconds].")
+    trans.add_argument("--pause-sites", nargs='+', metavar='<int>=<flt>',
+            help="""Transcriptional pausing sites.  E.g. \"--pause-sites 82=2e3
+            84=33\" alters the simulation time at nucleotides 82 and 84 to 2000
+            and 33 seconds, respectively. """)
     trans.add_argument("--start", type = int, default = 1, metavar = '<int>',
             help = "Start transcription at this nucleotide.")
     trans.add_argument("--stop", type = int, default = None, metavar = '<int>',
@@ -522,6 +526,14 @@ def main(args):
 
     CG._transcript_length = args.start-1
 
+
+    tprofile = []
+    psites = dict()
+    if args.pause_sites:
+        for term in args.pause_sites:
+            site, pause = term.split('=')
+            psites[int(site)]=float(pause)
+
     if args.verbose:
         atime = datetime.now()
 
@@ -546,7 +558,14 @@ def main(args):
         ############
         _fname = _tmpdir + '/' + name + '-' + str(tlen)
         _t0 = args.t0  # if args.t0 > 0 else 1e-6
-        _t8 = args.t_end if tlen == args.stop - 1 else args.t_ext
+
+        if tlen == args.stop - 1 :
+            _t8 = args.t_end 
+        else: 
+            _t8 = psites[tlen] if tlen in psites else args.t_ext
+        tprofile.append(_t8)
+
+        #_t8 = args.t_end if tlen == args.stop - 1 else args.t_ext
         (t_lin, t_log) = (None, args.t_log) if tlen == args.stop - \
             1 else (args.t_lin, None)
 
@@ -742,9 +761,7 @@ def main(args):
 
     if args.pyplot:
         plot_simulation(all_courses, 
-                steps = args.stop - args.start,
-                t_ext = args.t_ext,
-                t_end = args.t_end,
+                tprofile = tprofile,
                 fpath = filepath,
                 formats = args.pyplot,
                 title = args.name)
