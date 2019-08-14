@@ -124,7 +124,7 @@ class Test_complete_pipeline(unittest.TestCase):
         with self.assertRaises(rsys.SubprocessError):
             tfile, efile = rsys.sys_treekin(name, seq, bfile, rfile)
 
-    @pytest.mark.skipif(rsys.which(barriers) is None or sys.which(barriers) is None,
+    @pytest.mark.skipif(rsys.which(barriers) is None or rsys.which(barriers) is None,
             reason="cannot find {} or {} executable".format(barriers, treekin))
     def test_full_workflow(self):
         name = 'full_workflow_1'
