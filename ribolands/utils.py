@@ -204,14 +204,14 @@ def make_pair_table(ss, base=0, chars=['.']):
     return pt
 
 
-def parse_vienna_stdin(stdin, chars=['A', 'C', 'U', 'G', '&']):
+def parse_vienna_stdin(stdin, chars = 'ACUG&', skip = '-'):
     """Parse name and sequence information from file with fasta format.
 
     Only one Input-Sequence is allowed at a time.
 
     Args:
       stdin (list): Input to parse, ususally :obj:`sys.stdin`
-      chars (list, optional): Allowed characters in a sequence.
+      chars (string, optional): Allowed characters in a sequence.
 
     Returns:
       [(str, str)]: A tuple containing name and sequence.
@@ -228,7 +228,12 @@ def parse_vienna_stdin(stdin, chars=['A', 'C', 'U', 'G', '&']):
         else:
             seq += line.strip()
 
-    m = re.search('[^' + ''.join(chars) + ']', seq)
+    try: # Python 3
+        seq = seq.translate({ord(c): None for c in skip})
+    except TypeError: # Python 2
+        seq = seq.translate(None, skip)
+
+    m = re.search('[^' + chars + ']', seq)
     if m:
         raise ValueError("Does not look like RNA: ('{}' in '{}')".format(
             m.string[m.span()[0]], seq))

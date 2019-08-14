@@ -22,7 +22,6 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from datetime import datetime
 import seaborn
-seaborn.set_style("darkgrid")
 
 import RNA
 import ribolands as ril
@@ -62,6 +61,7 @@ def plot_simulation(trajectories,
         title = ''):
     """
     """
+    seaborn.set_style("darkgrid")
 
     t_end = tprofile[-1]
 
@@ -72,17 +72,20 @@ def plot_simulation(trajectories,
     # Do the plotting
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
+    ax.spines['right'].set_visible(False)
     ax.set_ylim([-0.05, 1.05])
     ax.set_xscale('linear')
 
     # Make the second part of the plot logarithmic
-    ax.set_xlim((0, lin_time))
+    offset = 0.00001
+    ax.set_xlim((0, lin_time + offset))
     divider = make_axes_locatable(ax)
     axLog = divider.append_axes("right", size=2.5, pad=0, sharey=ax)
     axLog.set_xscale('log')
-    axLog.set_xlim((lin_time + 0.00001, log_time))
+    axLog.set_xlim((lin_time + offset, log_time))
     axLog.set_ylim([-0.05, 1.05])
     axLog.yaxis.set_visible(False)
+    axLog.spines['left'].set_visible(False)
 
     for e, course in enumerate(trajectories):
         if course == []:
@@ -108,14 +111,14 @@ def plot_simulation(trajectories,
     #    ax.axvline(x = sum(tprofile[:tlen]), linewidth = 0.01, color = 'black', linestyle = '--')
 
     # Add ticks for 1 minute, 1 hour, 1 day, 1 year
-    axLog.axvline(x = lin_time, linewidth = 5, color = 'black', linestyle = '-')
-    axLog.axvline(x = 60, linewidth = 1, color = 'black', linestyle = '--')
-    axLog.axvline(x = 3600, linewidth = 1, color = 'black', linestyle = '--')
-    axLog.axvline(x = 86400, linewidth = 1, color = 'black', linestyle = '--')
-    axLog.axvline(x = 31536000, linewidth = 1, color = 'black', linestyle = '--')
+    axLog.axvline(x = lin_time, linewidth = 3, color = 'black', linestyle = '-') 
+    axLog.axvline(x = 60, linewidth = 1, color = 'black', linestyle = '--') # 1 minute
+    axLog.axvline(x = 3600, linewidth = 1, color = 'black', linestyle = '--') # 1 hour
+    axLog.axvline(x = 86400, linewidth = 1, color = 'black', linestyle = '--') # 1 day
+    axLog.axvline(x = 31536000, linewidth = 1, color = 'black', linestyle = '--') # 1 year
     plt.legend()
 
-    ax.set_ylabel('occupancy [mol/l]', fontsize = 11)
+    ax.set_ylabel('occupancy', fontsize = 11)
     ax.set_xlabel('time [s]', ha = 'center', va = 'center', fontsize = 11)
     ax.xaxis.set_label_coords(.9, -0.15)
 
@@ -334,7 +337,7 @@ def write_output(data, stdout = False, fh = None):
 
 def main(args):
     """ DrTransformer - cotranscriptional folding """
-    (name, fullseq) = ril.parse_vienna_stdin(sys.stdin, chars=list('ACGUN'))
+    (name, fullseq) = ril.parse_vienna_stdin(sys.stdin, chars='ACGUNacgun')
 
     # Argument deprecation Warnings
     if args.tinc:
@@ -664,13 +667,30 @@ def main(args):
             time_inc, iterations = CG.update_occupancies_tkn(tfile, nlist)
 
             if args.pyplot or dfh or args.stdout == 'drf':
+                # Avoid printing the initial time point of sequence elongation,
+                # it seems confusing and redundant.
+                fdata, itime = None, None
                 for rdata in CG.sorted_trajectories_iter(nlist, tfile, softmap):
                     [id_, tt_, oc_, ss_, en_] = rdata
-                    if args.pyplot:
-                        all_courses[id_].append((tt_, oc_))
+
+                    if fdata is None:
+                        if itime is None or itime == tt_:
+                            itime = tt_
+                            continue
 
                     fdata = "{:d} {:03.9f} {:03.3f} {:s} {:6.2f}\n".format(*rdata)
+
+                    # NOTE: It seems reasonable to activate the following line
+                    # to reduce the plot size. However, it doesn't help much
+                    # and it might introduce a visualization bug for some weird
+                    # examples, so let's leave it for now:
+                    #if oc_ < 0.001: continue
+
+                    if args.pyplot:
+                        all_courses[id_].append((tt_, oc_))
                     write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
+
+
 
             CG.total_time += time_inc
 
