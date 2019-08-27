@@ -9,7 +9,6 @@ import os
 import gzip
 import filecmp
 import unittest
-import pytest
 import ribolands.syswraps as rsys
 from scipy import constants
 
@@ -94,7 +93,7 @@ class Test_complete_pipeline(unittest.TestCase):
                 self.assertEqual(s, r)
 
 
-    @pytest.mark.skipif(rsys.which(barriers) is None, reason="cannot find {} executable".format(barriers))
+    @unittest.skipIf(rsys.which(barriers) is None, reason="cannot find {} executable".format(barriers))
     def test_sys_barriers(self):
         seq = 'UAACUCACAAUGGUUGCAAA'
         name = self.testname
@@ -113,7 +112,7 @@ class Test_complete_pipeline(unittest.TestCase):
         self.assertFileWeakEqual(rfile, ref_rfile)
         #self.assertFileWeakEqual(psfile, ref_psfile)
 
-    @pytest.mark.skipif(rsys.which(treekin) is None, reason="cannot find {} executable".format(treekin))
+    @unittest.skipIf(rsys.which(treekin) is None, reason="cannot find {} executable".format(treekin))
     def test_sys_treekin(self):
         seq = 'UAACUCACAAUGGUUGCAAA'
         name = self.testname
@@ -124,7 +123,7 @@ class Test_complete_pipeline(unittest.TestCase):
         with self.assertRaises(rsys.SubprocessError):
             tfile, efile = rsys.sys_treekin(name, seq, bfile, rfile)
 
-    @pytest.mark.skipif(rsys.which(barriers) is None or rsys.which(barriers) is None,
+    @unittest.skipIf(rsys.which(barriers) is None or rsys.which(barriers) is None,
             reason="cannot find {} or {} executable".format(barriers, treekin))
     def test_full_workflow(self):
         name = 'full_workflow_1'
