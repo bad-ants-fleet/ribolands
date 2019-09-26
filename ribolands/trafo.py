@@ -967,7 +967,7 @@ class TrafoLandscape(nx.DiGraph):
 
         return time, iterations
 
-    def prune(self, p_min, detailed = True, keep_reachables = True):
+    def prune(self, p_min, detailed = True, keep_reachables = False):
         """ Delete nodes or report them as still reachable.
 
         Use the occupancy cutoff to choose which nodes to keep and which ones to
