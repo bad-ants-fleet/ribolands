@@ -34,7 +34,7 @@ setup(
     name='ribolands',
     description='nucleic acid energy landscapes and kinetic folding',
     long_description=LONG_DESCRIPTION,
-    version='0.7',
+    version='0.8',
     license='MIT',
     author='Stefan Badelt',
     author_email='stef@tbi.univie.ac.at',
