@@ -29,6 +29,12 @@ from ribolands.syswraps import SubprocessError, ExecError, check_version, Versio
 from ribolands.crnwrapper import DiGraphSimulator
 from ribolands.trafo import TrafoLandscape
 
+def restricted_float(x):
+    x = float(x)
+    if x < 0.0 or x > 1.0:
+        raise argparse.ArgumentTypeError("%r not in range [0.0, 1.0]"%(x,))
+    return x
+
 def plot_xmgrace(trajectories, filename):
     head = """
 @with line
@@ -275,11 +281,15 @@ def add_drtrafo_args(parser):
     algo.add_argument("--track-basins", type = float, default = None, metavar = '<flt>',
             help = argparse.SUPPRESS)
 
-    algo.add_argument("--min-occupancy", type = float, default = 0.1, metavar = '<flt>',
+    algo.add_argument("--o-min", type = restricted_float, default = 0.1, metavar = '<flt>',
             help = """Occupancy threshold to determine which structures are
             relevant when transcribing a new nucleotide. A structure with
-            occupancy o <=  1 / (min-occupancy * population_size) gets pruned 
-            from the energy landscape. """)
+            occupancy o <  o-min / n gets pruned from the energy landscape, 
+            where n is the number of simulated structures.
+            """)
+
+    algo.add_argument("--min-occupancy", type = restricted_float, default = None, metavar = '<flt>',
+            help = argparse.SUPPRESS)
 
     algo.add_argument("--t-fast", type = float, default = 5e-6, metavar = '<flt>',
             help = """Folding times faster than --t-fast are considered
@@ -348,6 +358,9 @@ def main(args):
         print('DEPRECATION WARNING: Argument --soft-minh is deprecated, please use --plot-minh.')
         args.plot_minh = args.soft_minh
 
+    if args.min_occupancy:
+        print('DEPRECATION WARNING: Argument --min-occupancy is deprecated, please use --o-min.')
+        args.o_min = args.min_occupancy
 
     # Adjust arguments, prepare simulation
     if args.name == '':
@@ -490,7 +503,7 @@ def main(args):
         fdata += "# --stop: {}\n".format(args.stop)
         fdata += "#\n"
         fdata += "# Algorithm paramters:\n"
-        fdata += "# --min-occupancy: {}\n".format(args.min_occupancy)
+        fdata += "# --o-min: {}\n".format(args.o_min)
         fdata += "# --t-fast: {} sec\n".format(args.t_fast)
         fdata += "# --t-slow: {} sec\n".format(args.t_slow)
         fdata += "# --findpath-search-width: {}\n".format(args.findpath_search_width)
@@ -515,8 +528,8 @@ def main(args):
         fdata = "id time conc struct energy\n"
         write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
     if args.stdout == 'shape' or sfh:
-        sdata = "length,{}\n".format(",".join(map(str,range(args.start,args.stop+1))))
-        write_output(sdata, stdout=(args.stdout == 'shape'), fh = sfh)
+        fdata = "length,{}\n".format(",".join(map(str,range(args.start,args.stop+1))))
+        write_output(fdata, stdout=(args.stdout == 'shape'), fh = sfh)
 
     # initialize a directed conformation graph
     CG = TrafoLandscape(fullseq, vrna_md)
@@ -568,7 +581,6 @@ def main(args):
             _t8 = psites[tlen] if tlen in psites else args.t_ext
         tprofile.append(_t8)
 
-        #_t8 = args.t_end if tlen == args.stop - 1 else args.t_ext
         (t_lin, t_log) = (None, args.t_log) if tlen == args.stop - \
             1 else (args.t_lin, None)
 
@@ -581,6 +593,7 @@ def main(args):
             softmap = copyCG.coarse_grain(dG_min=args.plot_minh)
             del copyCG
 
+        # Print the current state *before* the simulation starts.
         if args.stdout == 'log' or lfh:
             for e, (ni, data) in enumerate(nlist, 1):
                 sm = '-> {}'.format([CG.node[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
@@ -592,8 +605,8 @@ def main(args):
             for (ni, data) in nlist:
                 for e, b in enumerate(ni[:tlen]):
                     if b == '.': profile[e] += data['occupancy']
-            sdata = '{},{}{}\n'.format(tlen, ','.join(map(str, profile)), ',NA' * (args.stop - args.start - tlen + 1))
-            write_output(sdata, stdout=(args.stdout == 'shape'), fh = sfh)
+            fdata = '{},{}{}\n'.format(tlen, ','.join(map(str, profile)), ',NA' * (args.stop - args.start - tlen + 1))
+            write_output(fdata, stdout=(args.stdout == 'shape'), fh = sfh)
 
         if args.verbose:
             itime = datetime.now()
@@ -601,11 +614,11 @@ def main(args):
         dn, sr, rj = 0, 0, 0
         if len(nlist) == 1:
             # Fake simulation results for DrForna
-            CG.total_time += _t8
             tfake += 1
+            CG.total_time += _t8
             if args.stdout == 'drf' or dfh:
                 ss = nlist[0][0]
-                fdata = "{:d} {:03.9f} {:03.3f} {:s} {:6.2f}\n".format(CG.node[ss]['identity'],
+                fdata = "{:d} {:03.9f} {:03.4f} {:s} {:6.2f}\n".format(CG.node[ss]['identity'],
                         CG.total_time, 1.0, ss[:len(CG.transcript)], CG.node[ss]['energy'])
                 write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
 
@@ -678,7 +691,8 @@ def main(args):
                             itime = tt_
                             continue
 
-                    fdata = "{:d} {:03.9f} {:03.3f} {:s} {:6.2f}\n".format(*rdata)
+                    # id time conc struct energy
+                    fdata = "{:d} {:03.9f} {:03.4f} {:s} {:6.2f}\n".format(*rdata)
 
                     # NOTE: It seems reasonable to activate the following line
                     # to reduce the plot size. However, it doesn't help much
@@ -695,17 +709,18 @@ def main(args):
             CG.total_time += time_inc
 
             # Prune
-            assert args.min_occupancy is not None
-            # adjust minimum occupancy to size of current structure space:
-            pmin = args.min_occupancy / len(nlist)
-            dn, sr = CG.prune(pmin, detailed = True, keep_reachables = False)
+            if args.o_min > 0:
+                # adjust o-min to size of current structure space:
+                pmin = args.o_min / len(nlist)
+                dn, sr = CG.prune(pmin, detailed = True, keep_reachables = False)
+            else:
+                dn = sr = 0
 
             if args.track_basins:
                 # add or substract a 0.1 kcal/mol plot-minh for every structure
                 # too much or too little.
                 approach = (len(nlist)-dn - args.track_basins) / 10
                 CG._dG_min = max(dG_min, CG._dG_min + approach)
-                #CG._dG_min = min(CG._dG_min, 5) # set an upper bound ...
 
             if args.draw_graphs:
                 CG.to_json(_fname)
@@ -757,13 +772,14 @@ def main(args):
             fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                 tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
+
     if args.stdout == 'shape' or sfh:
         profile = [0] * (tlen+1)
         for (ni, data) in nlist:
             for e, b in enumerate(ni[:tlen]):
                 if b == '.': profile[e] += data['occupancy']
-        sdata = '{},{}{}\n'.format(tlen+1, ','.join(map(str, profile)), ',NA' * (args.stop - args.start - len(profile) + 1))
-        write_output(sdata, stdout=(args.stdout == 'shape'), fh = sfh)
+        fdata = '{},{}{}\n'.format(tlen+1, ','.join(map(str, profile)), ',NA' * (args.stop - args.start - len(profile) + 1))
+        write_output(fdata, stdout=(args.stdout == 'shape'), fh = sfh)
 
     # CLEANUP file handles
     if lfh: lfh.close()

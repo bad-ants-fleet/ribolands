@@ -510,31 +510,12 @@ class TrafoLandscape(nx.DiGraph):
             nlist = self.sorted_nodes()
             for ((ni, di), (nj, dj)) in combinations(nlist, 2):
                 _ = self.add_transition_edge(ni, nj, call='connect')
-                assert _
+                assert _ # assert statements may be disabled during program execution.
             return self._nodeid - csid
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-        # Fraying neighbors (2/2): connect all new neighbors to each other.    #
+        # Fraying neighbors (2/2): connect neighbors of neighboring parents.   #
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-        for ni in parents:
-            nbrs = [n for n in self.successors(ni) if self.node[n]['active'] and \
-                    self.has_active_edge(n, ni)]
-
-            # Connect all new fraying nbrs and the old parent neighbors to each other,
-            # but don't add the edge if there exists a known, better connection.
-            for n1, n2 in combinations(nbrs, 2):
-                if self.has_active_edge(n1, n2):
-                    continue
-                dd = get_bpd_cache(n1, n2)
-                d1 = get_bpd_cache(ni, n1)
-                d2 = get_bpd_cache(ni, n2)
-                if dd <= max(d1, d2):
-                    tsE1 = self.get_saddle(ni, n1)
-                    tsE2 = self.get_saddle(ni, n2)
-                    tsE = max(tsE1, tsE2)
-                    assert tsE != float('inf')
-                    _ = self.add_transition_edge(n1, n2, 
-                            fpathE = tsE + 1.00, call = 'fraying2')
 
         for p1, p2 in combinations(new_nodes.keys(), 2):
             if not self.has_active_edge(p1, p2): continue
@@ -552,6 +533,7 @@ class TrafoLandscape(nx.DiGraph):
                     assert tsE != float('inf')
                     _ = self.add_transition_edge(np1, np2, 
                             fpathE = tsE + 1.00, call = 'fraying2')
+
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Triangle connect:                                                    #
         # -----------------                                                    #
@@ -562,25 +544,23 @@ class TrafoLandscape(nx.DiGraph):
         update = True
         while (update):
             update = False
-            for parent in parents:
-                nbrs = [n for n in self.successors(parent) if self.node[n]['active'] and \
-                        self.has_active_edge(n, parent)]
+            for np in parents:
+                nbrs = [n for n in self.successors(np) if self.node[n]['active'] and \
+                        self.has_active_edge(n, np)]
 
                 for n1, n2 in combinations(nbrs, 2):
                     if self.has_active_edge(n1, n2):
                         continue
-
                     dd = get_bpd_cache(n1, n2)
-                    d1 = get_bpd_cache(parent, n1)
-                    d2 = get_bpd_cache(parent, n2)
-
+                    d1 = get_bpd_cache(np, n1)
+                    d2 = get_bpd_cache(np, n2)
                     if dd <= max(d1, d2):
-                        tsE1 = self.get_saddle(parent, n1)
-                        tsE2 = self.get_saddle(parent, n2)
+                        tsE1 = self.get_saddle(np, n1)
+                        tsE2 = self.get_saddle(np, n2)
                         tsE = max(tsE1, tsE2)
                         assert tsE != float('inf')
                         _ = self.add_transition_edge(n1, n2, 
-                                fpathE=tsE+1.00, call='connect')
+                                fpathE = tsE + 1.00, call = 'connect')
                         update = update or _
 
         clear_bpd_cache(self)
@@ -1026,6 +1006,7 @@ class TrafoLandscape(nx.DiGraph):
             best, been = nbrs[0], self.node[nbrs[0]]['energy']
 
             if keep_reachables and been - en > 0.0001:
+                raise DeprecationWarning('do not keep keep reachables!')
                 still_reachables += 1
                 continue
 
