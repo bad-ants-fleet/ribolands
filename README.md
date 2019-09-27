@@ -58,7 +58,7 @@ If you are using `BarMap` or `DrTransformer` please cite:
   - BarMap: RNA folding on dynamic energy landscapes [Hofacker et al. (2010)] 
  
 ## Version
-0.8
+0.8.1
 
 ## Build the documentation
   sphinx-build -b html docs ~/your/html/sourcedir/

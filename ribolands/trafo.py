@@ -414,7 +414,7 @@ class TrafoLandscape(nx.DiGraph):
             dG_1s = saddleE - e1
             dG_2s = saddleE - e2
 
-            # Metropolis Rule
+            # Arrhenius model
             k_12 = _k0 * math.exp(-dG_1s/_RT)
             k_21 = _k0 * math.exp(-dG_2s/_RT)
             self.add_weighted_edges_from([(s1, s2, k_12)])

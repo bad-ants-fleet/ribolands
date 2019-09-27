@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-__version__ = "0.8"
+__version__ = "0.8.1"
 
 _MIN_TREEKIN_VERSION = "0.4.2"
 _MIN_BARRIERS_VERSION = "1.7.0"
