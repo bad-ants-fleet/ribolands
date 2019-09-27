@@ -291,12 +291,15 @@ def add_drtrafo_args(parser):
     algo.add_argument("--min-occupancy", type = restricted_float, default = None, metavar = '<flt>',
             help = argparse.SUPPRESS)
 
-    algo.add_argument("--t-fast", type = float, default = 5e-6, metavar = '<flt>',
+    algo.add_argument("--t-fast", type = float, default = None, metavar = '<flt>',
             help = """Folding times faster than --t-fast are considered
             instantaneous.  Structural transitions that are faster than
             --t-fast are considerd part of the same macrostate. Directly
             translates to an energy barrier separating conforations using:
-            dG = -RT*ln(1/t-fast/k0).""")
+            dG = -RT*ln((1/t-fast)/k0). None: t-fast = 1/k_0 """)
+
+    algo.add_argument("--minh", type = float, default = None, metavar = '<flt>',
+            help = argparse.SUPPRESS)
 
     algo.add_argument("--force", action = "store_true", 
             help = argparse.SUPPRESS)
@@ -331,9 +334,9 @@ def add_drtrafo_args(parser):
             is considered to fray as well.""")
 
     algo.add_argument("--k0", type = float, default = 2e5, metavar = '<flt>',
-            help = """Arrhenius rate constant. Adjust the rate constant k0 of the
-            Arrhenius equation to relate free energy changes to experimentally
-            confirmed folding time in seconds.""")
+            help = """Arrhenius rate constant (pre-exponential factor). Adjust
+            this constant of the Arrhenius equation to relate free energy
+            changes to experimentally determined folding time [seconds].""")
     return
 
 
@@ -411,13 +414,13 @@ def main(args):
     # Adjust the simulation window for treekin:
     #
     #   k0
-    #   2e5  /s       50 nuc/s               1e-inf /s
-    #   4000 /t8      1  nuc/t8              1e-inf /t8
+    #   2e5  atu/s    50 nuc/s               1e-inf /s
+    #   4000 /ext     1  nuc/ext             1e-inf /ext
     #   |------$------|-------------------$----------->
     #          k-fast                     k-slow
     #          --minh                     --maxh
     #          |------|---------------|--->
-    #          t0     t8 0.02 s       tX = 86400 s
+    #          t0     t_ext 0.02 s    t_end = 86400 s
     #   <----->    simulation             <---------->
     #   instant                             rate = 0
     #
@@ -429,16 +432,22 @@ def main(args):
     # event (< k-slow) has to be much slower than
     # the rate of chain elongation (kx), it
     # should also be much slower than the
-    # post-transcriptional simulation time --tX
+    # post-transcriptional simulation time --t-end
     #
     # Parameters:
     # k0 = maximum folding rate /s
-    # t8 = time for chain elongation
-    # tX = post-transcriptional simulation time
+    # t-ext = time for chain elongation
+    # t-end = post-transcriptional simulation time
     # t0 = first simulation output time (<< t8)
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
-    # Compare --minh, --min-rate, --t8 and --tX :
+    if args.t_fast is None:
+        if args.minh :
+            args.t_fast = 1 / (args.k0 * math.exp(-args.minh/_RT))
+        else:
+            args.t_fast = 1 / args.k0
+
+    # Compare --t-fast, --t-slow, --t-ext and --t-end :
     if args.verbose:
         dG_min = -_RT * math.log(1 / args.t_fast / args.k0)
         print('# --t-fast: {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
