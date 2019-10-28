@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Written by Stefan Badelt (stef@tbi.univie.ac.at)
 #
@@ -17,7 +17,10 @@ RNAsubopt = 'RNAsubopt'
 barriers = 'barriers'
 treekin = 'treekin'
 
-class Test_complete_pipeline(unittest.TestCase):
+def missing(program):
+    return rsys.which(program) is None
+
+class Test_pipeline(unittest.TestCase):
 
     def setUp(self):
         self.testname = 'ribolands_testsuite'
@@ -84,7 +87,7 @@ class Test_complete_pipeline(unittest.TestCase):
         seq = 'UAACUCACAAUGGUUGCAAA'
         name = self.testname
         ref_name = 'tests/files/' + self.testname + '.spt.gz'
-        spt_name = rsys.sys_suboptimals(name, seq, ener=1.0)
+        spt_name = rsys.sys_suboptimals(name, seq, ener = 1.0)
 
         # If this breaks, pass the tearDown function to keep temporary files.
         with gzip.open(spt_name) as spt, gzip.open(ref_name) as ref:
@@ -92,8 +95,7 @@ class Test_complete_pipeline(unittest.TestCase):
                 s = spt.readline()
                 self.assertEqual(s, r)
 
-
-    @unittest.skipIf(rsys.which(barriers) is None, reason="cannot find {} executable".format(barriers))
+    @unittest.skipIf(missing(barriers), reason = f"Cannot find {barriers} executable!")
     def test_sys_barriers(self):
         seq = 'UAACUCACAAUGGUUGCAAA'
         name = self.testname
@@ -101,30 +103,26 @@ class Test_complete_pipeline(unittest.TestCase):
         ref_bfile = 'tests/files/' + self.testname + '.bar'
         ref_efile = 'tests/files/' + self.testname + '.err'
         ref_rfile = 'tests/files/' + self.testname + '.rts'
-        ref_psfile = 'tests/files/' + self.testname + '.ps'
 
-        [sfile, bfile, efile, rfile, psfile, msfile] = rsys.sys_barriers(
-            name, seq, sfile)
+        [bofile, befile, brfile, bbfile, bpfile, bmfile] = rsys.sys_barriers_180(name, sfile)
 
-        self.assertFileWeakEqual(bfile, ref_bfile)
-        #NOTE barriers 1.7 changes
-        #self.assertFileWeakEqual(efile, ref_efile)
-        self.assertFileWeakEqual(rfile, ref_rfile)
-        #self.assertFileWeakEqual(psfile, ref_psfile)
+        self.assertFileWeakEqual(bofile, ref_bfile)
+        self.assertFileWeakEqual(brfile, ref_rfile)
 
-    @unittest.skipIf(rsys.which(treekin) is None, reason="cannot find {} executable".format(treekin))
+    @unittest.skipIf(missing(treekin), reason = f"Cannot find {treekin} executable!")
     def test_sys_treekin(self):
         seq = 'UAACUCACAAUGGUUGCAAA'
         name = self.testname
-        bfile = 'tests/files/' + self.testname + '.bar'
-        rfile = 'tests/files/' + self.testname + '.rts'
+        bofile = 'tests/files/' + self.testname + '.bar'
+        brfile = 'tests/files/' + self.testname + '.rts'
         ref_tfile = 'tests/files/' + self.testname + '.tkn'
 
         with self.assertRaises(rsys.SubprocessError):
-            tfile, efile = rsys.sys_treekin(name, seq, bfile, rfile)
+            # Not ergodic!
+            tofile, tefile = rsys.sys_treekin_051(name, brfile, bofile = bofile)
 
-    @unittest.skipIf(rsys.which(barriers) is None or rsys.which(barriers) is None,
-            reason="cannot find {} or {} executable".format(barriers, treekin))
+    @unittest.skipIf(missing(treekin) or missing(barriers), 
+            reason = f"Cannot find {treekin} or {barriers} executable!")
     def test_full_workflow(self):
         name = 'full_workflow_1'
         seq = 'UAACUCACAAUGGUUGCAAA'
@@ -134,10 +132,9 @@ class Test_complete_pipeline(unittest.TestCase):
         for f in self._RiboTestFiles(name):
             self.files.add(f)
 
-        sfile = rsys.sys_suboptimals(name, seq, ener=5.0)
-        [sfile, bfile, efile, rfile, psfile, msfile] = rsys.sys_barriers(
-            name, seq, sfile, maxn=7)
-        tfile, efile = rsys.sys_treekin(name, seq, bfile, rfile, t0=0, ti=2, t8=1e10)
+        sfile = rsys.sys_suboptimals(name, seq, ener = 5.0)
+        [bofile, befile, brfile, bbfile, bpfile, bmfile] = rsys.sys_barriers_180(name, sfile, maxn = 7)
+        tofile, tefile = rsys.sys_treekin_051(name, bbfile, bofile = bofile, t0 = 0, ti = 2, t8 = 1e10)
 
         # NOTE so many treekin changes...
         #self.assertFileWeakEqual(tfile, ref_tfile)
@@ -147,14 +144,14 @@ class Test_complete_pipeline(unittest.TestCase):
             prefix + '.spt.gz',
             prefix + '.bar',
             prefix + '.err',
-            prefix + '.rts',
+            prefix + '_rates.txt',
+            prefix + '_rates.bin',
             prefix + '.ps',
             prefix + '.tkn']
 
         for fname in files:
             if os.path.exists(fname):
-                raise Exception(
-                    "attempting to overwrite temporary file", fname)
+                raise Exception(f"Attempting to overwrite temporary file: {fname}")
 
         return files
 

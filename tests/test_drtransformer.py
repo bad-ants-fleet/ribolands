@@ -9,7 +9,7 @@ import shutil
 import tempfile
 
 import RNA
-from ribolands.syswraps import sys_treekin
+from ribolands.syswraps import sys_treekin_051
 import ribolands.trafo as trafo
 import ribolands.utils as ru
 from ribolands.parser import parse_barriers
@@ -31,7 +31,7 @@ class Test_TrafoLand(unittest.TestCase):
 
     def tearDown(self):
         print("Removing temporary file directory: {}".format(self.tmpdir))
-        shutil.rmtree(self.tmpdir)
+        #shutil.rmtree(self.tmpdir)
 
     def test_edge_attributes(self):
         """testing:
@@ -39,7 +39,6 @@ class Test_TrafoLand(unittest.TestCase):
         TrafoLandscape.has_active_edge()
         TrafoLandscape.get_rate()
         TrafoLandscape.get_saddle()
-        TrafoLandscape.get_fp_bounds()
         """
         fullseq = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCA"
         TL = trafo.TrafoLandscape(fullseq, RNA.md())
@@ -48,20 +47,16 @@ class Test_TrafoLand(unittest.TestCase):
 
         TL.add_weighted_edges_from([(s1, s2, 0)])
         TL[s1][s2]['saddle'] = float('inf')
-        TL[s1][s2]['fp_bounds'] = (0, float('inf'))
 
         self.assertTrue(TL.has_edge(s1, s2))
         self.assertEqual(TL.get_saddle(s1, s2), float('inf'))
         self.assertEqual(TL.get_rate(s1, s2), 0)
-        self.assertEqual(TL.get_fp_bounds(s1, s2), (0, float('inf')))
 
         TL[s1][s2]['saddle'] = 9999
         TL[s1][s2]['weight'] = 0.9999
-        TL[s1][s2]['fp_bounds'] = (20, 13)
         self.assertTrue(TL.has_active_edge(s1, s2))
         self.assertEqual(TL.get_saddle(s1, s2), 9999)
         self.assertEqual(TL.get_rate(s1, s2), 0.9999)
-        self.assertEqual(TL.get_fp_bounds(s1, s2), (20, 13))
 
     def test_TL_fraying_helices(self):
         seq = "CCCCGGAAGGAAUGGGUAGUGACAGCAGCUUAGGUCGCUGCAUCAUCCCC"
@@ -85,7 +80,9 @@ class Test_TrafoLand(unittest.TestCase):
         TL = self._init_TL(seq, sss, add_edges = True)
         mss, mfe = TL._fold_compound.backtrack(len(seq))
         num = TL.expand_connect_mfe(sss, mss, ddG = float('inf'))
-        self.assertEqual(num, 3)
+        # Alright, this used to be 3, not 8. But since we use findpath caching, 
+        # 5 other connections are already known and get added.
+        self.assertEqual(num, 8)
         nn = TL.expand_fraying_neighbors(sss)
         self.assertEqual(len(nn), len(sss))
 
@@ -182,11 +179,12 @@ class Test_TrafoLand(unittest.TestCase):
                 TL.total_time += 0.2
             else:
                 bfile = None # sometimes bfile causes a segfault, ...
-                tfile, _ = sys_treekin(fname, seq, bfile, rfile, 
+                tfile, _ = sys_treekin_051(fname, rfile, 
+                        bofile = bfile,
                         binrates=True, treekin='treekin', 
                         p0=p0, t0=0, ti=1.5, t8=0.2, 
                         exponent=False, useplusI=False, 
-                        force=True, verb=False)
+                        force=True, verbose=False)
 
                 time_inc, iterations = TL.update_occupancies_tkn(tfile, nlist)
                 TL.total_time += time_inc
@@ -217,7 +215,7 @@ class Test_TrafoLand(unittest.TestCase):
             self.assertEqual(TL.node[ss]['occupancy'], occ)
             self.assertEqual(TL.node[ss]['active'], active)
 
-        TL.expand(extend=0)
+        TL.expand(extend=0, exp_mode='fullconnect')
         ess = [
             ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
             ["........................((((((........))))))......", 0.00, True],
@@ -246,6 +244,8 @@ class Test_TrafoLand(unittest.TestCase):
             [".....(((..(((.((((((.....))))))..))).....)))......", 0.25, True],
             [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
         for (ss, occ, active) in ess:
+            print(ss, occ, active)
+            print(TL.node[ss])
             self.assertTrue(TL.has_node(ss))
             self.assertEqual(TL.node[ss]['occupancy'], occ)
             self.assertEqual(TL.node[ss]['active'], active)
@@ -264,6 +264,7 @@ class Test_TrafoLand(unittest.TestCase):
             [".....(((..(((.((((((.....))))))..))).....)))......", 0.25, True],
             [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
         for (ss, occ, active) in ess:
+            print(ss, occ, active)
             self.assertTrue(TL.has_node(ss))
             self.assertEqual(TL.node[ss]['occupancy'], occ)
             self.assertEqual(TL.node[ss]['active'], active)
@@ -291,7 +292,7 @@ class Test_TrafoLand(unittest.TestCase):
                                 identity=CG._nodeid, active=True, last_seen=0)
                     CG._nodeid += 1
                 if add_edges:
-                    assert CG.add_transition_edge(s1, s2)
+                    assert CG.add_transition_edges(s1, s2)
 
         return CG
 
@@ -324,7 +325,7 @@ class Test_TrafoLand(unittest.TestCase):
           20 .......(((....((.....))(((((....))))))))  -9.30   16   1.30
         """
         bfile = 'tests/files/ex1.bar'
-        bar = ru.parse_barfile(bfile)
+        bar = parse_barriers(bfile, return_tuple = True)
 
         fullseq = "UGAAUGUGCCGCUAGACGACAUCCCGCCGGAUGGCGGGGC"
         vrna_md = RNA.md()
@@ -336,11 +337,17 @@ class Test_TrafoLand(unittest.TestCase):
 
         bmap = dict()
         inactive = set() 
-        for (id, ss, en, fa, ba) in bar:
+        for lmin in bar[1:]:
+            id = lmin.id
+            ss = lmin.structure
+            en = lmin.energy
+            fa = lmin.father
+            ba = lmin.barrier
+
             bmap[ss]=id
-            if int(fa):
-                ss2 = bar[int(fa)-1][1]
-                en2 = round(float(bar[int(fa)-1][2]),2)
+            if fa:
+                ss2 = bar[fa][1]
+                en2 = round(bar[fa].energy, 2)
             else :
                 continue
             
@@ -368,7 +375,13 @@ class Test_TrafoLand(unittest.TestCase):
             CG.node[ss]['occupancy'] = 0
             CG.node[ss2]['occupancy'] = 0
 
-        for (id, ss, en, fa, ba) in bar:
+        for lmin in bar[1:]:
+            id = lmin.id
+            ss = lmin.structure
+            en = lmin.energy
+            fa = lmin.father
+            ba = lmin.barrier
+
             if verbose:
                 print('a', id, ss, en, fa, ba, CG.node[ss]['active'])
             nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
@@ -383,7 +396,12 @@ class Test_TrafoLand(unittest.TestCase):
                 sm = '-> {}'.format([bmap[y] for y in mn[x]])
                 print('b', "{} {} {:s}".format(x, bmap[x], sm))
 
-        for (id, ss, en, fa, ba) in bar:
+        for lmin in bar[1:]:
+            id = lmin.id
+            ss = lmin.structure
+            en = lmin.energy
+            fa = lmin.father
+            ba = lmin.barrier
             if verbose:
                 print('c', id, ss, en, fa, ba, CG.node[ss]['active'])
             self.assertTrue(CG.has_node(ss))
@@ -426,7 +444,7 @@ class Test_TrafoLand(unittest.TestCase):
         """
         bfile = 'tests/files/ex1.bar'
         rfile = 'tests/files/ex1.rts'
-        bar = ru.parse_barfile(bfile)
+        bar = parse_barriers(bfile, return_tuple = True)
         rts = ru.parse_ratefile(rfile)
 
         fullseq = "UGAAUGUGCCGCUAGACGACAUCCCGCCGGAUGGCGGGGC"
@@ -436,21 +454,21 @@ class Test_TrafoLand(unittest.TestCase):
         CG._transcript_length = len(fullseq)
 
         if verbose:
-            for (id, ss, en, fa, ba) in bar:
-                print('a', id, ss, en, fa, ba)
+            for x in bar:
+                print(x)
 
         min_dG = 4
 
         inactive = set() 
-        for m1, line in enumerate(rts):
-            s1 = bar[m1][1]
-            en1 = round(float(bar[m1][2]), 2)
-            for m2, rate in enumerate(line):
+        for m1, line in enumerate(rts, 1):
+            s1 = bar[m1].structure
+            en1 = round(bar[m1].energy, 2)
+            for m2, rate in enumerate(line, 1):
                 if m1 == m2 :
                     continue
                 if rate :
-                    s2 = bar[m2][1]
-                    en2 = round(float(bar[m2][2]), 2)
+                    s2 = bar[m2].structure
+                    en2 = round(bar[m2].energy, 2)
 
                     CG.add_weighted_edges_from([(s1, s2, rate)])
 
@@ -464,13 +482,18 @@ class Test_TrafoLand(unittest.TestCase):
                         inactive.add(s1)
                         if verbose:
                             print('{} -> {} | {:.2f} {:.5f} {} {}'.format(
-                                m1+1, m2+1, dG, rate, bar[m1][4], sE))
+                                m1+1, m2+1, dG, rate, bar[m1].barrier, sE))
 
             CG.node[s1]['active'] = True
             CG.node[s1]['energy'] = en1
             CG.node[s1]['occupancy'] = 0
 
-        for (id, ss, en, fa, ba) in bar:
+        for lmin in bar[1:]:
+            id = lmin.id
+            ss = lmin.structure
+            en = lmin.energy
+            fa = lmin.father
+            ba = lmin.barrier
             #print('b', id, ss, en, fa, ba, CG.node[ss]['active'])
             nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
                               key=lambda x: (CG.node[x]['energy'], x), reverse=False))
@@ -481,7 +504,13 @@ class Test_TrafoLand(unittest.TestCase):
 
         CG.coarse_grain(dG_min=min_dG)
 
-        for (id, ss, en, fa, ba) in bar:
+        for lmin in bar[1:]:
+            id = lmin.id
+            ss = lmin.structure
+            en = lmin.energy
+            fa = lmin.father
+            ba = lmin.barrier
+ 
             nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
                               key=lambda x: (CG.node[x]['energy'], x), reverse=False))
             if verbose:
@@ -507,6 +536,39 @@ class Test_HelperFunctions(unittest.TestCase):
 
     def tearDown(self):
         pass
+
+    def test_get_bp_change(self):
+        se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
+        s1 = ".....(((((......)).)))((((((((....))))....)))).."
+        s2 = "..................(.....................)......."
+
+        features = trafo.get_bp_change(se, s1, s2)
+        self.assertEqual(len(features), 1)
+        assert features[0][0] == "UCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCG"
+        assert features[0][1] == ".(((((......)).)))((((((((....))))....))))."
+        assert features[0][2] == "..............(.....................)......"
+
+        se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
+        s1 = ".....(((((......)).)))((((((((....))))....)))).."
+        s2 = "........((......))(.......((((....))))..)......."
+
+        features = trafo.get_bp_change(se, s1, s2)
+        self.assertEqual(len(features), 1)
+        assert features[0][0] == "UCGCCNNNGUGCGGGCGCNNNGUUAUCGCCG"
+        assert features[0][1] == ".((((xxx).)))(((((xxx)....))))."
+        assert features[0][2] == "....(xxx)(.......(xxx)..)......"
+
+        se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
+        s1 = ".....(..((......))...)...(((((....))))....)....."
+        s2 = "........((......))(.......((((....))))..)......."
+
+        features = trafo.get_bp_change(se, s1, s2)
+        self.assertEqual(len(features), 1)
+        assert features[0][0] == "UCGCCNNNGUGCGGGCGCNNNGUUAUCG"
+        assert features[0][1] == ".(..(xxx)...)...((xxx)....)."
+        assert features[0][2] == "....(xxx)(.......(xxx)..)..."
+
+
 
     def test_fold_exterior_loop(self):
         se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"

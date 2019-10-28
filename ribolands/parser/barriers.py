@@ -87,6 +87,7 @@ def as_tuple(data):
         if e == 0:
             assert line[0] == 'sequence'
             seq = line[1]
+            lms.append(seq)
         else:
             id = None
             ss = None
@@ -98,9 +99,18 @@ def as_tuple(data):
                     id = int(val)
                 elif tag == 'structure':
                     ss = val
+                elif tag == 'energy':
+                    en = float(val)
+                elif tag == 'father':
+                    fa = int(val)
+                elif tag == 'barrier':
+                    dG = float(val)
                 else:
-                    return Exception('unidentified input')
+                    return NotImplementedError('unidentified input')
+            lm = LocalMinimum(id, ss, en, fa, dG)
+            lms.append(lm)
 
+    return lms
 
 def parse_barriers_file(data):
     document = barriers_grammar()
@@ -110,6 +120,7 @@ def parse_barriers_string(data):
     document = barriers_grammar()
     return document.parseString(data).asList()
 
-def parse_barriers(data, is_file = True):
-    return parse_barriers_file(data) if is_file else parse_barriers_string(data)
+def parse_barriers(data, is_file = True, return_tuple = False):
+    list_data = parse_barriers_file(data) if is_file else parse_barriers_string(data)
+    return as_tuple(list_data) if return_tuple else list_data
 

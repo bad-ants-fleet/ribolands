@@ -1,10 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
   BarMap.py -- cotranscriptional folding using *barriers* and *treekin*
 """
-
-from __future__ import division, print_function
 
 import os
 import re
@@ -285,30 +283,35 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
                 pass
         if i >= 2:
             try:
-                ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile,
-                                            treekin=args.treekin,
-                                            exponent=False,
-                                            useplusI=False,
-                                            binrates=True,
-                                            p0=p0,
-                                            t0=args.t0,
-                                            ti=args.ti,
-                                            t8=t8,
-                                            verb=verb,
-                                            force=args.force)
+                ctfile, _ = ril.sys_treekin_051(cname, rfile,
+                        treekin = args.treekin,
+                        bofile = bfile,
+                        p0 = p0,
+                        t0 = args.t0,
+                        ti = args.ti,
+                        t8 = t8,
+                        binrates = True,
+                        useplusI = False,
+                        exponent = False,
+                        mpack_method = None,
+                        force = args.force,
+                        verbose = verb)
+
             except SubprocessError:
                 print("# repeating treekin calculations with --exponent")
-                ctfile, _ = ril.sys_treekin(cname, cseq, bfile, rfile,
-                                            treekin=args.treekin,
-                                            exponent=True,
-                                            useplusI=False,
-                                            binrates=True,
-                                            p0=p0,
-                                            t0=args.t0,
-                                            ti=args.ti,
-                                            t8=t8,
-                                            verb=verb,
-                                            force=True)
+                ctfile, _ = ril.sys_treekin_051(cname, rfile,
+                        treekin = args.treekin,
+                        bofile = bfile,
+                        p0 = p0,
+                        t0 = args.t0,
+                        ti = args.ti,
+                        t8 = t8,
+                        binrates = True,
+                        useplusI = False,
+                        exponent = True,
+                        mpack_method = None,
+                        force = args.force,
+                        verbose = verb)
 
             lastlines = s.check_output(
                 ['tail', '-2', ctfile]).strip().split(b'\n')
@@ -404,23 +407,23 @@ def barmap_barriers(_bname, seq, sfiles, args):
         # Make sure the first round for mapping is always recomputed
         # force = True if e == 1 else args.force
 
-        [sfile, bfile, efile, rfile, psfile, msfile] = ril.sys_barriers(cname, cseq, sfile,
-                                                                barriers=args.barriers,
-                                                                minh=args.b_minh,
-                                                                maxn=args.b_maxn,
-                                                                k0=args.k0,
-                                                                temp=args.temperature,
-                                                                noLP=args.noLP,
-                                                                moves='single-base-pair',
-                                                                gzip=True,
-                                                                rates=True,
-                                                                binrates=True,
-                                                                bsize=False,
-                                                                saddle=False,
-                                                                mfile=mfile,
-                                                                force=args.force,
-                                                                verb=args.verbose)
-        bfiles.append([bfile, efile, rfile, psfile, msfile])
+        [bfile, efile, rfile, rbfile, psfile, msfile] = ril.sys_barriers_180(cname, sfile,
+                 barriers = args.barriers,
+                 minh = args.b_minh, 
+                 maxn = args.b_maxn,
+                 temp = args.temperature,
+                 noLP = args.noLP,
+                 moves = 'single-base-pair',
+                 zipped = True,
+                 rates = True,
+                 k0 = args.k0,
+                 bsize = False,
+                 saddle = False,
+                 bmfile = mfile,
+                 force = args.force,
+                 verbose = args.verbose)
+
+        bfiles.append([bfile, efile, rbfile, psfile, msfile])
         prog.inc()
     return bfiles
 
@@ -601,7 +604,13 @@ def main(args):
     """ BarMap-v2.0 -- cotransriptional folding
       Dependencies: RNAsubopt, barriers, treekin
 
-      The implementation is split into 4 steps ...
+      TODO: 
+        - change occupancy threshold to: Oc = Omin/c
+        - reimplement to determine RNAsubopt energy range on the fly.
+            The relevant local minima determine the necessary energy range for RNAsubopt.
+            If a simulation requires a lager subopt than the previous one, well then recompute.
+            Make use of the connect flag, if it is actually helpful.
+
     """
     # Read Input & Update Arguments
     name, seq = ril.parse_vienna_stdin(sys.stdin)
