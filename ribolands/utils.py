@@ -317,7 +317,7 @@ def plot_nxy(name, tfile,
             continue
         if plim and max(traject) < plim:
             continue
-        p, = ax.plot(time, traject, '-', lw = 0.5)
+        p, = ax.plot(time, traject, '-', lw = 1.5)
         p.set_label("ID {:d}".format(e))
 
     fig.set_size_inches(7, 3)
@@ -333,6 +333,7 @@ def plot_nxy(name, tfile,
     plt.legend()
 
     plt.savefig(name, bbox_inches='tight')
+    plt.close()
     return name
 
 
@@ -427,6 +428,7 @@ def plot_nxy_linlog(name, tfile,
     plt.legend()
 
     plt.savefig(name, bbox_inches='tight')
+    plt.close()
     return name
 
 
