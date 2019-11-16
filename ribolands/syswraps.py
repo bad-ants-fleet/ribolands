@@ -209,7 +209,7 @@ class Workflow(object):
             kelvin = 273.15 + self.md.temperature
             RT = (RT / 310.15) * kelvin
         return RT
-
+    
     @property
     def RNAsubopt(self):
         return self._RNAsubopt
@@ -350,15 +350,15 @@ class Workflow(object):
                 verbose = verbose)
 
         if verbose and self.bofile:
-            print(f'Replacing internal barriers output file: {bofile}')
+            print(f'Replacing internal barriers output file: {files[0]}')
         if verbose and self.brfile:
-            print(f'Replacing internal barriers rates file: {brfile}')
+            print(f'Replacing internal barriers rates file: {files[2]}')
         if verbose and self.bbfile:
-            print(f'Replacing internal barriers binary rates file: {bbfile}')
+            print(f'Replacing internal barriers binary rates file: {files[3]}')
         if verbose and self.bpfile:
-            print(f'Replacing internal barriers plot file: {bpfile}')
+            print(f'Replacing internal barriers plot file: {files[4]}')
         if verbose and self.bmfile:
-            print(f'Replacing internal barriers mapstruc file: {bmfile}')
+            print(f'Replacing internal barriers mapstruc file: {files[5]}')
 
         self.bofile = files[0]
         # efile 

@@ -43,11 +43,11 @@ setup(
         'Programming Language :: Python :: 3',
         ],
     install_requires = [
-        'networkx', 
+        'networkx>=2.4', 
         'matplotlib', 
         'seaborn', 
         'pandas', 
-        'crnsimulator>=0.4'],
+        'crnsimulator>=0.7'],
     test_suite = 'tests',
     packages = ['ribolands', 'ribolands.parser'],
     scripts = [

@@ -12,13 +12,6 @@
 #  *) parsers for stdin, barfiles and rate-matrix
 #
 
-from __future__ import division, print_function
-from builtins import str
-from builtins import map
-from builtins import zip
-from builtins import range
-from builtins import object
-
 import re
 import sys
 from struct import pack, unpack, calcsize
@@ -336,7 +329,6 @@ def plot_nxy(name, tfile,
     plt.close()
     return name
 
-
 def plot_nxy_linlog(name, tfile,
              xlim,
              title = '',
@@ -430,5 +422,4 @@ def plot_nxy_linlog(name, tfile,
     plt.savefig(name, bbox_inches='tight')
     plt.close()
     return name
-
 
