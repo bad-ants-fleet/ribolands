@@ -146,7 +146,7 @@ class VersionError(Exception):
 
 class Workflow(object):
 
-    def __init__(self, md):
+    def __init__(self, sequence, model_details, name = 'NoName'):
         # TODO: 
         #   - support different parameter files.
         #   - check why noLP doesn't work for barriers.
@@ -154,13 +154,19 @@ class Workflow(object):
         #   - Treekin does not crash with single rate, it reports to STDERR and exits.
         #   - Barriers rate model should allow to adjust the k0 parameter.
 
-        self.md = md
+        # Spirit - use for one specific pipeline, such that input and output 
+        # files do not have to be specified or set manually. If you want to
+        # fork a pipeline into two or more alternatives (e.g. barriers with
+        # different coarse-grainings, then duplicate the Workflow object ... manually?
+
+        self.md = model_details
         
-        # Simple properties
-        self.name = 'NoName'
-        #self.outdir = 'MyWorkflow' # Not implemented
-        self.sequence = None
+        # Simple properties, I/O handling:
+        self.name = name
+        self.sequence = sequence
+        self.force = False
         self.verbose = False
+        self.zip_suboptimals = True
     
         # Prgrams -- need to be set for a mandatory version check.
         self._RNAsubopt = None
@@ -173,6 +179,7 @@ class Workflow(object):
         self.subopt_number = None
 
         # All sorts of files.
+        self._outdir = './'
         self.sofile = None # subopt output file
         self.bofile = None # barriers output file
         self.brfile = None # barriers rate file
@@ -183,8 +190,7 @@ class Workflow(object):
         self.kofile = None # kinfold output file
         self.klfile = None # kinfold log file
 
-        # Some options that are generally not supported right now.
-        self.zip_suboptimals = True
+        # Some options where only default values are allowed.
         self.moves = 'single-base-pair'
         assert self.md.dangles == 2
         assert self.md.logML == 0
@@ -196,7 +202,14 @@ class Workflow(object):
         assert self.md.circ in [0, 1]
         assert self.md.noLP in [0, 1]
         assert self.md.min_loop_size == 3
-        
+
+    def RT(self):
+        RT = 0.61632077549999997
+        if self.md.temperature != 37.0:
+            kelvin = 273.15 + self.md.temperature
+            RT = (RT / 310.15) * kelvin
+        return RT
+
     @property
     def RNAsubopt(self):
         return self._RNAsubopt
@@ -233,6 +246,15 @@ class Workflow(object):
         check_version(executable, _MIN_TREEKIN_VERSION)
         self._treekin = executable
 
+    @property
+    def outdir(self):
+        return self._outdir
+
+    @outdir.setter
+    def outdir(self, path):
+        if not os.path.exists(path):
+            os.mkdir(path)
+        self._outdir = path + '/' if path[-1] != '/' else path
 
     def find_subopt_range(self, nos, maxe, verbose = None):
         if verbose is None:
@@ -256,20 +278,23 @@ class Workflow(object):
         self.subopt_range = sener
         self.subopt_number = snum
 
-    def call_RNAsubopt(self, opts = [], verbose = None):
+    def call_RNAsubopt(self, opts = None, force = None, verbose = None):
 
-        if verbose is None:
-            verbose = self.verbose
-        
         if self.RNAsubopt is None:
             raise SystemExit(f'Need to specify executable for RNAsubopt.')
 
+        if force is None:
+            force = self.force
+        if verbose is None:
+            verbose = self.verbose
+        
         if True: # more consistent
             sortopt = ['|', 'sort', '-T', '/tmp', '-k3r', '-k2n'] 
         else: # faster
             sortopt = ['-s']
 
-        sofile = sys_suboptimals(self.name, self.sequence,
+        name = self.outdir + self.name
+        sofile = sys_suboptimals(name, self.sequence,
                 RNAsubopt = self.RNAsubopt,
                 ener = self.subopt_range,
                 temp = self.md.temperature,
@@ -278,31 +303,32 @@ class Workflow(object):
                 opts = opts,
                 sort = sortopt,
                 zipped = self.zip_suboptimals,
-                force = self.force,
+                force = force,
                 verb = verbose)
         
-        if self.sofile:
+        if verbose and self.sofile:
             print(f'Replacing internal subopt file: {sofile}')
 
         self.sofile = sofile
         return self.sofile
 
-    def call_barriers(self, sofile = None, rates = True, k0 = 1.0,
-            minh = 0.001, maxn = 50, bmfile = None, connected = False,
-            bsize = False, saddle = False, plot = False, 
+    def call_barriers(self, 
+            rates = True, k0 = 1.0,
+            minh = 0.001, maxn = 50, 
+            paths = None, bmfile = None, connected = False,
+            bsize = False, ssize = False, saddle = False, plot = False, 
             force = None, verbose = None):
         
         if self.barriers is None:
             raise SystemExit(f'Need to specify executable for barriers.')
 
-        if sofile is None:
-            sofile = self.sofile
         if verbose is None:
             verbose = self.verbose
         if force is None:
             force = self.force
 
-        files = sys_barriers_180(self.name, self.sofile,
+        name = self.outdir + self.name
+        files = sys_barriers_180(name, self.sofile,
                 barriers = self.barriers,
                 minh = minh, 
                 maxn = maxn,
@@ -313,13 +339,26 @@ class Workflow(object):
                 zipped = self.zip_suboptimals,
                 rates = rates,
                 k0 = k0,
+                paths = paths,
                 bsize = bsize,
+                ssize = ssize,
                 saddle = saddle,
                 bmfile = bmfile,
                 connected = connected,
                 plot = plot,
                 force = force,
                 verbose = verbose)
+
+        if verbose and self.bofile:
+            print(f'Replacing internal barriers output file: {bofile}')
+        if verbose and self.brfile:
+            print(f'Replacing internal barriers rates file: {brfile}')
+        if verbose and self.bbfile:
+            print(f'Replacing internal barriers binary rates file: {bbfile}')
+        if verbose and self.bpfile:
+            print(f'Replacing internal barriers plot file: {bpfile}')
+        if verbose and self.bmfile:
+            print(f'Replacing internal barriers mapstruc file: {bmfile}')
 
         self.bofile = files[0]
         # efile 
@@ -333,23 +372,28 @@ class Workflow(object):
     def call_treekin(self, 
             p0 = ['1=0.5', '2=0.5'], 
             t0 = 0, ti = 1.2, t8 = 1e6,
-            ratefile = None, binrates = True,
+            binrates = True, bofile = None, # bofile = False to avid using internal one.
             useplusI = False, exponent = False, mpack_method = None,
             quiet = True, force = None, verbose = None):
 
         if self.treekin is None:
             raise SystemExit(f'Need to specify executable for treekin.')
 
-        if ratefile is None:
-            ratefile = self.bbfile if binrates else self.brfile
         if force is None:
             force = self.force
         if verbose is None:
             verbose = self.verbose
 
-        tofile, tefile = sys_treekin_051(self.name, ratefile,
+        ratefile = self.bbfile if binrates else self.brfile
+        if bofile is False:
+            bofile is None
+        elif not bofile:
+            bofile = self.bofile
+
+        name = self.outdir + self.name
+        tofile, tefile = sys_treekin_051(name, ratefile,
                 treekin = self.treekin,
-                bofile = self.bofile,
+                bofile = bofile,
                 p0 = p0,
                 t0 = t0,
                 ti = ti,
@@ -361,13 +405,18 @@ class Workflow(object):
                 quiet = quiet,
                 force = force,
                 verbose = verbose)
+
+        if verbose and self.tofile:
+            print(f'Replacing internal treekin output file: {tofile}')
+
         self.tofile = tofile
         return tofile, tefile
 
-    def call_Kinfold(self, start, stop, fpt = True, 
+    def call_Kinfold(self, start, stop, fpt = True, rect = False,
             time = 5000, num = 1, 
             ratemodel = 'Metropolis',
             lmin = False, silent = True, erange = 100,
+            name = None,
             force = None, verbose = None):
 
         if self.Kinfold is None:
@@ -378,22 +427,33 @@ class Workflow(object):
         if verbose is None:
             verbose = self.verbose
 
-        klfile, kefile, kofile = sys_kinfold(self.name, self.sequence, 
+        if name is None: 
+            name = self.outdir + self.name
+        klfile, kefile, kofile = sys_kinfold(name, self.sequence, 
                 kinfold = self.Kinfold,
                 start = start,
                 stop = stop,
                 fpt  = fpt,
+                rect = rect,
                 time = time,
                 num = num,
                 ratemodel = ratemodel,
                 moves = self.moves,
                 noLP = self.md.noLP,
                 logML = self.md.logML,
+                dangle = self.md.dangles,
+                temp = self.md.temperature,
+                params = None,
                 erange = erange,
                 lmin = lmin,
                 silent = silent,
                 force = force,
                 verbose = verbose)
+
+        if verbose and self.klfile:
+            print(f'Replacing internal kinfold log file: {klfile}')
+        if verbose and self.kofile:
+            print(f'Replacing internal kinfold output file: {kofile}')
 
         self.klfile = klfile
         self.kofile = kofile
@@ -530,7 +590,9 @@ def sys_barriers_180(basename, sofile,
                  zipped = True,
                  rates = True,
                  k0 = 1.,
+                 paths = None,
                  bsize = False,
+                 ssize = False,
                  circ = False,
                  saddle = False,
                  bmfile = None,
@@ -555,8 +617,8 @@ def sys_barriers_180(basename, sofile,
       SuboprocessError: Program terminated with exit code: ...
 
     Returns:
-      [bofile, befile, brfile, msfile]: A list of produced files containing
-        ``barriers`` results.
+      [bofile, befile, brfile, bbfile, bpfile, msfile]: 
+        A list of produced files containing ``barriers`` results.
     """
 
     if zipped and which('zcat') is None:
@@ -592,6 +654,10 @@ def sys_barriers_180(basename, sofile,
     if connected:
         barcall.extend(['-c'])
 
+    if paths:
+        for p in paths:
+            barcall.extend(['--path', p])
+
     if noLP:
         barcall.extend(['-G', 'RNA-noLP'])
     else:
@@ -616,6 +682,8 @@ def sys_barriers_180(basename, sofile,
         barcall.extend(['--rates-binary-file', bbfile])
     if bsize:
         barcall.extend(['--bsize'])
+    if ssize:
+        barcall.extend(['--ssize'])
     if saddle:
         barcall.extend(['--saddle'])
 
@@ -670,6 +738,12 @@ def sys_barriers_180(basename, sofile,
     if plot:
         os.rename('tree.ps', bpfile)
 
+    if paths:
+        for p in paths:
+            x, y = p.split('=')
+            pfname = 'path.{:03d}.{:03d}.txt'.format(int(x), int(y))
+            os.rename(pfname, basename + '_' + pfname)
+
     return [bofile, befile, brfile, bbfile, bpfile, msfile]
 
 
@@ -679,7 +753,7 @@ def sys_suboptimals(name, seq,
                     temp = 37.0,
                     noLP = False,
                     circ = False,
-                    opts = [],
+                    opts = None,
                     sort = ['|', 'sort', '-T', '/tmp', '-k3r', '-k2n'],
                     zipped = True,
                     force = False,
@@ -738,7 +812,8 @@ def sys_suboptimals(name, seq,
         sptcall.append("--noLP")
     if circ:
         sptcall.append("--circ")
-    sptcall.extend(opts)
+    if opts:
+        sptcall.extend(opts)
     sptcall.extend(sort)
 
     if zipped:
@@ -819,11 +894,8 @@ def sys_subopt_range(seq,
                 if ep * 10 == int(interval):
                     nump = structures
 
-            # Break the loop if you reach the number of structures in the
-            # output
+            # Break the loop if you reach the number of structures in the output
             if (nos and structures >= nos - (nos * 0.01)) or float(interval) / 10 >= maxe:
-                # print "break", maxe, nos, structures, "E:",
-                # float(interval)/10
                 e = float(interval) / 10
                 num = structures
                 break  # return to while
@@ -851,12 +923,16 @@ def sys_kinfold(name, seq,
         start = None,
         stop = None,
         fpt  = False,
+        rect = False,
         time = 5000,
         num = 1,
         ratemodel = 'Metropolis',
         moves = 'single-base-pair',
         noLP = False,
         logML = False,
+        dangle = 2,
+        temp = 37,
+        params = None,
         # Output
         erange = 20, # Kinfold Default.
         lmin = False,
@@ -880,17 +956,20 @@ def sys_kinfold(name, seq,
     klfile = name + '.log'
     kefile = name + '.err'
     kofile = name + '.out'
-    if not force and os.path.exists(klfile) and os.path.exists(kofile):
-        if verbose:
-            print("#", klfile, kofile, "<= Files exist!")
-        return [klfile, kefile, kofile]
-    elif os.path.exists(klfile) and os.path.exists(kofile):
-        if verbose:
+
+    if os.path.exists(klfile) and os.path.exists(kofile):
+        if force is None:
             print("#", klfile, kofile, "<= Files exist, appending output!")
-        #if os.path.exists(klfile):
-        #    os.remove(klfile)
-        #if os.path.exists(kofile):
-        #    os.remove(kofile)
+        elif force is False:
+            return [klfile, kefile, kofile]
+        else:
+            print("#", klfile, kofile, "<= Removing old files!")
+            if os.path.exists(klfile):
+                os.remove(klfile)
+            if os.path.exists(kofile):
+                os.remove(kofile)
+
+    assert params is None
 
     kinput = seq + '\n'
 
@@ -900,6 +979,12 @@ def sys_kinfold(name, seq,
     syscall.extend(['--log', name])
     syscall.extend(['--cut', str(erange)])
     #syscall.extend(['--seed', "62159=58010=26254"])
+    
+    if dangle != 2:
+        syscall.extend(['--dangle', str(dangle)])
+
+    if temp != 37:
+        syscall.extend(['-T', str(temp)])
 
     if ratemodel == 'Kawasaki':
         pass
@@ -913,6 +998,9 @@ def sys_kinfold(name, seq,
 
     if not fpt: # NOTE: fpt switches first passage time off (!!!!)
         syscall.extend(['--fpt'])
+
+    if rect: # NOTE: fpt switches first passage time off (!!!!)
+        syscall.extend(['--rect'])
 
     if not logML: # NOTE: logML switches logarithmic multiloop evaluation off (!!!!)
         syscall.extend(['--logML'])
@@ -1038,6 +1126,7 @@ def sys_barriers(name, seq, sofile,
                  rates=True,
                  binrates=False,
                  bsize=False,
+                 ssize=False,
                  circ=False,
                  saddle=False,
                  bmfile='',
@@ -1057,6 +1146,7 @@ def sys_barriers(name, seq, sofile,
                  rates = rates,
                  k0 = k0,
                  bsize = bsize,
+                 ssize = ssize,
                  circ = circ,
                  saddle = saddle,
                  bmfile = bmfile,
@@ -1084,20 +1174,13 @@ def main():
     vrna_md.special_hp = 1
     vrna_md.noGU = 0
     
-    Pipe = Workflow(vrna_md)
-
     # Quick set test model params """
     name, seq = parse_vienna_stdin(sys.stdin)
 
-    # Default behavior to get barriers energy landscape files
-    # The object knows which files exist, the naming is determined only by the 
-    # Basename, and all files are in a specific directory (mypipe).
-
-    Pipe.name = name
-    Pipe.outdir = 'mypipe'
-    Pipe.sequence = seq
+    Pipe = Workflow(seq, vrna_md, name = name)
     Pipe.force = True
     Pipe.verbose = True
+    Pipe.outdir = 'mypipe'
     Pipe.RNAsubopt = 'RNAsubopt'
     Pipe.barriers = 'barriers'
     Pipe.treekin = 'treekin'
@@ -1123,11 +1206,11 @@ def main():
     for lm in lmins[1:-1]:
         stop.append(lm.structure)
 
-    kofile, *_ = Pipe.call_Kinfold(start = lmins[-1].structure, stop = stop, time = 1e5, num = 5)
+    klfile, *_ = Pipe.call_Kinfold(start = lmins[-1].structure, stop = stop, time = 1e5, num = 5)
 
     pfile = plot_nxy(Pipe.name + '.pdf', tofile, ylim = None, xlim = (1, 1e5), lines = [])
 
-    pfile = plot_nxy_linlog(Pipe.name + '.pdf', tofile, xlim = (0, 1000, 1e5), figdivide = 1.5)
+    pfile = plot_nxy_linlog(Pipe.name + '_linlog.pdf', tofile, xlim = (0, 1000, 1e5), figdivide = 1.5)
 
     RM = parse_ratefile(bbfile, binary = True)
 
