@@ -145,25 +145,26 @@ class VersionError(Exception):
 # ............................................................................ #
 
 class Workflow(object):
+    """ A wrapper class to unify workflows using the syscalls provided.
+
+    Use a Workflow for a specific pipeline, such that input and output files do
+    not have to be specified or set manually. If you want to fork a pipeline, e.g.
+    to branch off and use different minh for barriers, then use copy() and 
+    keep the names of the files up to that point in memory.
+    """
 
     def __init__(self, sequence, model_details, name = 'NoName'):
-        # TODO: 
-        #   - support different parameter files.
-        #   - check why noLP doesn't work for barriers.
+        # TODOs and other notes ...
         #   - Kinfold does not crash, it reports to STDERR and exits.
         #   - Treekin does not crash with single rate, it reports to STDERR and exits.
         #   - Barriers rate model should allow to adjust the k0 parameter.
-
-        # Spirit - use for one specific pipeline, such that input and output 
-        # files do not have to be specified or set manually. If you want to
-        # fork a pipeline into two or more alternatives (e.g. barriers with
-        # different coarse-grainings, then duplicate the Workflow object ... manually?
 
         self.md = model_details
         
         # Simple properties, I/O handling:
         self.name = name
         self.sequence = sequence
+        self.paramFile = ''
         self.force = False
         self.verbose = False
         self.zip_suboptimals = True
@@ -202,6 +203,37 @@ class Workflow(object):
         assert self.md.circ in [0, 1]
         assert self.md.noLP in [0, 1]
         assert self.md.min_loop_size == 3
+
+    def copy(self):
+        other = Workflow(self.sequence, self.md)
+        other.name = self.name
+        other.paramFile = self.paramFile
+        other.force = self.force
+        other.verbose = self.verbose
+        other.zip_suboptimals = self.zip_suboptimals
+    
+        # Prgrams -- need to be set for a mandatory version check.
+        other._RNAsubopt = self._RNAsubopt
+        other._barriers = self._barriers
+        other._treekin = self._treekin
+        other._Kinfold = self._Kinfold
+
+        # Stuff to calculate
+        other.subopt_range = self.subopt_range
+        other.subopt_number = self.subopt_number
+
+        # All sorts of files.
+        other._outdir = self._outdir
+        other.sofile = self.sofile
+        other.bofile = self.bofile
+        other.brfile = self.brfile
+        other.bbfile = self.bbfile
+        other.bpfile = self.bpfile
+        other.bmfile = self.bmfile
+        other.tofile = self.tofile
+        other.kofile = self.kofile
+        other.klfile = self.klfile
+        return other
 
     def RT(self):
         RT = 0.61632077549999997
@@ -270,6 +302,7 @@ class Workflow(object):
                 nos = nos,
                 maxe = maxe,
                 RNAsubopt = self.RNAsubopt,
+                params = self.paramFile,
                 temp = self.md.temperature,
                 noLP = self.md.noLP,
                 circ = self.md.circ,
@@ -279,7 +312,6 @@ class Workflow(object):
         self.subopt_number = snum
 
     def call_RNAsubopt(self, opts = None, force = None, verbose = None):
-
         if self.RNAsubopt is None:
             raise SystemExit(f'Need to specify executable for RNAsubopt.')
 
@@ -296,6 +328,7 @@ class Workflow(object):
         name = self.outdir + self.name
         sofile = sys_suboptimals(name, self.sequence,
                 RNAsubopt = self.RNAsubopt,
+                params = self.paramFile,
                 ener = self.subopt_range,
                 temp = self.md.temperature,
                 noLP = self.md.noLP,
@@ -422,8 +455,6 @@ class Workflow(object):
         if self.Kinfold is None:
             raise SystemExit(f'Need to specify executable for Kinfold.')
 
-        if force is None:
-            force = self.force
         if verbose is None:
             verbose = self.verbose
 
@@ -443,7 +474,7 @@ class Workflow(object):
                 logML = self.md.logML,
                 dangle = self.md.dangles,
                 temp = self.md.temperature,
-                params = None,
+                params = self.paramFile,
                 erange = erange,
                 lmin = lmin,
                 silent = silent,
@@ -639,9 +670,9 @@ def sys_barriers_180(basename, sofile,
     bpfile = basename + '_tree.ps' if plot else None
     msfile = basename + '.ms' if bmfile else None
 
-    if not force and \
-            os.path.exists(bofile) and \
-            os.path.exists(brfile):
+    if not force and os.path.exists(bofile) and os.path.exists(brfile) and os.path.exists(bbfile) and \
+      (not paths or all(map(os.path.exists, ['{:s}_path.{:03d}.{:03d}.txt'.format(basename, int(x), int(y)) for x, y in map(lambda x: x.split('='), paths)]))) and \
+      (not bmfile or os.path.exists(msfile)):
         if verbose:
             print("#", bofile, brfile, " <= Files exist")
         return [bofile, befile, brfile, bbfile, bpfile, msfile]
@@ -749,6 +780,7 @@ def sys_barriers_180(basename, sofile,
 
 def sys_suboptimals(name, seq,
                     RNAsubopt = 'RNAsubopt',
+                    params = None,
                     ener = None,
                     temp = 37.0,
                     noLP = False,
@@ -802,12 +834,14 @@ def sys_suboptimals(name, seq,
 
     sofile = name + '.spt.gz' if zipped else name + '.spt'
 
-    if os.path.exists(sofile) and not force:
+    if not force and os.path.exists(sofile):
         if verb:
             print("#", sofile, "<= File exists")
         return sofile
 
     sptcall = [RNAsubopt, "-e {:.2f} -T {:.2f}".format(ener, temp)]
+    if params:
+        sptcall.extend(["--paramFile", params])
     if noLP:
         sptcall.append("--noLP")
     if circ:
@@ -835,6 +869,7 @@ def sys_suboptimals(name, seq,
 
 def sys_subopt_range(seq,
                      RNAsubopt='RNAsubopt',
+                     params = None,
                      nos=5100000,
                      maxe=30.0,
                      temp=37.0,
@@ -872,6 +907,8 @@ def sys_subopt_range(seq,
             print("# Energy: ", "{:.2f}".format(float(e)))
 
         sptcall = [RNAsubopt, "-D -e {:.2f} -T {:.2f}".format(float(e), temp)]
+        if params:
+            sptcall.extend(["--paramFile", params])
         if circ:
             sptcall.append("--circ")
         if noLP:
@@ -969,23 +1006,20 @@ def sys_kinfold(name, seq,
             if os.path.exists(kofile):
                 os.remove(kofile)
 
-    assert params is None
-
     kinput = seq + '\n'
 
     syscall = [kinfold]
-    syscall.extend(['--num', str(num)])
+    syscall.extend(['--num', str(int(num))])
     syscall.extend(['--time', str(time)])
     syscall.extend(['--log', name])
     syscall.extend(['--cut', str(erange)])
     #syscall.extend(['--seed', "62159=58010=26254"])
-    
+    if params:
+        syscall.extend(["--Par", params])
     if dangle != 2:
         syscall.extend(['--dangle', str(dangle)])
-
     if temp != 37:
         syscall.extend(['-T', str(temp)])
-
     if ratemodel == 'Kawasaki':
         pass
     elif ratemodel == 'Metropolis':

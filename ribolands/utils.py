@@ -423,3 +423,17 @@ def plot_nxy_linlog(name, tfile,
     plt.close()
     return name
 
+def natural_sort(l):
+    """
+    Sorts a collection in the order humans would expect. Implementation from
+    http://stackoverflow.com/questions/4836710/does-python-have-a-built-in-function-for-string-natural-sort
+    """
+    def convert(text): 
+        return int(text) if text.isdigit() else text.lower()
+
+    def alphanum_key(key): 
+        return [convert(c) for c in re.split('([0-9]+)', str(key))]
+
+    return sorted(l, key=alphanum_key)
+
+

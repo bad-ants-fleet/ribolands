@@ -2,6 +2,10 @@
 import RNA 
 import networkx as nx
 from struct import pack
+from crnsimulator import ReactionGraph
+from crnsimulator.crn_parser import parse_crn_string
+
+from ribolands.utils import natural_sort
 
 class RiboLandscape(nx.DiGraph):
     """ Implemented for unimolecular reactions.
@@ -40,7 +44,7 @@ class RiboLandscape(nx.DiGraph):
         else:
             return 0
 
-    def get_simulation_files_tkn(self, basename):
+    def get_simulation_files_tkn(self, basename, sort_by = 'energy'):
         """ Print a rate matrix and the initial occupancy vector.
 
         This function prints files and parameters to simulate dynamics using the
@@ -64,7 +68,7 @@ class RiboLandscape(nx.DiGraph):
         """
         seq = self.sequence
 
-        snodes = self.sorted_nodes(attribute = 'energy')
+        snodes = self.sorted_nodes(attribute = sort_by)
         num = len(snodes) + 1
 
         bofile = basename + '_lands.bar'
@@ -75,7 +79,7 @@ class RiboLandscape(nx.DiGraph):
             bar.write("  ID {}  Energy  {}\n".format(seq, 
                 ' '.join(map("{:7d}".format, range(1, num)))))
             brts.write(pack("i", len(snodes)))
-            for ni, node in enumerate(snodes):
+            for ni, node in enumerate(snodes, 1):
                 ns = self.nodes[node]['structure']
                 ne = self.nodes[node]['energy']
                 
@@ -99,9 +103,12 @@ class RiboLandscape(nx.DiGraph):
                 for other in snodes:
                     if self.has_edge(node, other):
                         rates.append(self[node][other]['weight'])
-                        trates.append(self[other][node]['weight'])
                     else:
                         rates.append(0)
+
+                    if self.has_edge(other, node):
+                        trates.append(self[other][node]['weight'])
+                    else:
                         trates.append(0)
                 line = " ".join(map("{:10.4g}".format, rates))
                 rts.write("{}\n".format(line))
@@ -110,12 +117,69 @@ class RiboLandscape(nx.DiGraph):
 
         return bbfile, brfile, bofile
 
-    def to_crn(self, basename):
-        # An easier way to simulate it ...
-        pass
+    def to_crn(self, filename = None, prefix = 'ID_'):
 
-    def get_simulator(self, basename):
-        # simple version for unimolecular reactions only? 
-        # or shall we support the (k1, k2) model?
-        pass
+        def crn_gen():
+            for (x,y) in self.edges:
+                if isinstance(self.nodes[x]['identity'], int):
+                    reactant = '{:s}{:d}'.format(prefix, self.nodes[x]['identity'])
+                else:
+                    reactant = self.nodes[x]['identity']
+
+                if isinstance(self.nodes[y]['identity'], int):
+                    product = '{:s}{:d}'.format(prefix, self.nodes[y]['identity'])
+                else:
+                    product = self.nodes[y]['identity']
+
+                if self[x][y]['weight'] == 0:
+                    continue
+                yield "{:s} -> {:s} [k = {:g}]\n".format(reactant, product, self[x][y]['weight'])
+
+        if filename:
+            with open(filename, 'w') as crn:
+                for x in crn_gen():
+                    crn.write(x)
+            return
+        else:
+            return "".join(crn_gen())
+
+    def to_crnsimulator(self, filename, sorted_vars = None, verbose = False):
+        """
+        """
+        if filename[-3:] != '.py':
+            filename += '.py' 
+
+        def irrev(rev):
+            # Split CRN into irreversible reactions
+            new = []
+            for [r, p, k] in rev:
+                if None in k:
+                    print('# Set missing rates to 1.')
+                    k[:] = [x if x is not None else 1 for x in k]
+
+                if len(k) == 2:
+                    new.append([r, p, k[0]])
+                    new.append([p, r, k[1]])
+                else:
+                    new.append([r, p, k[0]])
+            return new
+
+        crnstring = self.to_crn()
+        crn, species = parse_crn_string(crnstring)
+        crn = irrev(crn)
+        RG = ReactionGraph(crn)
+        
+        V = sorted_vars if sorted_vars else natural_sort(species)
+
+        # ********************* #
+        # PRINT ODE TO TEMPLATE #
+        # ..................... #
+        filename, odename = RG.write_ODE_lib(sorted_vars = V, concvect = None,
+                                             jacobian = False,
+                                             filename = filename)
+
+        if verbose:
+            print(f'# Wrote ODE system: {filename}')
+
+        return filename, odename
 
