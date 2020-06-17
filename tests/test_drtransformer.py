@@ -115,7 +115,7 @@ class Test_TrafoLand(unittest.TestCase):
         TL.coarse_grain()
         print(len(TL.active_nodes), len(TL.nodes))
 
-    def test_TL_connect_mfe(self):
+    def dont_test_TL_connect_mfe(self):
         rbar = """# A random barriers example:
              CCCCGGAAGGAAUGGGUAGUGACAGCAGCUUAGGUCGCUGCAUCAUCCCC
            1 ........((.((((((((((((..........)))))))).)))).)). -15.10    0  15.00

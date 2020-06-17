@@ -1,15 +1,12 @@
 #
-#  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
-#  University of Vienna, Department of Theoretical Chemistry
+# ribolands.syswraps
+# 
+# Build a customn Workflow with system calls of ViennaRNA related software.
+# May only work with linux.
 #
-#  -*- Content -*-
-#  *) systemcalls of RNAsubopt, Kinfold, barriers and treekin
-#  *) most likely requires linux
-#
-#  -*- Style -*-
-#  Use double quotes or '#' for comments, such that single quotes are available
-#  for uncommenting large parts during testing
-#
+
+import logging
+rlog = logging.getLogger(__name__)
 
 import os
 import re
@@ -154,7 +151,7 @@ class Workflow(object):
     """
 
     def __init__(self, sequence, model_details, name = 'NoName'):
-        # TODOs and other notes ...
+        # TODO and other notes ...
         #   - Kinfold does not crash, it reports to STDERR and exits.
         #   - Treekin does not crash with single rate, it reports to STDERR and exits.
         #   - Barriers rate model should allow to adjust the k0 parameter.
@@ -511,7 +508,7 @@ def sys_treekin_051(basename, ratefile,
                 quiet = True,
                 force = False,
                 verbose = False):
-    """Perform a system-call of the program ``treekin``.
+    """ Perform a system-call of the program ``treekin``.
 
     Prints the results into files and returns the respective filenames. This
     wrapper will produce two files, one from ``STDIN`` and ``STDERR`` output.

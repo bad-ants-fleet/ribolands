@@ -1,12 +1,21 @@
+#!/usr/bin/env python
+#
+# ribolands.pathfinder
+# 
+# Utilities using the findpath algorithm.
+#
+
+import logging
+rlog = logging.getLogger(__name__)
+
+import sys
 import RNA
 import math
+import argparse
 import numpy as np
-from ribolands.utils import make_loop_index, make_pair_table
-from itertools import islice, product, combinations, permutations
+from itertools import islice, product, permutations
 
-""" 
-    Utilities using the findpath algorithm.
-"""
+from ribolands.utils import make_loop_index, make_pair_table
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Custom error definitions                                                     #
@@ -165,7 +174,7 @@ def apply_bp_change(seq, s1, s2, subseq, subs1, subs2):
         idxs[e] = find_indices(subs[e], sb1s[e], sb2s[e])
 
     def get_news_iter():
-        """Iterate over all new structures that can be composed from the indices.
+        """ Iterate over all new structures that can be composed from the indices.
         """
         li = make_loop_index(s1)
         for x in product(*idxs):
@@ -207,13 +216,14 @@ def apply_bp_change(seq, s1, s2, subseq, subs1, subs2):
                 if ml == 0:
                     exteriors.append(new)
             if len(exteriors) > 1:
-                print(seq, subseq)
-                print(s1, subs1)
-                print(s2, subs2)
-                print(idxs)
+                rlog.warning('Ambiguous base-pair change!')
+                rlog.warning(f"SQ: {seq}, {subseq}")
+                rlog.warning(f"S1: {s1}, {subs1}")
+                rlog.warning(f"S2: {s2}, {subs2}")
+                rlog.warning(f"Indices: {idxs}")
                 for new, ml in results:
-                    print(new, ml)
-                raise PathfinderError('ambiguous base-pair change!')
+                    rlog.warning(f" - {new}, {ml}")
+                raise PathfinderError('Ambiguous base-pair change!')
         news = list(results)[0][0] # list index out of range?
     else:
         news = s1
@@ -291,10 +301,8 @@ def get_fpath_cache(seq, ss1, ss2, md, maxbar = None, fpw = None):
             fp_wrap(seq, ss1, ss2, md, maxbar, fpw)
         elif obar != float('inf') and (obar + 0.01 <= maxbar and fpw > ofpw):
             fp_wrap(seq, ss1, ss2, md, maxbar, fpw)
-
         assert obar >= FPATH_CACHE[(seq, ss1, ss2)][0]
         assert ogain == FPATH_CACHE[(seq, ss1, ss2)][1]
-
     return FPATH_CACHE[(seq, ss1, ss2)]
 
 def path_flooding(path, minh):
@@ -348,16 +356,13 @@ def path_flooding(path, minh):
                 [lower, higher] = [left, right] if lmel < lmer else [right, left]
                 [lowlm, highlm] = [lmsl, lmsr] if lmel < lmer else [lmsr, lmsl]
                 [lowen, highen] = [lmel, lmer] if lmel < lmer else [lmer, lmel]
-                #print(en, highen, minh, 't:', en - highen)
                 if en - highen < minh - 0.0001: # merge higher minimum into lower one.
-                    #print('merged')
                     lmins[lowlm][1] |= lmins[highlm][1] | set([step]) 
                     for hlm in lmins[highlm][1]:
                         ssmap[hlm] = lower
                     ssmap[step] = lower
                     del lmins[highlm]
                 else: # keep them separated ...
-                    #print('sep')
                     ssmap[step] = [higher, lower]
             elif left in ssmap:
                 lms, lme = path[ssmap[left]]
@@ -372,53 +377,54 @@ def path_flooding(path, minh):
             else:
                 lmins[ss] = [en, set([step])]
                 ssmap[step] = step
-
     return lmins, ssmap
 
-def get_fpath_flooding_cache(seq, ss1, ss2, md, minh, maxbar = None, fpf = 2):
+def get_fpath_flooding_cache(seq, ss1, ss2, md, minh, maxbar = None, fpwf = 2):
     """ Chop a direct folding path into multiple (independent?) steps.
 
     Note: This routine uses the same global FPATH_CACHE as get_fpath_cache, but 
-        with a different format. They must not be used together.
+        with a different format. They must not be used together!
 
     Args:
-        maxbar (float): The maximum acceptable barrier. If maxbar is None or
-            float('inf'), then a barrier will be found.
+        seq (str): Nucleic acid sequence.
+        ss1 (str): Start secondary structure.
+        ss2 (str): Stop secondary structure.
+        md (obj): ViennaRNA model details object.
+        maxbar (float, optional): The maximum acceptable barrier. If maxbar is None or
+            float('inf'), then a barrier will be found.  Defaults to None.
+        fpwf (int, optional): The findpath width factor. For every findpath call,
+            the width is calculated as fpwf * base-pair distance.  Defaults to 2.
 
+    Returns:
+        FPATH_CACHE[(seq, ss1, ss2)]
     """
+
     global FPATH_CACHE
 
     if maxbar is None:
         maxbar = float('inf')
 
     def findpath_get_path(seq, ss1, ss2, md, maxbar):
-        fpw = fpf * get_bpd_cache(ss1, ss2) 
-
         # Call findpath and store metadata.
+        fpw = fpwf * get_bpd_cache(ss1, ss2) 
         fc = RNA.fold_compound(seq, md)
         e1 = round(fc.eval_structure(ss1), 2)
         e2 = round(fc.eval_structure(ss2), 2)
-
         if maxbar == float('inf'):
             path = fc.path_findpath(ss1, ss2, width = fpw)
         else:
             dcal_bound = int(round((maxbar + e1) * 100))
             path = fc.path_findpath(ss1, ss2, maxE = dcal_bound, width = fpw)
-
         del fc # ?
-
-        #print(seq, ss1, ss2, maxbar, fpw)
-        #for e, step in enumerate(path):
-        #    print("{:2d} {:s} {:6.2f}".format(e, step.s, step.en))
-        #print(' - DONE')
         return [(step.s, step.en) for step in path] if len(path) else None
 
-    # We always start and stop with decomposition.
     def decompose_path(seq, ss1, ss2, firsttime = False):
-        """ Find a set of orthogonal pathways """
+        # Find a set of orthogonal pathways.
+        # NOTE: We always start and stop with decomposition.
         FPATH_CACHE[(seq, ss1, ss2)] = [None, []]
         # Assume we will have to refer to some subproblem ...
         chopped = get_bp_change(seq, ss1, ss2)
+        rlog.debug(f'My chopped path: {chopped}')
         if firsttime or len(chopped) > 1 or chopped[0][0] != seq:
             # Always do at least one cycle of flooding.
             # Iterate over a set of orthogonal of steps.
@@ -429,9 +435,7 @@ def get_fpath_flooding_cache(seq, ss1, ss2, md, minh, maxbar = None, fpf = 2):
                 # iterate over a sequence of steps.
                 for (ls1, ls2) in lminp:
                     assert len(ls1) == len(ls2)
-                    #FPATH_CACHE[(seq, ss1, ss2)][1].append((msq, ls1, ls2))
                     decompose_path(msq, ls1, ls2)
-
         else: # stop condition
             assert len(chopped) == 1
             (msq, ms1, ms2) = chopped[0]
@@ -442,13 +446,10 @@ def get_fpath_flooding_cache(seq, ss1, ss2, md, minh, maxbar = None, fpf = 2):
             _ = get_fpath_cache(msq, ms1, ms2, md, maxbar) # caching / final entry
 
     def flood_path(msq, ms1, ms2):
-        """ Return a sequence of start/end structures along all path minima (using minh).
-        """
-        
+        # Return a sequence of start/end structures along all path minima (using minh).
         if (msq, ms1, ms2) in FPATH_CACHE and FPATH_CACHE[(msq, ms1, ms2)][0] is not None:
             pminpath = [(ms1, ms2)]
         elif (msq, ms1, ms2) in FPATH_CACHE and isinstance(FPATH_CACHE[(msq, ms1, ms2)][1], list): 
-            # then return the pminpath
             pminpath = FPATH_CACHE[(msq, ms1, ms2)][1]
         else:
             path = findpath_get_path(msq, ms1, ms2, md, maxbar)
@@ -476,31 +477,19 @@ def get_fpath_flooding_cache(seq, ss1, ss2, md, minh, maxbar = None, fpf = 2):
         pass
     else:
         (obar, ogain, omax, ofpw) = FPATH_CACHE[(seq, ss1, ss2)]
-        fpw = fpf * get_bpd_cache(ss1, ss2) 
+        fpw = fpwf * get_bpd_cache(ss1, ss2) 
         if obar == float('inf') and (maxbar > omax or fpw > ofpw): # retry with a higher bound.
             decompose_path(seq, ss1, ss2, firsttime = True)
         elif obar != float('inf') and (obar + 0.01 <= maxbar and fpw > ofpw):
             decompose_path(seq, ss1, ss2, firsttime = True)
-
         assert obar >= FPATH_CACHE[(seq, ss1, ss2)][0]
         assert ogain == FPATH_CACHE[(seq, ss1, ss2)][1]
-
     return FPATH_CACHE[(seq, ss1, ss2)]
 
 def show_flooded_prime_path(seq, ss1, ss2):
-    """Returns ONE prime path, but there may be many.
+    """ Returns ONE prime path, but there may be many.
     The cache must be filled before!
     """
-    #            if isinstance(lmp[1], set):
-    #                backup = start
-    #                for x in permutations(lmp[1]):
-    #                    start = backup
-    #                    for (lsq, pm1, pm2) in x: 
-    #                        get_ppms(lsq, pm1, pm2, startseq, start, stop)
-    #                        print('a', pm1, start)
-    #                        print('a', pm2, stop)
-    #                        start = apply_bp_change(startseq, start, stop, lsq, pm1, pm2)
- 
     ppmlist = []
     def my_ppm(seq, ss1, ss2, startseq, start, stop):
         lmp = get_fpath_flooding_cache(seq, ss1, ss2, None, None)
@@ -508,14 +497,10 @@ def show_flooded_prime_path(seq, ss1, ss2):
             if isinstance(lmp[1], set):
                 backup = start
                 for perm in permutations(lmp[1]):
-                    print(perm)
                     start = backup
                     for (lsq, pm1, pm2) in perm: 
                         my_ppm(lsq, pm1, pm2, startseq, start, stop)
                         start = apply_bp_change(startseq, start, stop, lsq, pm1, pm2)
-                #for (lsq, pm1, pm2) in lmp[1]: 
-                #    my_ppm(lsq, pm1, pm2, startseq, start, stop)
-                #    start = apply_bp_change(startseq, start, stop, lsq, pm1, pm2)
             else:
                 for (pm1, pm2) in lmp[1]: 
                     my_ppm(seq, pm1, pm2, startseq, start, None)
@@ -525,7 +510,6 @@ def show_flooded_prime_path(seq, ss1, ss2):
             revp = get_fpath_flooding_cache(seq, ss2, ss1, None, None)
             ppmlist.append([start, stop, lmp[0], revp[0]])
             return start, stop, lmp[0], revp[0]
-
     my_ppm(seq, ss1, ss2, seq, ss1, ss2)
     return ppmlist
 
@@ -590,23 +574,19 @@ def local_flooding(fc, lmin, basinh = 2, rates = True, RT = None, k0 = None):
                 k_mj += P_i * k_ij
                 k_exit += P_i * k_ij
             fstep[fs] = [P_mj, k_mj]
-
         p_tot = 0
         for fs, [P_mj, k_mj] in fstep.items():
             assert P_mj == 0
             fstep[fs][0] = fstep[fs][1]/k_exit
-
     return macro, fstep
 
 def get_neighbors(fc, db = None, pt = None):
     """
     """
-
     if pt is None:
         pt = RNA.ptable(db)
     else:
         assert db == None
-
     nbrs = []
     for move in fc.neighbors(pt):
         npt = list(pt)
@@ -618,16 +598,131 @@ def get_neighbors(fc, db = None, pt = None):
             npt[move.pos_3] = move.pos_5
             npt[move.pos_5] = move.pos_3
         else:
-            print(move.is_shift())
-            print(move.pos_3)
-            print(move.pos_5)
-            raise NotImplementedError('shift moves?')
-
+            rlog.warning(f"Are you using shift moves?")
+            rlog.warning(f" shift = {move.is_shift()}")
+            rlog.warning(f" pos3 = {move.pos_3}")
+            rlog.warning(f" pos5 = {move.pos_5}")
+            raise NotImplementedError('Are you using shift moves?')
         dG = fc.eval_move_pt(pt, move.pos_5, move.pos_3)
         if db:
             nbrs.append([RNA.db_from_ptable(npt), dG])
         else:
             nbrs.append([npt, dG])
-
     return nbrs
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+# Findpath                                                                     #
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+
+def costruct(seq, cut = None):
+    """ Translate between 'input' and 'internal' RNAcofold sequences """
+    delim = '&'
+    if delim in seq:
+        cut = seq.index(delim) + 1
+        table = str.maketrans(dict.fromkeys('&'))
+        seq = seq.translate(table)
+    elif cut and cut != -1:
+        seq = seq[:cut-1] + delim + seq[cut-1:]
+        cut = None
+    return seq, cut
+
+def findpath_wrap(fc, s1, s2, maxE, fpath, cut = None, verbose = False):
+    """ A wrapper for ViennaRNA findpath functions. """
+    sE = None
+    if verbose:
+        if maxE:
+            dcal_bound = int(round(maxE * 100))
+            path = fc.path_findpath(s1, s2, 
+                    maxE = dcal_bound, width = fpath)
+        else:
+            path = fc.path_findpath(s1, s2, width = fpath)
+
+        if len(path):
+            sE = round(fc.eval_structure(s1), 2)
+            for e, step in enumerate(path):
+                ss, _ = costruct(step.s, cut)
+                print("{:2d} {:s} {:6.2f}".format(e, ss, step.en))
+                if step.en > sE: sE = step.en
+    else :
+        if maxE:
+            dcal_bound = int(round(maxE * 100))
+            dcal_sE = fc.path_findpath_saddle(s1, s2, 
+                    maxE = dcal_bound, width = fpath)
+        else :
+            dcal_sE = fc.path_findpath_saddle(s1, s2, width = fpath)
+        if dcal_sE is not None:
+            sE = float(dcal_sE)/100
+    return sE
+
+def main():
+    """ A wrapper for ViennaRNA findpath functions. """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-v", "--verbose", action='count', default = 0,
+            help = "Verbose output, e.g. the folding pathway. (-vv increases verbosity.)")
+    parser.add_argument("-w","--search-width", type = int, default = None, 
+            help = "Adjust upper bound for findpath search.")
+    parser.add_argument("--minh", type = float, default = None,
+            help = "Set a minimum barrier height for path flooding.")
+    parser.add_argument("-m","--max-energy", type = float, default = None,
+            help = "Specify upper bound for barrier energy (kcal/mol).")
+    parser.add_argument("--primepaths", action = "store_true",
+            help = "Decompose findpath into primepaths.")
+    args = parser.parse_args()
+
+    # Verbose level 0: show output
+    # Verbose level 1: show path
+    # Verbose level 2: show rlog.info
+    # Verbose level 3: show rlog.debug
+
+    for e, line in enumerate(sys.stdin):
+        if e == 0 :
+            seq = line.strip()
+        elif e == 1 :
+            ss1, cut = costruct(line.strip())
+        elif e == 2 :
+            ss2, cut_ = costruct(line.strip())
+
+    if cut != cut_:
+        raise PathfinderError('Inconsistent cut-points.')
+
+    md = RNA.md()
+    fc = RNA.fold_compound(seq, md)
+
+    bpd = RNA.bp_distance(ss1, ss2)
+    rlog.info("Base-pair distance:", RNA.bp_distance(ss1, ss2))
+
+    if args.search_width is None:
+        args.search_width = 2 * bpd
+    rlog.info(f"Search-width: {args.search_width}")
+    if args.verbose:
+        print(f"   {seq}")
+    saddle = findpath_wrap(fc, ss1, ss2, 
+            args.max_energy, 
+            args.search_width, 
+            cut = cut, 
+            verbose = args.verbose)
+
+    if saddle is not None:
+        e1 = round(fc.eval_structure(ss1), 2)
+        barrier = saddle - e1
+        print("Saddle: {:6.2f} kcal/mol | Barrier: {:6.2f} kcal/mol | Search width parameter: {}".format(saddle, barrier, args.search_width))
+    else:
+        print("No valid saddle found below energy: {:6.2f} kcal/mol | Search width parameter: {}".format(args.max_energy, args.search_width))
+
+    if args.primepaths:
+        print('Findpath decomposition:')
+        features = get_bp_change(seq, ss1, ss2)
+        for (cseq, cs1, cs2) in features:
+            print(cseq, cs1, cs2, get_fpath_cache(cseq, cs1, cs2, md))
+        clear_fpath_cache()
+
+    if args.minh is not None:
+        rlog.info(f'Cache -- minh = {args.minh}:')
+        get_fpath_flooding_cache(seq, ss1, ss2, md, args.minh, maxbar = None, fpwf = 2)
+        pp = show_flooded_prime_path(seq, ss1, ss2)
+        for [a, b, fw, rv] in pp:
+            print(f"{a} -> {b} [fw = {fw}, rv = {rv}]")
+
+if __name__ == '__main__':
+    main()
 

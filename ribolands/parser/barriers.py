@@ -1,18 +1,15 @@
 #
 # ribolands.parser.barriers
-#   - copy and/or modify together with tests/test_barriers_parser.py
 #
-# Written by Stefan Badelt (stefan.badelt@gmail.com)
-#
-# Distributed under the MIT License, use at your own risk.
-#
+
+import logging
+rlog = logging.getLogger(__name__)
 
 from collections import namedtuple
 from pyparsing import (Dict, Word, Literal, Group, Suppress, Optional, ZeroOrMore,
         Combine, White, OneOrMore, alphas, alphanums, nums, delimitedList,
         StringStart, StringEnd, Forward, LineEnd, pythonStyleComment,
         ParseElementEnhance)
-
 
 def barriers_grammar():
     """ A grammar to interpret output from the program barriers.
@@ -180,7 +177,6 @@ def as_tuple(data):
                     raise NotImplementedError('unidentified input')
             lm = LocalMinimum(id, ss, en, fa, dG, saddle, pool_size, pool_G, grad_size, grad_G)
             lms.append(lm)
-
     return lms
 
 def parse_barriers_file(data):

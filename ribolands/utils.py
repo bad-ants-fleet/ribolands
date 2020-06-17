@@ -1,15 +1,7 @@
 #
-#  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
-#  University of Vienna, Department of Theoretical Chemistry
-#
-#  -*- Style -*-
-#  Use double quotes or '#' for comments, such that single quotes are available
-#  for uncommenting large parts during testing
-#
-#  *) do not exceed 80 characters per line
-#
-#  -*- Content -*-
-#  *) parsers for stdin, barfiles and rate-matrix
+# ribolands.utils
+# 
+# All sorts of useful stuff.
 #
 
 import re

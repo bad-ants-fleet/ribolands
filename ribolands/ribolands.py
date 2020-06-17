@@ -1,3 +1,11 @@
+#
+# ribolands.ribolands
+# 
+# Home of the RiboLandscape object.
+#
+
+import logging
+rlog = logging.getLogger(__name__)
 
 import RNA 
 import math
@@ -9,11 +17,18 @@ from crnsimulator import ReactionGraph
 from crnsimulator.crn_parser import parse_crn_string
 
 from ribolands.utils import natural_sort
-from ribolands.pathfinder import apply_bp_change
-from ribolands.pathfinder import get_fpath_flooding_cache
+from ribolands.pathfinder import (apply_bp_change, get_fpath_flooding_cache)
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+# Custom error definitions                                                     #
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+class RiboLandscapeError(Exception):
+    pass
 
 class RiboLandscape(nx.DiGraph):
     """ Implemented for unimolecular reactions.
+
+    This is the backbone of any ribolands landscape object.
 
     Suggested attributes for nodes: energy, structure, identity, active
     Suggested attributes for edges: weight, saddleE.
@@ -44,14 +59,12 @@ class RiboLandscape(nx.DiGraph):
             occupancy = 0, 
             active = None,
             **kwargs):
-
+        # Wrapper to add a secondary structure to the graph.
         if structure is not None and energy is None:
             energy = round(self.fc.eval_structure(structure), 2)
         if identity is None:
             identity = self.nodeID
-
         assert isinstance(energy, float) if energy else True
-
         self.add_node(key,
                 identity = identity,
                 structure = structure, 
@@ -59,7 +72,6 @@ class RiboLandscape(nx.DiGraph):
                 occupancy = occupancy, 
                 active = active,
                 **kwargs)
-
         self.nodeID += 1
    
     def addedges(self, n1, n2, fwb, rvb, sE):
@@ -85,20 +97,20 @@ class RiboLandscape(nx.DiGraph):
     @property
     def active_subgraph(self):
         """ Return a new object with only active nodes (and edges) """
-        other = RiboLandscape(self.sequence)
+        other = self.__class__(self.sequence)
         other.md = self.md
         other.fc = self.fc
         other.minh = self.minh
 
         for n, data in self.nodes.data():
-            assert data['active'] is not None # Did you forget to call coarse-graining?
+            if data['active'] is None:
+                raise RiboLandscapeError("Did you forget to call coarse-graining",
+                        "before extracting the active subgraph?")
             if data['active']:
                 other.add_node(n, **data)
-
         for n1, n2, data in self.edges.data():
             if self.nodes[n1]['active'] and self.nodes[n2]['active']:
                 other.add_edge(n1, n2, **data)
-
         return other
     
     @property
@@ -114,33 +126,25 @@ class RiboLandscape(nx.DiGraph):
         return [n for n in self.nodes if self.nodes[n]['active'] is None]
 
     def sorted_nodes(self, attribute = 'energy', rev = False, nodes = None):
-        """Provide active nodes or new nodes, etc. if needed.
-        """
+        """ Provide active nodes or new nodes, etc. if needed. """
         if nodes is None:
             nodes = self.nodes
         return sorted(nodes, key = lambda x: self.nodes[x][attribute], reverse = rev)
->>>>>>> Stashed changes
 
     def get_saddle(self, s1, s2):
-        """Returns the saddle energy of a transition edge."""
-        if self.has_edge(s1, s2):
-            return self[s1][s2]['saddleE']
-        else:
-            return None
+        """ Returns the saddle energy of a transition edge. """
+        return self[s1][s2]['saddleE'] if self.has_edge(s1, s2) else None
 
     def get_barrier(self, s1, s2):
-        """Returns the barrier energy of a transition edge."""
+        """ Returns the barrier energy of a transition edge. """
         if self.has_edge(s1, s2):
             return self[s1][s2]['saddleE'] - self.nodes[s1]['energy']
         else:
             return None
 
     def get_rate(self, s1, s2):
-        """Returns the direct transition rate of two secondary structures."""
-        if self.has_edge(s1, s2):
-            return self[s1][s2]['weight']
-        else:
-            return 0
+        """ Returns the direct transition rate of two secondary structures. """
+        return self[s1][s2]['weight'] if self.has_edge(s1, s2) else 0
 
     def get_simulation_files_tkn(self, basename, snodes = None):
         """ Print a rate matrix and the initial occupancy vector.
@@ -218,7 +222,6 @@ class RiboLandscape(nx.DiGraph):
                 rts.write("{}\n".format(line))
                 for r in trates:
                     brts.write(pack("d", r))
-
         return bbfile, brfile, bofile, p0
 
     def to_crn(self, filename = None, prefix = 'ID_'):
@@ -247,7 +250,7 @@ class RiboLandscape(nx.DiGraph):
         else:
             return "".join(crn_gen())
 
-    def to_crnsimulator(self, filename, sorted_vars = None, verbose = False):
+    def to_crnsimulator(self, filename, sorted_vars = None):
         """
         """
         if filename[-3:] != '.py':
@@ -272,7 +275,6 @@ class RiboLandscape(nx.DiGraph):
         crn, species = parse_crn_string(crnstring)
         crn = irrev(crn)
         RG = ReactionGraph(crn)
-        
         V = sorted_vars if sorted_vars else natural_sort(species)
 
         # ********************* #
@@ -281,25 +283,22 @@ class RiboLandscape(nx.DiGraph):
         filename, _ = RG.write_ODE_lib(sorted_vars = V, concvect = None,
                                              jacobian = False,
                                              filename = filename)
-
-        if verbose:
-            print(f'# Wrote ODE system: {filename}')
-
+        rlog.info(f'# Wrote ODE system: {filename}')
         return filename
 
-    def simulate_crn(self, filename = None, sorted_vars = None, verbose = False):
+    def simulate_crn(self, filename = None, sorted_vars = None):
         # Take odeint parameters
         # Take plotting parameters
         # call to_crnsimulator and do the I/O handling
-        pass
+        raise NotImplementedError
 
-    def plot_to(self, name, label = 'identity', nodes = None):
+    def plot_to(self, oname, label = 'identity', nodes = None):
         plt.subplot(111)
         if nodes is None:
             nodes = self.nodes
         labs = {a : b[label] for a, b in self.nodes(data = True)} if label else None
         nx.draw_circular(self, with_labels = True, labels = labs, nodelist = nodes)
-        plt.savefig(name)
+        plt.savefig(oname)
         plt.close()
 
     def coarse_grain(self, minh = None):
@@ -317,7 +316,6 @@ class RiboLandscape(nx.DiGraph):
         for node in self.sorted_nodes(rev = True):
             reps = self.merge_to_representatives(node, minh)
             assert self.nodes[node]['active'] is not None
-
             if len(reps):
                 self.lminreps[node] = reps # the node was merged to reps
                 for rep in reps:      # representatives are lmins (for now)!
@@ -325,10 +323,8 @@ class RiboLandscape(nx.DiGraph):
                         self.hiddennodes[rep].add(node)
                     else:
                         self.hiddennodes[rep] = set([node])
-
                 if node in self.hiddennodes: # if a merged node was considered an lmin earlier ...
                     basin = self.hiddennodes[node]
-
                     for hn in basin:
                         assert hn in self.lminreps
                         self.lminreps[hn] |= reps 
@@ -336,8 +332,12 @@ class RiboLandscape(nx.DiGraph):
                         for rep in reps:
                             self.hiddennodes[rep].add(hn)
                     del self.hiddennodes[node]
-            #else:
-            #    self.lminreps[node] = set([node]) # the node was merged to itself
+            #else: # the node was merged to itself
+            #    self.lminreps[node] = set([node]) 
+            #    if node not in self.hiddennodes:
+            #        self.hiddennodes[node] = set([node]) # the node was merged to itself
+            #    else:
+            #        self.hiddennodes[node].add(node) # the node was merged to itself
         return self.lminreps, self.hiddennodes
 
     def merge_to_representatives(self, node, minh = None, mode = 'flooding'):
@@ -354,7 +354,6 @@ class RiboLandscape(nx.DiGraph):
         if minh is None:
             minh = self.minh
         assert minh is not None
-        
         en = self.nodes[node]['energy']
 
         # Sort neighbors from lowest to highest energy
@@ -402,80 +401,41 @@ class RiboLandscape(nx.DiGraph):
  
 class PrimePathLandscape(RiboLandscape):
     """
-    Is this going to be the new TrafoLandscape?
+    An extension of the RiboLandscape object to handle prime path decomposition.
     """
 
     def __init__(self, *kargs, **kwargs):
         super(PrimePathLandscape, self).__init__(*kargs, **kwargs)
 
-    @property
-    def active_subgraph(self):
-        """ Return a new object with only active nodes (and edges) """
-        other = PrimePathLandscape(self.sequence)
-        other.md = self.md
-        other.fc = self.fc
-        other.minh = self.minh
-
-        for n, data in self.nodes.data():
-            assert data['active'] is not None # Did you forget to call coarse-graining?
-            if data['active']:
-                other.add_node(n, **data)
-
-        for n1, n2, data in self.edges.data():
-            if self.nodes[n1]['active'] and self.nodes[n2]['active']:
-                other.add_edge(n1, n2, **data)
-
-        return other
-
-    def connect_nodes_n2(self, nodes = None, energyth = None, direct = False):
-        """For now, connect all by all, no sorting, no stopping condition.
-
-        Use nodes to specify a subset (e.g. new_nodes, active_nodes, etc.)
-        """
-        if nodes is None:
-            nodes = self.nodes
-        newnodes = set()
-        betteren = set()
-        for ss1, ss2 in combinations(nodes, 2):
-            primepath = self.get_prime_path_minima(ss1, ss2, direct_only = direct)
-            if primepath is None:
-                assert direct is True
-                continue
-            for start, stop, fwb, fwg, rvb in primepath:
-                assert start in self.nodes
-                if stop not in self.nodes:
-                    myen = round(self.nodes[start]['energy'] + fwg, 2)
-                    self.addnode(stop, structure = stop, energy = myen)
-                    newnodes.add(stop)
-                    if energyth and myen < energyth:
-                        betteren.add(stop)
-        
-                sE = round(self.nodes[start]['energy'] + fwb, 2)
-                assert sE == round(self.nodes[stop]['energy'] + rvb, 2)
-        
-                if self.has_edge(start, stop):
-                    if sE < self.get_saddle(start, stop):
-                        self.edgeupdate(start, stop, fwb, rvb, sE)
-                else:
-                    self.addedges(start, stop, fwb, rvb, sE)
-        return newnodes, betteren
+    def connect_nodes_n2(self, nodes = None, **kwargs):
+        return self.connect_nodes_nm(nodesA = nodes, nodesB = nodes, **kwargs)
 
     def connect_to_active(self, nodes = None, **kwargs):
         active = self.active_nodes
         return self.connect_nodes_nm(nodesA = active, nodesB = nodes, **kwargs)
 
-    def connect_nodes_nm(self, nodesA = None, nodesB = None, energyth = None, direct = False):
+    def connect_nodes_nm(self, nodesA = None, nodesB = None, direct = False):
+        """ Connect all by all, no sorting, no stopping condition.
+
+        Args:
+            nodesA (list, optional): specify a subset of nodes (e.g. new_nodes, 
+                active_nodes, ...). Defaults to None: all nodes.
+            nodesB (list, optional): specify a subset of nodes (e.g. new_nodes, 
+                active_nodes, ...). Defaults to None: all nodes.
+            direct (bool, optional): Only return paths composed of a single prime path step.
+
+        Returns:
+            list: A list of new nodes.
+        """
         if nodesA is None:
             nodesA = self.nodes
         if nodesB is None:
             nodesB = self.nodes
 
         newnodes = set()
-        betteren = set()
-
         for ss1, ss2 in product(nodesA, nodesB):
             if ss1 == ss2: continue
-            primepath = self.get_prime_path_minima(ss1, ss2, direct_only = direct)
+            primepath = self.get_prime_path_minima(ss1, ss2, single_step = direct)
             if primepath is None:
                 assert direct is True
                 continue
@@ -485,8 +445,6 @@ class PrimePathLandscape(RiboLandscape):
                     myen = round(self.nodes[start]['energy'] + fwg, 2)
                     self.addnode(stop, structure = stop, energy = myen)
                     newnodes.add(stop)
-                    if energyth and myen < energyth:
-                        betteren.add(stop)
         
                 sE = round(self.nodes[start]['energy'] + fwb, 2)
                 assert sE == round(self.nodes[stop]['energy'] + rvb, 2)
@@ -496,58 +454,46 @@ class PrimePathLandscape(RiboLandscape):
                         self.edgeupdate(start, stop, fwb, rvb, sE)
                 else:
                     self.addedges(start, stop, fwb, rvb, sE)
-        return newnodes, betteren
+        return newnodes
 
-    def get_prime_path_minima(self, ss1, ss2, direct_only = False):
+    def get_prime_path_minima(self, ss1, ss2, single_step = False):
         """ Use the prime-path model to find all macrostate-paths between two nodes.
+
+        Args:
+            ss1 (string): Secondary structure 1
+            ss2 (string): Secondary structure 2
+            single_step (bool, optional): Return the prime path only if it is just 
+                a single step. Defaults to False.
         """
         assert self.minh is not None
         seq = self.sequence
 
-        #print()
-        #print(seq)
-        #print(ss1)
-        #print(ss2)
-        
         valid = [True]
         primepath = []
-        #cc = [0]
         def get_ppms(seq, ss1, ss2, startseq, start, stop):
-            #cc[0] += 1
-            #c = cc[0]
+            # get prime path minima
+            rlog.debug(f'My input: \n{seq}\n{ss1}\n{ss2}')
             lmp = get_fpath_flooding_cache(seq, ss1, ss2, self.md, self.minh)
-        
+            rlog.debug(f'My lminpath: {lmp}')
             if lmp[0] is None:
                 if isinstance(lmp[1], set):
                     backup = start
                     for x in permutations(lmp[1]):
-                        #print('x', x)
                         start = backup
                         for (lsq, pm1, pm2) in x: 
-                            #print('a', c, pm1, start)
-                            #print('a', c, pm2, stop)
                             get_ppms(lsq, pm1, pm2, startseq, start, stop)
                             start = apply_bp_change(startseq, start, stop, lsq, pm1, pm2)
-                            #print('a', c, start)
-                elif direct_only: 
+                elif single_step: 
                     valid[0] = False
                 else:
                     for (pm1, pm2) in lmp[1]: 
-                        #print('b', c, pm1, start)
-                        #print('b', c, pm2, stop)
                         stop = apply_bp_change(startseq, start, None, seq, pm1, pm2)
                         get_ppms(seq, pm1, pm2, startseq, start, stop)
                         start = stop
-                        #print('b', c, start)
             else:
-                #print('c',c, ss1, start)
-                #print('c',c, ss2, stop)
                 stop = apply_bp_change(startseq, start, stop, seq, ss1, ss2)
                 revp = get_fpath_flooding_cache(seq, ss2, ss1, None, None)
-                #print('c',c, stop)
-
                 primepath.append([start, stop, lmp[0], lmp[1], revp[0]])
-
         get_ppms(seq, ss1, ss2, seq, ss1, ss2)
         return primepath if valid[0] else None
 
@@ -573,17 +519,7 @@ class PrimePathLandscape(RiboLandscape):
             for [start, stop, fwb, fwg, rvb] in self.get_prime_path_minima(x, y):
                 basin1 = set([start]) if start not in lminreps else lminreps[start]
                 basin2 = set([stop]) if stop not in lminreps else lminreps[stop]
-                #if not all(s1 == s2 or self.get_barrier(s1,s2) is not None \
-                #        for (s1, s2) in product(basin1, basin2)):
-                #    print(start, stop)
-                #    print(basin1, basin2)
-                #    for (s1, s2) in product(basin1, basin2):
-                #        print(s1)
-                #        print(s2)
-                #        print(s1, self.nodes[s1]['energy'])
-                #        print(s2, self.nodes[s2]['energy']) 
-
-                # OK, so pruning may add a new node here,...
+                # NOTE: pruning may add a new node here,...
                 #assert all(s1 == s2 or self.get_barrier(s1,s2) is not None \
                 #        for (s1, s2) in product(basin1, basin2))
                 keep |= basin1 | basin2

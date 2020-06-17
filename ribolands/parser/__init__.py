@@ -1,10 +1,9 @@
 #
 # ribolands.parser
 #
-# Written by Stefan Badelt (badelt@caltech.edu)
-#
-# Distributed under the MIT License, use at your own risk.
-#
+
+import logging
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 from pyparsing import ParseException
 from ribolands.parser.barriers import (parse_barriers_file, 

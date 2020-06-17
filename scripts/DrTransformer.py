@@ -3,8 +3,8 @@
 #
 # DrTransformer.py -- cotranscriptional folding.
 #
-# written by Stefan Badelt (stef@tbi.univie.ac.at)
 #
+import logging
 
 import os
 import sys
@@ -18,6 +18,7 @@ from datetime import datetime
 import seaborn
 
 import RNA
+from ribolands import __version__
 import ribolands as ril
 from ribolands.utils import parse_vienna_stdin
 from ribolands.syswraps import sys_treekin_051
@@ -355,21 +356,54 @@ def write_output(data, stdout = False, fh = None):
         fh.write(data)
     return
 
-def main(args):
+def set_handle_verbosity(h, v):
+    if v == 0:
+        h.setLevel(logging.WARNING)
+    elif v == 1:
+        h.setLevel(logging.INFO)
+    elif v == 2:
+        h.setLevel(logging.DEBUG)
+    elif v >= 3:
+        h.setLevel(logging.NOTSET)
+
+def main():
+    parser = argparse.ArgumentParser(
+        formatter_class = argparse.ArgumentDefaultsHelpFormatter,
+        description = 'DrTransformer: RNA folding kinetics during transcription.')
+    add_drtrafo_args(parser)
+    parse_model_details(parser)
+    args = parser.parse_args()
+
+    # ~~~~~~~~~~~~~
+    # Logging Setup 
+    # ~~~~~~~~~~~~~
+    title = 'DrTransformer: RNA folding kinetics during transcription.'
+    logger = logging.getLogger('ribolands')
+    logger.setLevel(logging.DEBUG)
+
+    banner = "{} {}".format(title, __version__)
+    ch = logging.StreamHandler()
+    formatter = logging.Formatter('%(levelname)s - %(message)s')
+    set_handle_verbosity(ch, args.verbose)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    logger.info(banner)
+
+
     """ DrTransformer - cotranscriptional folding """
     (name, fullseq) = parse_vienna_stdin(sys.stdin, chars='ACGUNacgun')
 
     # Argument deprecation Warnings
     if args.tinc:
-        print('DEPRECATION WARNING: Argument --tinc is deprecated, please use --t-inc.')
+        logger.warning('Argument --tinc is deprecated, please use --t-inc.')
         args.t_inc = args.tinc
 
     if args.soft_minh:
-        print('DEPRECATION WARNING: Argument --soft-minh is deprecated, please use --plot-minh.')
+        logger.warning('Argument --soft-minh is deprecated, please use --plot-minh.')
         args.plot_minh = args.soft_minh
 
     if args.min_occupancy:
-        print('DEPRECATION WARNING: Argument --min-occupancy is deprecated, please use --o-min.')
+        logger.warning('Argument --min-occupancy is deprecated, please use --o-min.')
         args.o_min = args.min_occupancy
 
     # Adjust arguments, prepare simulation
@@ -459,13 +493,12 @@ def main(args):
     # Compare --t-fast, --t-slow, --t-ext and --t-end :
     if args.verbose:
         minh = -_RT * math.log(1 / args.t_fast / args.k0)
-        print('# --t-fast: {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
-            args.t_fast, minh, 1/args.t_fast, args.k0))
+        logger.info(f'--t-fast: {args.t_fast} s => {minh} kcal/mol barrier height' + \
+                f'and {1/args.t_fast} /s rate at k0 = {args.k0}')
         if args.t_slow is not None:
             raise NotImplementedError
             dG_max = -_RT * math.log(1 / args.t_slow / args.k0)
-            print('# --t-slow {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
-                args.t_slow, dG_max, 1/args.t_slow, args.k0))
+            logger.info(f'--t-slow {args.t_slow} s => {dG_max} kcal/mol barrier height and {1/args.t_slow} /s rate at k0 = {args.k0}')
 
     if not args.force and args.t_fast * 10 > args.t_ext:
         raise SystemExit('ERROR: Conflicting Settings: ' + \
@@ -554,11 +587,10 @@ def main(args):
     CG.t_slow = args.t_slow
 
     CG.fpath = args.findpath_search_width
-
     CG._transcript_length = args.start - 1
 
-    #import statprof
-    #statprof.start()
+    import statprof
+    statprof.start()
 
     tprofile = []
     psites = dict()
@@ -567,43 +599,34 @@ def main(args):
             site, pause = term.split('=')
             psites[int(site)] = float(pause)
 
-    if args.verbose:
-        atime = datetime.now()
+    #if args.verbose:
+    #    atime = datetime.now()
 
     # now lets start...
     tnorm, tplusI, texpo, tfail, tfake = 0, 0, 0, 0, 0 # treekin stats
     for tlen in range(args.start, args.stop):
-        print()
         # Get new nodes and connect them.
         nn = CG.expand()
-        print('after expand:', nn)
 
         # lminreps, hiddennodes
         lrep, hn = CG.coarse_grain()
-        print('after coarsegrain:', len(lrep), len(hn))
-       
         
-        while newn:
-            newn, _ = CG.connect_nodes_n2(nodes = CG.active_nodes, direct = True)
-            lrep, hn = CG.coarse_grain()
-            print('while coarsegrain:', len(newn), len(lrep), len(hn))
-            nn += len(newn)
-
-        # We still need to update the occupancies!!!!
+        # Now update the occupancies:
         for hnode in lrep:
             if CG.nodes[hnode]['occupancy'] == 0:
                 continue
             if hnode in lrep[hnode]:
-                print(hnode, lrep[hnode])
-                assert len(lrep[hnode]) == 1
+                if len(lrep[hnode]) > 1:
+                    print(hnode)
+                    print(lrep[hnode])
+                    raise SystemExit('wtf')
                 continue
             tot = len(lrep[hnode])
             for mnode in lrep[hnode]:
                 CG.nodes[mnode]['occupancy'] += CG.nodes[hnode]['occupancy']/tot
             CG.nodes[hnode]['occupancy'] = 0
-        print('New Nodes {}, Hiden nodes: {}, Lmins: {}'.format(nn, len(lrep), len(hn)))
+        logger.info('New Nodes {}, Hiden nodes: {}, Lmins: {}'.format(nn, len(lrep), len(hn)))
 
-        print(nn)
         if args.pyplot:
             ttt = CG.total_time
             if ttt == 0:
@@ -630,7 +653,7 @@ def main(args):
         nlist = CG.sorted_nodes(attribute = 'energy', nodes = CG.active_nodes)
         rfile, br, bo, p0 = CG.get_simulation_files_tkn(_fname, nlist) 
 
-        # TODO: LATERfn!
+        # TODO: LATER!
         softmap = dict()
         #if args.plot_minh and args.plot_minh > CG._dG_min:
         #    copyCG = CG.graph_copy()
@@ -638,21 +661,18 @@ def main(args):
         #    del copyCG
 
         # Print the current state *before* the simulation starts.
-        totoc = 0
         if args.stdout == 'log' or lfh:
             for e, node in enumerate(nlist, 1):
                 ne = CG.nodes[node]['energy']
                 no = CG.nodes[node]['occupancy']
                 ni = CG.nodes[node]['identity']
-                totoc += no
                 sm = '-> {}'.format([CG.nodes[tr]['identity'] for tr in softmap[node]]) if node in softmap else ''
                 fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                     tlen, e, node[:tlen], ne, no, ni, sm)
                 write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
-        print('TOTO', totoc)
 
-        if args.verbose:
-            itime = datetime.now()
+        #if args.verbose:
+        #    itime = datetime.now()
 
         dn, sr, rj = 0, 0, 0
         if len(nlist) == 1:
@@ -692,16 +712,13 @@ def main(args):
                                 exponent = True, useplusI = True, force = True, verbose = (args.verbose > 1))
                         tplusI += 1
                     except SubprocessError:
-                        if args.verbose > 1:
-                            print("After {} nucleotides: treekin cannot find a solution!".format(tlen))
+                        logger.debug("After {} nucleotides: treekin cannot find a solution!".format(tlen))
                         # - Simulate with crnsimulator python package (slower)
                         _odename = name + str(tlen)
                         _t0 = args.t0  if args.t0 > 0 and t_log else 1e-6
                         tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
                                                  t_lin = t_lin,
-                                                 t_log = t_log,
-                                                 jacobian = False,  # faster!
-                                                 verb = (args.verbose > 1))
+                                                 t_log = t_log)
                         tfail += 1
 
             ## NOTE: Enable this hack to avoid treekin simulations in the first place
@@ -710,9 +727,7 @@ def main(args):
             #    _t0 = args.t0  if args.t0 > 0 and t_log else 1e-6
             #    tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
             #                             t_lin = t_lin,
-            #                             t_log = t_log,
-            #                             jacobian = False,  # faster!
-            #                             verb = (args.verbose > 1))
+            #                             t_log = t_log)
 
             # Get Results
             time_inc, iterations = CG.update_occupancies_tkn(tfile, nlist)
@@ -750,8 +765,6 @@ def main(args):
                 pmin = args.o_min / len(nlist)
                 CG.prune(pmin)
 
-            print('FinalPPG:', len(CG))
-
             #if args.track_basins:
             #    # add or substract a 0.1 kcal/mol plot-minh for every structure
             #    # too much or too little.
@@ -761,41 +774,41 @@ def main(args):
             if args.draw_graphs:
                 CG.graph_to_json(_fname)
 
-        if args.verbose:
-            nZedges = len([a for (a, b, d) in CG.edges(data = True) if d['saddleE'] != float('inf') and CG.nodes[a]['active'] and CG.nodes[b]['active']])
-            print("# Transcripton length: {}. Active graph size: {}. Non-zero transition edges: {}.  Hidden graph size: {}. Number of Edges: {}".format(
-                tlen, len(nlist), nZedges, len(CG), CG.number_of_edges()))
-            stime = datetime.now()
-            algotime = (itime - atime).total_seconds()
-            simutime = (stime - itime).total_seconds()
-            tot_time = (stime - atime).total_seconds()
-            print("# Computation time at current nucleotide: algo: {} simu: {} total: {}".format(algotime, simutime, tot_time))
-            print("# Deleted {} nodes, {} still reachable.".format(dn, sr))
-            print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail, {} fake".format(tnorm, texpo, tplusI, tfail, tfake))
-            fp_tot = PROFILE['findpath-calls']
-            fp_fr1 = PROFILE['fraying1']
-            fp_fr2 = PROFILE['fraying2']
-            fp_mfe = PROFILE['mfe']
-            fp_con = PROFILE['connect']
-            fp_cgr = PROFILE['cogr']
-            fp_prn = PROFILE['prune']
-            print("# Findpath stats: {} fraying, {} mfe connect, {} triangle connect, {} coarse-grain, {} prune, {} total.".format(fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot))
-            print("{}  {} {} {} {}  {} {} {}  {} {}  {} {} {} {} {}  {} {} {} {} {} {}".format(tlen, 
-                len(nlist), nZedges, len(CG), CG.number_of_edges(),
-                algotime, simutime, tot_time,
-                dn, sr,
-                tnorm, texpo, tplusI, tfail, tfake,
-                fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot))
+        #if args.verbose:
+        #    nZedges = len([a for (a, b, d) in CG.edges(data = True) if d['saddleE'] != float('inf') and CG.nodes[a]['active'] and CG.nodes[b]['active']])
+        #    print("# Transcripton length: {}. Active graph size: {}. Non-zero transition edges: {}.  Hidden graph size: {}. Number of Edges: {}".format(
+        #        tlen, len(nlist), nZedges, len(CG), CG.number_of_edges()))
+        #    stime = datetime.now()
+        #    algotime = (itime - atime).total_seconds()
+        #    simutime = (stime - itime).total_seconds()
+        #    tot_time = (stime - atime).total_seconds()
+        #    print("# Computation time at current nucleotide: algo: {} simu: {} total: {}".format(algotime, simutime, tot_time))
+        #    print("# Deleted {} nodes, {} still reachable.".format(dn, sr))
+        #    print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail, {} fake".format(tnorm, texpo, tplusI, tfail, tfake))
+        #    fp_tot = PROFILE['findpath-calls']
+        #    fp_fr1 = PROFILE['fraying1']
+        #    fp_fr2 = PROFILE['fraying2']
+        #    fp_mfe = PROFILE['mfe']
+        #    fp_con = PROFILE['connect']
+        #    fp_cgr = PROFILE['cogr']
+        #    fp_prn = PROFILE['prune']
+        #    print("# Findpath stats: {} fraying, {} mfe connect, {} triangle connect, {} coarse-grain, {} prune, {} total.".format(fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot))
+        #    print("{}  {} {} {} {}  {} {} {}  {} {}  {} {} {} {} {}  {} {} {} {} {} {}".format(tlen, 
+        #        len(nlist), nZedges, len(CG), CG.number_of_edges(),
+        #        algotime, simutime, tot_time,
+        #        dn, sr,
+        #        tnorm, texpo, tplusI, tfail, tfake,
+        #        fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot))
 
-            atime = stime
-            PROFILE['findpath-calls'] = 0
-            PROFILE['fraying1'] = 0
-            PROFILE['fraying2'] = 0
-            PROFILE['mfe'] = 0
-            PROFILE['connect'] = 0
-            PROFILE['cogr'] = 0
-            PROFILE['prune'] = 0
-            sys.stdout.flush()
+        #    atime = stime
+        #    PROFILE['findpath-calls'] = 0
+        #    PROFILE['fraying1'] = 0
+        #    PROFILE['fraying2'] = 0
+        #    PROFILE['mfe'] = 0
+        #    PROFILE['connect'] = 0
+        #    PROFILE['cogr'] = 0
+        #    PROFILE['prune'] = 0
+        #    sys.stdout.flush()
 
     # Write the last results
     if args.stdout == 'log' or lfh:
@@ -811,8 +824,8 @@ def main(args):
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
 
 
-    #statprof.stop()
-    #statprof.display()
+    statprof.stop()
+    statprof.display()
 
     # CLEANUP file handles
     if lfh: lfh.close()
@@ -836,15 +849,4 @@ def main(args):
     return
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        # formatter_class = argparse.RawTextHelpFormatter,
-        formatter_class = argparse.ArgumentDefaultsHelpFormatter,
-        # formatter_class = argparse.MetavarTypeHelpFormatter,
-        description = 'echo sequence | %(prog)s [options]')
-
-    add_drtrafo_args(parser)
-    parse_model_details(parser)
-
-    args = parser.parse_args()
-
-    main(args)
+    main()
