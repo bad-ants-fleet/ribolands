@@ -21,4 +21,7 @@ from ribolands.utils import make_pair_table
 from ribolands.utils import plot_nxy
 from ribolands.utils import ProgressBar
 
+from ribolands.pathfinder import get_bp_change
+from ribolands.pathfinder import get_fpath_cache
+
 from ribolands.crnwrapper import DiGraphSimulator

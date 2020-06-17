@@ -172,7 +172,8 @@ def add_drtrafo_args(parser):
     parser.add_argument("-v", "--verbose", action = 'count', default = 0,
             help = """Track process by writing verbose output to STDOUT during
             calculations. Use --logfile if you want to see *just* verbose
-            information via STDOUT.""")
+            information via STDOUT.  The verbose output can be visualized using
+            the script DrProfile.py. """)
 
     ##############################
     # DrTransformer dependencies #
@@ -220,17 +221,9 @@ def add_drtrafo_args(parser):
             DrForna (drf). Interpret the legend using STDOUT or --logfile.
             Files: {--outdir}/{--name}.{--visualize}""")
 
-    output.add_argument("--tinc", type = float, default = None, metavar = '<flt>',
-            #NOTE: Deprecated: use --t-inc!
-            help = argparse.SUPPRESS)
-
     output.add_argument("--t-inc", type = float, default = 1.2, metavar = '<flt>',
             help = """Adjust the plotting time resolution via the time-increment of
             the solver (t1 * t-inc = t2).""")
-
-    output.add_argument("--soft-minh", type = float, default = 0, metavar = '<flt>',
-            #NOTE: Deprecated: use --plot-minh!
-            help = argparse.SUPPRESS)
 
     output.add_argument("--plot-minh", type = float, default = 0, metavar = '<flt>',
             help = """Reduce the resolution of visualized structures. This
@@ -279,6 +272,7 @@ def add_drtrafo_args(parser):
     # DrTransformer algorithm #
     ###########################
     algo.add_argument("--track-basins", type = float, default = None, metavar = '<flt>',
+            # Specify a number of basins to follow, and adjust coares-graining accordingly.
             help = argparse.SUPPRESS)
 
     algo.add_argument("--o-min", type = restricted_float, default = 0.1, metavar = '<flt>',
@@ -288,9 +282,6 @@ def add_drtrafo_args(parser):
             where n is the number of simulated structures.
             """)
 
-    algo.add_argument("--min-occupancy", type = restricted_float, default = None, metavar = '<flt>',
-            help = argparse.SUPPRESS)
-
     algo.add_argument("--t-fast", type = float, default = None, metavar = '<flt>',
             help = """Folding times faster than --t-fast are considered
             instantaneous.  Structural transitions that are faster than
@@ -299,9 +290,11 @@ def add_drtrafo_args(parser):
             dG = -RT*ln((1/t-fast)/k0). None: t-fast = 1/k_0 """)
 
     algo.add_argument("--minh", type = float, default = None, metavar = '<flt>',
+            # An alternative to specify --t-fast in terms of a barrier height.
             help = argparse.SUPPRESS)
 
     algo.add_argument("--force", action = "store_true", 
+            # Enforce a setting against all warnings.
             help = argparse.SUPPRESS)
 
     algo.add_argument("--t-slow", type = float, default = None, metavar = '<flt>',
@@ -337,6 +330,24 @@ def add_drtrafo_args(parser):
             help = """Arrhenius rate constant (pre-exponential factor). Adjust
             this constant of the Arrhenius equation to relate free energy
             changes to experimentally determined folding time [seconds].""")
+
+    # DEPRECATED
+    algo.add_argument("--min-occupancy", type = restricted_float, default = None, metavar = '<flt>',
+            help = argparse.SUPPRESS)
+
+    output.add_argument("--soft-minh", type = float, default = 0, metavar = '<flt>',
+            #NOTE: Deprecated: use --plot-minh!
+            help = argparse.SUPPRESS)
+
+    output.add_argument("--tinc", type = float, default = None, metavar = '<flt>',
+            #NOTE: Deprecated: use --t-inc!
+            help = argparse.SUPPRESS)
+
+    # TESTING
+    algo.add_argument("--fake-pruning", type = float, default = None, metavar = '<flt>',
+            # An alternative to specify --t-fast in terms of a barrier height.
+            help = argparse.SUPPRESS)
+
     return
 
 
@@ -442,10 +453,12 @@ def main(args):
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
     if args.t_fast is None:
-        if args.minh :
+        if args.minh:
             args.t_fast = 1 / (args.k0 * math.exp(-args.minh/_RT))
         else:
             args.t_fast = 1 / args.k0
+    elif args.minh:
+        raise SystemExit('ERROR: Conflicting settings: "--minh" and "--t-fast" must not be specified at the same time.')
 
     # Compare --t-fast, --t-slow, --t-ext and --t-end :
     if args.verbose:
@@ -547,6 +560,8 @@ def main(args):
 
     CG._transcript_length = args.start-1
 
+    #import statprof
+    #statprof.start()
 
     tprofile = []
     psites = dict()
@@ -601,7 +616,7 @@ def main(args):
         # Print the current state *before* the simulation starts.
         if args.stdout == 'log' or lfh:
             for e, (ni, data) in enumerate(nlist, 1):
-                sm = '-> {}'.format([CG.node[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
+                sm = '-> {}'.format([CG.nodes[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
                 fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                     tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
                 write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
@@ -616,13 +631,13 @@ def main(args):
             CG.total_time += _t8
             if args.stdout == 'drf' or dfh:
                 ss = nlist[0][0]
-                fdata = "{:d} {:03.9f} {:03.4f} {:s} {:6.2f}\n".format(CG.node[ss]['identity'],
-                        CG.total_time, 1.0, ss[:len(CG.transcript)], CG.node[ss]['energy'])
+                fdata = "{:d} {:03.9f} {:03.4f} {:s} {:6.2f}\n".format(CG.nodes[ss]['identity'],
+                        CG.total_time, 1.0, ss[:len(CG.transcript)], CG.nodes[ss]['energy'])
                 write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
 
             if args.pyplot:
                 ss = nlist[0][0]
-                ident = CG.node[ss]['identity']
+                ident = CG.nodes[ss]['identity']
                 all_courses[ident].append((CG.total_time, 1.0))
 
         else:
@@ -630,26 +645,24 @@ def main(args):
             # sometimes bfile causes a segfault, so let's leave it out.
             bfile = None
             try:  # - Simulate with treekin
-                tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates = True,
+                tfile, _ = ril.sys_treekin_051(_fname, rfile,
                         treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
-                        mpack_method = args.mpack_method,
-                        exponent = False, useplusI = False, force = True, verb = (args.verbose > 1))
+                        binrates = True, mpack_method = args.mpack_method, quiet = True,
+                        exponent = False, useplusI = False, force = True, verbose = (args.verbose > 1))
                 tnorm += 1
             except SubprocessError:
                 try:  # - Simulate with treekin and --exponent
-                    tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates = True,
-                            mpack_method = args.mpack_method,
+                    tfile, _ = ril.sys_treekin_051(_fname, rfile,
                             treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
-                            exponent = True, useplusI = False, force = True, verb = (args.verbose > 1))
+                            binrates = True, mpack_method = args.mpack_method, quiet = True,
+                            exponent = True, useplusI = False, force = True, verbose = (args.verbose > 1))
                     texpo += 1
                 except SubprocessError:
                     try:  # - Simulate with treekin and --useplusI
-                        tfile, _ = ril.sys_treekin(_fname, seq, bfile, rfile, binrates = True,
-                                mpack_method = args.mpack_method,
-                                treekin = args.treekin, p0 = p0, t0 = _t0,
-                                ti = args.t_inc, t8 = _t8, exponent = False,
-                                useplusI = True, force = True,
-                                verb = (args.verbose > 1))
+                        tfile, _ = ril.sys_treekin_051(_fname, rfile,
+                                treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
+                                binrates = True, mpack_method = args.mpack_method, quiet = True,
+                                exponent = True, useplusI = True, force = True, verbose = (args.verbose > 1))
                         tplusI += 1
                     except SubprocessError:
                         if args.verbose > 1:
@@ -721,10 +734,10 @@ def main(args):
                 CG._dG_min = max(dG_min, CG._dG_min + approach)
 
             if args.draw_graphs:
-                CG.to_json(_fname)
+                CG.graph_to_json(_fname)
 
         if args.verbose:
-            nZedges = len([a for (a, b, d) in CG.edges(data = True) if d['saddle'] != float('inf') and CG.node[a]['active'] and CG.node[b]['active']])
+            nZedges = len([a for (a, b, d) in CG.edges(data = True) if d['saddle'] != float('inf') and CG.nodes[a]['active'] and CG.nodes[b]['active']])
             print("# Transcripton length: {}. Active graph size: {}. Non-zero transition edges: {}.  Hidden graph size: {}. Number of Edges: {}".format(
                 tlen, len(nlist), nZedges, len(CG), CG.number_of_edges()))
             stime = datetime.now()
@@ -766,10 +779,14 @@ def main(args):
         fdata  = "# Distribution of structures at the end:\n"
         fdata += "#         {}\n".format(CG.transcript)
         for e, (ni, data) in enumerate(CG.sorted_nodes(), 1):
-            sm = '-> {}'.format([CG.node[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
+            sm = '-> {}'.format([CG.nodes[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
             fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                 tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
+
+
+    #statprof.stop()
+    #statprof.display()
 
     # CLEANUP file handles
     if lfh: lfh.close()

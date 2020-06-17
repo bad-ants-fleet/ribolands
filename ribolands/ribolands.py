@@ -14,11 +14,12 @@ class RiboLandscape(nx.DiGraph):
     Suggested attributes for edges: weight, saddleE.
     """
 
-    def __init__(self, sequence, vrna_md):
+    def __init__(self, sequence, vrna_md = None):
         super(RiboLandscape, self).__init__()
         self.sequence = sequence
-        self.md = vrna_md
-        self.fc = RNA.fold_compound(sequence, vrna_md)
+        if vrna_md:
+            self.md = vrna_md
+            self.fc = RNA.fold_compound(sequence, vrna_md)
 
     def sorted_nodes(self, attribute = 'energy', rev = False):
         return sorted(self.nodes(), key = lambda x: self.nodes[x][attribute], reverse = rev)

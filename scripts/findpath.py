@@ -5,6 +5,7 @@
 import sys
 import argparse
 import RNA
+from ribolands.trafo import get_bp_change
 
 def costruct(seq, cut = None):
     """ Translate between 'input' and 'internal' RNAcofold sequences """
@@ -67,6 +68,10 @@ def main():
 
     assert cut == cut_
 
+    features = get_bp_change(seq, ss1, ss2)
+    for (cseq, cs1, cs2) in features:
+        print(cseq, cs1, cs2)
+
     md = RNA.md()
     fc = RNA.fold_compound(seq, md)
 
@@ -83,6 +88,7 @@ def main():
     else:
         print("No valid saddle found below energy: {:6.2f} kcal/mol | Search width parameter: {}".format(args.max_energy, args.search_width))
 
+    print("Base-pair distance:", RNA.bp_distance(ss1, ss2))
 
 if __name__ == '__main__':
     main()

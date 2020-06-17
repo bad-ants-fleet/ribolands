@@ -672,6 +672,7 @@ def sys_barriers_180(basename, sofile,
 
     if not force and os.path.exists(bofile) and os.path.exists(brfile) and os.path.exists(bbfile) and \
       (not paths or all(map(os.path.exists, ['{:s}_path.{:03d}.{:03d}.txt'.format(basename, int(x), int(y)) for x, y in map(lambda x: x.split('='), paths)]))) and \
+      (not plot or os.path.exists(bpfile)) and \
       (not bmfile or os.path.exists(msfile)):
         if verbose:
             print("#", bofile, brfile, " <= Files exist")
@@ -996,11 +997,13 @@ def sys_kinfold(name, seq,
 
     if os.path.exists(klfile) and os.path.exists(kofile):
         if force is None:
-            print("#", klfile, kofile, "<= Files exist, appending output!")
+            if verbose:
+                print("#", klfile, kofile, "<= Files exist, appending output!")
         elif force is False:
             return [klfile, kefile, kofile]
         else:
-            print("#", klfile, kofile, "<= Removing old files!")
+            if verbose:
+                print("#", klfile, kofile, "<= Removing old files!")
             if os.path.exists(klfile):
                 os.remove(klfile)
             if os.path.exists(kofile):
@@ -1033,13 +1036,13 @@ def sys_kinfold(name, seq,
     if not fpt: # NOTE: fpt switches first passage time off (!!!!)
         syscall.extend(['--fpt'])
 
-    if rect: # NOTE: fpt switches first passage time off (!!!!)
+    if rect: # NOTE: rect is only supported through a development branch right now ...
         syscall.extend(['--rect'])
 
     if not logML: # NOTE: logML switches logarithmic multiloop evaluation off (!!!!)
         syscall.extend(['--logML'])
 
-    if silent: # NOTE: logML switches logarithmic multiloop evaluation off (!!!!)
+    if silent:
         syscall.extend(['--silent'])
 
     if noLP:

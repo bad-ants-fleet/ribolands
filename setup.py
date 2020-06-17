@@ -47,7 +47,7 @@ setup(
         'matplotlib', 
         'seaborn', 
         'pandas', 
-        'crnsimulator>=0.7'],
+        'crnsimulator>=0.7.1'],
     test_suite = 'tests',
     packages = ['ribolands', 'ribolands.parser'],
     scripts = [
