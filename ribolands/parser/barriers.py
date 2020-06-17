@@ -86,7 +86,7 @@ def barriers_grammar():
                 O(G(T(bsize, 'bsize'))) + 
                  LineEnd().suppress())
 
-    stmt = seq_line | str_line 
+    stmt = seq_line | str_line | LineEnd().suppress()
 
     document = StringStart() + ZeroOrMore(LineEnd().suppress()) + OneOrMore(stmt) + StringEnd()
     document.ignore(pythonStyleComment)

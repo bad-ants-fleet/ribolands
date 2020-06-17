@@ -1,18 +1,16 @@
 #!/usr/bin/env python
-from __future__ import division, print_function
 import os
 import math
-
-import unittest
-
 import shutil
 import tempfile
+import unittest
+import networkx as nx
 
 import RNA
 from ribolands.syswraps import sys_treekin_051
+from ribolands.parser import parse_barriers
 import ribolands.trafo as trafo
 import ribolands.utils as ru
-from ribolands.parser import parse_barriers
 
 skip = False
 
@@ -33,10 +31,23 @@ class Test_TrafoLand(unittest.TestCase):
         print("Removing temporary file directory: {}".format(self.tmpdir))
         #shutil.rmtree(self.tmpdir)
 
+    def _init_TL(self, seq, sss, add_edges = True):
+        fullseq = seq
+        vrna_md = RNA.md()
+
+        TL = trafo.TrafoLandscape(fullseq, vrna_md)
+        TL._transcript_length = len(seq)
+
+        for ss in sss:
+            if not TL.has_node(ss):
+                TL.addnode(ss)
+                TL.nodes[ss]['occupancy'] = 1.0 / len(sss),
+
+        return TL
+
     def test_edge_attributes(self):
         """testing:
         TrafoLandscape.has_edge()
-        TrafoLandscape.has_active_edge()
         TrafoLandscape.get_rate()
         TrafoLandscape.get_saddle()
         """
@@ -46,15 +57,14 @@ class Test_TrafoLand(unittest.TestCase):
         s2 = "..................((((.(((((((....)))))....))))))"
 
         TL.add_weighted_edges_from([(s1, s2, 0)])
-        TL[s1][s2]['saddle'] = float('inf')
+        TL[s1][s2]['saddleE'] = float('inf')
 
         self.assertTrue(TL.has_edge(s1, s2))
         self.assertEqual(TL.get_saddle(s1, s2), float('inf'))
         self.assertEqual(TL.get_rate(s1, s2), 0)
 
-        TL[s1][s2]['saddle'] = 9999
+        TL[s1][s2]['saddleE'] = 9999
         TL[s1][s2]['weight'] = 0.9999
-        self.assertTrue(TL.has_active_edge(s1, s2))
         self.assertEqual(TL.get_saddle(s1, s2), 9999)
         self.assertEqual(TL.get_rate(s1, s2), 0.9999)
 
@@ -77,25 +87,33 @@ class Test_TrafoLand(unittest.TestCase):
         ((......))...((((.(((.((((.((....)).))))))).).))).
         """.split()
 
-        TL = self._init_TL(seq, sss, add_edges = True)
-        mss, mfe = TL._fold_compound.backtrack(len(seq))
-        num = TL.expand_connect_mfe(sss, mss, ddG = float('inf'))
-        # Alright, this used to be 3, not 8. But since we use findpath caching, 
-        # 5 other connections are already known and get added.
-        self.assertEqual(num, 8)
-        nn = TL.expand_fraying_neighbors(sss)
-        self.assertEqual(len(nn), len(sss))
+        TL = self._init_TL(seq, sss)
+        TL.minh = 3
+        snodes = TL.sorted_nodes(attribute = 'energy', rev = True)
+        enth = TL.nodes[snodes[0]]['energy']
 
-        self.assertEqual(len(nn['((......))...((((.(((.((((.((....)).))))))).).))).']), 3)
-        self.assertListEqual(sorted(nn['((......))...((((.(((.((((.((....)).))))))).).))).']), 
-            sorted(['..((....))...((((.(((.((((.((....)).))))))).).))).', 
-                    '..((....))...((((.(((.((((.((....)).))))))).))))..', 
-                    '((......))...((((.(((.((((.((....)).))))))).))))..']))
+        nn, be = TL.connect_nodes_n2(energyth = enth)
+        TL.coarse_grain()
+        print(len(TL.active_nodes))
 
-        self.assertTrue(TL.has_active_edge('........((.((((((((((((..........)))))))).)))).)).', '........((.((((((((((((((...))...)))))))).)))).)).'))
-        self.assertTrue(TL.has_active_edge('........((.((((((((((((((...))...)))))))).)))).)).', '........((.(((.((((((((((...))...))))))))..))).)).'))
-        self.assertTrue(TL.has_active_edge('........((.((((((((((((..........)))))))).)))).)).', '........((.(((.((((((((((...))...))))))))..))).)).'))
+        mss, mfe = TL.fc.backtrack(len(seq))
+        if TL.has_node(mss):
+            assert TL.nodes[mss]['active']
 
+        nn, be = TL.connect_nodes_n2(nodes = TL.active_nodes, energyth = enth)
+        print(nn)
+        print(be)
+
+        TL.coarse_grain()
+        print(len(TL.active_nodes), len(TL.nodes))
+
+        nbrs = TL.find_fraying_neighbors(TL.active_nodes, mfree = 6)
+        for par, new in sorted(nbrs.items(), key = lambda x: x[0]):
+            for nbr in new:
+                assert TL.has_node(nbr) # this wouldn't have to be true...
+            TL.connect_nodes_n2(nodes = new)
+        TL.coarse_grain()
+        print(len(TL.active_nodes), len(TL.nodes))
 
     def test_TL_connect_mfe(self):
         rbar = """# A random barriers example:
@@ -124,32 +142,33 @@ class Test_TrafoLand(unittest.TestCase):
         assert lm[1][2][0] == 'energy'
         mfe = float(lm[1][2][1])
 
-        sss = []
+        sss = [] # Everything except for MFE structure
         for l in lm[2:]:
             assert l[1][0] == 'structure'
             sss.append(l[1][1])
 
         TL = self._init_TL(seq, sss)
+        TL.minh = 3.30
+        for n in TL.nodes():
+            print(n)
+            TL.nodes[n]['active'] = True
+            print(TL.nodes[n])
 
-        num = TL.expand_connect_mfe(sss, mss, ddG = 3.30)
-        self.assertEqual(num, 2)
-        self.assertFalse(TL.has_edge(lm[1][1][1], lm[1][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[2][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[3][1][1]))
-        self.assertTrue(TL.has_active_edge(lm[1][1][1], lm[4][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[5][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[6][1][1]))
-        self.assertTrue(TL.has_active_edge(lm[1][1][1], lm[7][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[8][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[9][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[10][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[11][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[12][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[13][1][1]))
-        self.assertFalse(TL.has_active_edge(lm[1][1][1], lm[14][1][1]))
+        assert mss not in sss
+        assert not TL.has_node(mss)
 
+        #TL.plot_to('test1.pdf', label = 'identity')
 
-    def test_minitrafo(self, verbose = False):
+        nn, _ = TL.connect_to_active(nodes = [mss])
+        for node in nn:
+            assert TL.nodes[node]['active'] is None
+
+        assert TL.nodes[mss]['active'] is None
+        print(TL.nodes[mss]['identity'])
+        #TL.plot_to('test2.pdf', label = 'identity')
+        assert nx.is_strongly_connected(TL)
+
+    def don_test_minitrafo(self, verbose = False):
         fullseq = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCA"
         TL = trafo.TrafoLandscape(fullseq, RNA.md())
         fname = self.tmpdir + '/' + 'minitrafo'
@@ -194,7 +213,7 @@ class Test_TrafoLand(unittest.TestCase):
 
             dn, sr = TL.prune(0.01)
 
-    def test_expand_and_coarse_grain(self, verbose = True):
+    def don_test_expand_and_coarse_grain(self, verbose = True):
         seq = "AUAUAGCUUGUUUACUUUGGAUGAACUGGGGAGAAAAUCCUGGUAAAACU"
         sss = [
             "..........((((((..((((...((....))...)))).))))))...",
@@ -212,8 +231,8 @@ class Test_TrafoLand(unittest.TestCase):
             [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
         for (ss, occ, active) in ess:
             self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.node[ss]['occupancy'], occ)
-            self.assertEqual(TL.node[ss]['active'], active)
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
 
         TL.expand(extend=0, exp_mode='fullconnect')
         ess = [
@@ -227,8 +246,8 @@ class Test_TrafoLand(unittest.TestCase):
             [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
         for (ss, occ, active) in ess:
             self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.node[ss]['occupancy'], occ)
-            self.assertEqual(TL.node[ss]['active'], active)
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
 
         if verbose:
             TL.get_simulation_files_tkn(self.tmpdir+'/ecp1')
@@ -245,10 +264,10 @@ class Test_TrafoLand(unittest.TestCase):
             [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
         for (ss, occ, active) in ess:
             print(ss, occ, active)
-            print(TL.node[ss])
+            print(TL.nodes[ss])
             self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.node[ss]['occupancy'], occ)
-            self.assertEqual(TL.node[ss]['active'], active)
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
         
         if verbose:
             TL.get_simulation_files_tkn(self.tmpdir+'/ecp2')
@@ -266,37 +285,13 @@ class Test_TrafoLand(unittest.TestCase):
         for (ss, occ, active) in ess:
             print(ss, occ, active)
             self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.node[ss]['occupancy'], occ)
-            self.assertEqual(TL.node[ss]['active'], active)
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
 
         if verbose:
             TL.get_simulation_files_tkn(self.tmpdir+'/ecp3')
 
-    def _init_TL(self, seq, sss, add_edges = True):
-        fullseq = seq
-        vrna_md = RNA.md()
-
-        CG = trafo.TrafoLandscape(fullseq, vrna_md)
-        CG._transcript_length = len(seq)
-
-        for e, s1 in enumerate(sss, 1):
-            if not CG.has_node(s1):
-                en = round(CG._fold_compound.eval_structure(s1), 2)
-                CG.add_node(s1, energy=en, occupancy=1.0 / len(sss),
-                            identity=CG._nodeid, active=True, last_seen=0)
-                CG._nodeid += 1
-            for s2 in sss[e:]:
-                if not CG.has_node(s2):
-                    en = round(CG._fold_compound.eval_structure(s2), 2)
-                    CG.add_node(s2, energy=en, occupancy=1.0 / len(sss),
-                                identity=CG._nodeid, active=True, last_seen=0)
-                    CG._nodeid += 1
-                if add_edges:
-                    assert CG.add_transition_edges(s1, s2)
-
-        return CG
-
-    def test_coarse_graining_dG(self, verbose = False):
+    def don_test_coarse_graining_dG(self, verbose = False):
         """
         A coarse graining test based on this example...
         All structures are connected based on the barrier-tree, 
@@ -368,12 +363,12 @@ class Test_TrafoLand(unittest.TestCase):
             CG.add_weighted_edges_from([(ss2, ss, k_21)])
             CG[ss][ss2]['saddle'] = saddleE
             CG[ss2][ss]['saddle'] = saddleE
-            CG.node[ss]['active'] = True
-            CG.node[ss2]['active'] = True
-            CG.node[ss]['energy'] = float(en)
-            CG.node[ss2]['energy'] = float(en2)
-            CG.node[ss]['occupancy'] = 0
-            CG.node[ss2]['occupancy'] = 0
+            CG.nodes[ss]['active'] = True
+            CG.nodes[ss2]['active'] = True
+            CG.nodes[ss]['energy'] = float(en)
+            CG.nodes[ss2]['energy'] = float(en2)
+            CG.nodes[ss]['occupancy'] = 0
+            CG.nodes[ss2]['occupancy'] = 0
 
         for lmin in bar[1:]:
             id = lmin.id
@@ -383,11 +378,11 @@ class Test_TrafoLand(unittest.TestCase):
             ba = lmin.barrier
 
             if verbose:
-                print('a', id, ss, en, fa, ba, CG.node[ss]['active'])
-            nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
-                              key=lambda x: (CG.node[x]['energy'], x), reverse=False))
+                print('a', id, ss, en, fa, ba, CG.nodes[ss]['active'])
+            nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 
+                              key=lambda x: (CG.nodes[x]['energy'], x), reverse=False))
             self.assertTrue(CG.has_node(ss))
-            self.assertEqual(CG.node[ss]['active'], True)
+            self.assertEqual(CG.nodes[ss]['active'], True)
 
         mn = CG.coarse_grain(dG_min=min_dG)
 
@@ -403,14 +398,14 @@ class Test_TrafoLand(unittest.TestCase):
             fa = lmin.father
             ba = lmin.barrier
             if verbose:
-                print('c', id, ss, en, fa, ba, CG.node[ss]['active'])
+                print('c', id, ss, en, fa, ba, CG.nodes[ss]['active'])
             self.assertTrue(CG.has_node(ss))
             if ss in inactive:
-                self.assertFalse(CG.node[ss]['active'])
+                self.assertFalse(CG.nodes[ss]['active'])
             else:
-                self.assertEqual(CG.node[ss]['active'], True)
+                self.assertEqual(CG.nodes[ss]['active'], True)
 
-    def test_coarse_graining_by_rates(self, verbose = False):
+    def don_test_coarse_graining_by_rates(self, verbose = False):
         """
         A coarse graining test based on this example...
         All structures are connected based on rates in the corresponding 
@@ -484,9 +479,9 @@ class Test_TrafoLand(unittest.TestCase):
                             print('{} -> {} | {:.2f} {:.5f} {} {}'.format(
                                 m1+1, m2+1, dG, rate, bar[m1].barrier, sE))
 
-            CG.node[s1]['active'] = True
-            CG.node[s1]['energy'] = en1
-            CG.node[s1]['occupancy'] = 0
+            CG.nodes[s1]['active'] = True
+            CG.nodes[s1]['energy'] = en1
+            CG.nodes[s1]['occupancy'] = 0
 
         for lmin in bar[1:]:
             id = lmin.id
@@ -494,13 +489,13 @@ class Test_TrafoLand(unittest.TestCase):
             en = lmin.energy
             fa = lmin.father
             ba = lmin.barrier
-            #print('b', id, ss, en, fa, ba, CG.node[ss]['active'])
-            nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
-                              key=lambda x: (CG.node[x]['energy'], x), reverse=False))
+            #print('b', id, ss, en, fa, ba, CG.nodes[ss]['active'])
+            nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 
+                              key=lambda x: (CG.nodes[x]['energy'], x), reverse=False))
             #for (x,y) in zip(nbrs, map(lambda x: CG[ss][x]['saddle'], nbrs)):
             #    print('   ', x, y)
             self.assertTrue(CG.has_node(ss))
-            self.assertTrue(CG.node[ss]['active'])
+            self.assertTrue(CG.nodes[ss]['active'])
 
         CG.coarse_grain(dG_min=min_dG)
 
@@ -511,22 +506,22 @@ class Test_TrafoLand(unittest.TestCase):
             fa = lmin.father
             ba = lmin.barrier
  
-            nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
-                              key=lambda x: (CG.node[x]['energy'], x), reverse=False))
+            nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 
+                              key=lambda x: (CG.nodes[x]['energy'], x), reverse=False))
             if verbose:
-                print(id, ss, en, fa, ba, CG.node[ss]['active'], end='')
+                print(id, ss, en, fa, ba, CG.nodes[ss]['active'], end='')
                 print(' ', list(map(lambda x: CG[ss][x]['saddle'], nbrs)))
             self.assertTrue(CG.has_node(ss))
             if ss in inactive:
-                self.assertFalse(CG.node[ss]['active'])
+                self.assertFalse(CG.nodes[ss]['active'])
             elif int(id) == 3:
                 # This is interesting, staring from min_dG=2.9 you can see that 
                 # the assertTrue would break.. because based on transition rates,
                 # there exists a path 3->4->2 which is energetically favorable 
                 # over 3->2, so after 4 is merged into 3, 3 can be merged into 2.
-                self.assertFalse(CG.node[ss]['active'])
+                self.assertFalse(CG.nodes[ss]['active'])
             else:
-                self.assertTrue(CG.node[ss]['active'])
+                self.assertTrue(CG.nodes[ss]['active'])
 
 @unittest.skipIf(skip, "slow tests are disabled by default")
 class Test_HelperFunctions(unittest.TestCase):
@@ -537,39 +532,6 @@ class Test_HelperFunctions(unittest.TestCase):
     def tearDown(self):
         pass
 
-    def test_get_bp_change(self):
-        se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
-        s1 = ".....(((((......)).)))((((((((....))))....)))).."
-        s2 = "..................(.....................)......."
-
-        features = trafo.get_bp_change(se, s1, s2)
-        self.assertEqual(len(features), 1)
-        assert features[0][0] == "UCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCG"
-        assert features[0][1] == ".(((((......)).)))((((((((....))))....))))."
-        assert features[0][2] == "..............(.....................)......"
-
-        se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
-        s1 = ".....(((((......)).)))((((((((....))))....)))).."
-        s2 = "........((......))(.......((((....))))..)......."
-
-        features = trafo.get_bp_change(se, s1, s2)
-        self.assertEqual(len(features), 1)
-        assert features[0][0] == "UCGCCNNNGUGCGGGCGCNNNGUUAUCGCCG"
-        assert features[0][1] == ".((((xxx).)))(((((xxx)....))))."
-        assert features[0][2] == "....(xxx)(.......(xxx)..)......"
-
-        se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
-        s1 = ".....(..((......))...)...(((((....))))....)....."
-        s2 = "........((......))(.......((((....))))..)......."
-
-        features = trafo.get_bp_change(se, s1, s2)
-        self.assertEqual(len(features), 1)
-        assert features[0][0] == "UCGCCNNNGUGCGGGCGCNNNGUUAUCG"
-        assert features[0][1] == ".(..(xxx)...)...((xxx)....)."
-        assert features[0][2] == "....(xxx)(.......(xxx)..)..."
-
-
-
     def test_fold_exterior_loop(self):
         se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
         ss = ".....(((((......)).)))((((((((....))))....)))).."
@@ -577,13 +539,22 @@ class Test_HelperFunctions(unittest.TestCase):
         ext_moves = dict()
         md = RNA.md()
 
-        nbr, ext = trafo.fold_exterior_loop(md, se, ss, ext_moves)
+        nbr, ext = trafo.fold_exterior_loop(se, ss, md, ext_moves)
 
-        self.assertEqual(
-            nbr, '.....(((((......)).)))((((((((....))))....))))..')
+        self.assertEqual(nbr, '.....(((((......)).)))((((((((....))))....))))..')
         self.assertEqual(ext, 'CUCGUCGNNNCGGGNNNCCGC')
-        self.assertEqual(ext_moves[ext][0], '.....((...))((...))..')
-        self.assertEqual(ext_moves[ext][1], set())
+        self.assertEqual(ext_moves[ext], '.....((...))((...))..')
+
+    def test_fold_exterior_loop_2(self):
+        se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
+        ss = ".....(((((......)).)))((((((((....))))....)))).."
+
+        md = RNA.md()
+        nbr, ext = trafo.fold_exterior_loop(se, ss, md)
+
+        self.assertEqual(nbr, '.....(((((......)).)))((((((((....))))....))))..')
+        self.assertEqual(ext, 'CUCGUCGNNNCGGGNNNCCGC')
+        self.assertEqual(trafo.EFOLD_CACHE[ext], '.....((...))((...))..')
 
     def test_open_fraying_helices(self):
         se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"

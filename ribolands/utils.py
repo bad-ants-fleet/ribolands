@@ -195,6 +195,25 @@ def make_pair_table(ss, base=0, chars=['.']):
         raise RuntimeError("Too many opening brackets in secondary structure")
     return pt
 
+def make_loop_index(ss):
+    """Returns a list of loop indices to see where new base-pairs can be formed.
+    """
+    loop, stack = [], []
+    nl, L = 0, 0
+    for i, char in enumerate(ss):
+        if char == '(':
+            nl += 1
+            L = nl
+            stack.append(i)
+        loop.append(L)
+        if char == ')':
+            _ = stack.pop()
+            try:
+                L = loop[stack[-1]]
+            except IndexError:
+                L = 0
+    return loop
+
 def parse_vienna_stdin(stdin, chars = 'ACUGN&', skip = '-'):
     """Parse name and sequence information from file with fasta format.
 

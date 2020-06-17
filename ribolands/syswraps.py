@@ -203,6 +203,7 @@ class Workflow(object):
         assert self.md.circ in [0, 1]
         assert self.md.noLP in [0, 1]
         assert self.md.min_loop_size == 3
+        #assert self.md.pf_smooth == 0
 
     def copy(self):
         other = Workflow(self.sequence, self.md)

@@ -5,7 +5,9 @@
 import sys
 import argparse
 import RNA
-from ribolands.trafo import get_bp_change
+from ribolands.pathfinder import (get_bp_change, 
+                                  get_fpath_flooding_cache, 
+                                  show_flooded_prime_path)
 
 def costruct(seq, cut = None):
     """ Translate between 'input' and 'internal' RNAcofold sequences """
@@ -52,8 +54,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v","--verbose", action = "store_true",
             help = "Verbose output: print the folding pathway.")
-    parser.add_argument("-w","--search-width", type = int, default = 100,
+    parser.add_argument("-w","--search-width", type = int, default = None,
             help = "Adjust upper bound for findpath search.")
+    parser.add_argument("--minh", type = int, default = None,
+            help = "Set a minimum barrier height for path flooding.")
     parser.add_argument("-m","--max-energy", type = float, default = None,
             help = "Specify upper bound for barrier energy (kcal/mol).")
     args = parser.parse_args()
@@ -74,19 +78,49 @@ def main():
 
     md = RNA.md()
     fc = RNA.fold_compound(seq, md)
+    bpd = RNA.bp_distance(ss1, ss2)
 
-    if args.verbose:
-        print("   {}".format(seq))
+    # MODES: regular, primepath, flooding.
+    #
+    # if minh is not None: do primepath flooding (experimental).
+    #
+    # elif not primepath or primepath and len(features) == 1: 
+    #   do regular findpath call
+    # else:
+    #   do regular primepath call
+    #
+    primepath = False
+    
+    if primepath is False: 
+        if args.search_width is None:
+            args.search_width = 2 * bpd
+        if args.verbose:
+            print(f"Base-pair distance: {bpd}; Search-width: {args.search_width}")
+            print(f"   {seq}")
+        saddle = findpath_wrap(fc, ss1, ss2, 
+                args.max_energy, 
+                args.search_width, 
+                cut = cut, 
+                verbose = args.verbose)
 
-    saddle = findpath_wrap(fc, ss1, ss2, args.max_energy, args.search_width, 
-            cut = cut, verbose = args.verbose)
-
-    if saddle is not None:
-        e1 = round(fc.eval_structure(ss1), 2)
-        barrier = saddle - e1
-        print("Saddle: {:6.2f} kcal/mol | Barrier: {:6.2f} kcal/mol | Search width paramter: {}".format(saddle, barrier, args.search_width))
+        if saddle is not None:
+            e1 = round(fc.eval_structure(ss1), 2)
+            barrier = saddle - e1
+            print("Saddle: {:6.2f} kcal/mol | Barrier: {:6.2f} kcal/mol | Search width paramter: {}".format(saddle, barrier, args.search_width))
+        else:
+            print("No valid saddle found below energy: {:6.2f} kcal/mol | Search width parameter: {}".format(args.max_energy, args.search_width))
     else:
-        print("No valid saddle found below energy: {:6.2f} kcal/mol | Search width parameter: {}".format(args.max_energy, args.search_width))
+        print('Primpath:')
+        features = get_bp_change(seq, ss1, ss2)
+        for (cseq, cs1, cs2) in features:
+            print(cseq, cs1, cs2)
+
+    if args.minh is not None:
+        print(f'Cache -- minh = {args.minh}:')
+        get_fpath_flooding_cache(seq, ss1, ss2, md, args.minh, maxbar = None, fpf = 2)
+        pp = show_flooded_prime_path(seq, ss1, ss2)
+        for [a, b, fw, rv] in pp:
+            print(f"{a} -> {b} [fw = {fw}, rv = {rv}]")
 
     print("Base-pair distance:", RNA.bp_distance(ss1, ss2))
 

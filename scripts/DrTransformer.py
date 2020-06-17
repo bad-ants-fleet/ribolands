@@ -6,12 +6,6 @@
 # written by Stefan Badelt (stef@tbi.univie.ac.at)
 #
 
-from __future__ import division, print_function
-from builtins import map
-from builtins import zip
-from builtins import str
-from builtins import range
-
 import os
 import sys
 import math
@@ -25,9 +19,11 @@ import seaborn
 
 import RNA
 import ribolands as ril
+from ribolands.utils import parse_vienna_stdin
+from ribolands.syswraps import sys_treekin_051
 from ribolands.syswraps import SubprocessError, ExecError, check_version, VersionError
 from ribolands.crnwrapper import DiGraphSimulator
-from ribolands.trafo import TrafoLandscape
+from ribolands.trafo import TrafoLandscape, PROFILE
 
 def restricted_float(x):
     x = float(x)
@@ -361,7 +357,7 @@ def write_output(data, stdout = False, fh = None):
 
 def main(args):
     """ DrTransformer - cotranscriptional folding """
-    (name, fullseq) = ril.parse_vienna_stdin(sys.stdin, chars='ACGUNacgun')
+    (name, fullseq) = parse_vienna_stdin(sys.stdin, chars='ACGUNacgun')
 
     # Argument deprecation Warnings
     if args.tinc:
@@ -462,10 +458,11 @@ def main(args):
 
     # Compare --t-fast, --t-slow, --t-ext and --t-end :
     if args.verbose:
-        dG_min = -_RT * math.log(1 / args.t_fast / args.k0)
+        minh = -_RT * math.log(1 / args.t_fast / args.k0)
         print('# --t-fast: {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
-            args.t_fast, dG_min, 1/args.t_fast, args.k0))
+            args.t_fast, minh, 1/args.t_fast, args.k0))
         if args.t_slow is not None:
+            raise NotImplementedError
             dG_max = -_RT * math.log(1 / args.t_slow / args.k0)
             print('# --t-slow {} s => {} kcal/mol barrier height and {} /s rate at k0 = {}'.format(
                 args.t_slow, dG_max, 1/args.t_slow, args.k0))
@@ -551,14 +548,14 @@ def main(args):
 
     # initialize a directed conformation graph
     CG = TrafoLandscape(fullseq, vrna_md)
-    CG._k0 = args.k0
+    CG.k0 = args.k0
     CG.t_fast = args.t_fast
-    dG_min = CG._dG_min # currently: CG._dG_min is set via t-fast
+    minh = CG.minh # currently: CG.minh is set via t-fast
     CG.t_slow = args.t_slow
 
-    CG.findpath_search_width = args.findpath_search_width
+    CG.fpath = args.findpath_search_width
 
-    CG._transcript_length = args.start-1
+    CG._transcript_length = args.start - 1
 
     #import statprof
     #statprof.start()
@@ -568,20 +565,45 @@ def main(args):
     if args.pause_sites:
         for term in args.pause_sites:
             site, pause = term.split('=')
-            psites[int(site)]=float(pause)
+            psites[int(site)] = float(pause)
 
     if args.verbose:
         atime = datetime.now()
 
     # now lets start...
-    tnorm, tplusI, texpo, tfail, tfake = 0, 0, 0, 0, 0
+    tnorm, tplusI, texpo, tfail, tfake = 0, 0, 0, 0, 0 # treekin stats
     for tlen in range(args.start, args.stop):
-        nn = CG.expand(exp_mode = args.structure_search_mode)
+        print()
+        # Get new nodes and connect them.
+        nn = CG.expand()
+        print('after expand:', nn)
 
-        mn = CG.coarse_grain()
-        #if args.verbose:
-        #    print("# Merged {} nodes after expanding {} new nodes.".format(len(mn), nn))
+        # lminreps, hiddennodes
+        lrep, hn = CG.coarse_grain()
+        print('after coarsegrain:', len(lrep), len(hn))
+       
+        
+        while newn:
+            newn, _ = CG.connect_nodes_n2(nodes = CG.active_nodes, direct = True)
+            lrep, hn = CG.coarse_grain()
+            print('while coarsegrain:', len(newn), len(lrep), len(hn))
+            nn += len(newn)
 
+        # We still need to update the occupancies!!!!
+        for hnode in lrep:
+            if CG.nodes[hnode]['occupancy'] == 0:
+                continue
+            if hnode in lrep[hnode]:
+                print(hnode, lrep[hnode])
+                assert len(lrep[hnode]) == 1
+                continue
+            tot = len(lrep[hnode])
+            for mnode in lrep[hnode]:
+                CG.nodes[mnode]['occupancy'] += CG.nodes[hnode]['occupancy']/tot
+            CG.nodes[hnode]['occupancy'] = 0
+        print('New Nodes {}, Hiden nodes: {}, Lmins: {}'.format(nn, len(lrep), len(hn)))
+
+        print(nn)
         if args.pyplot:
             ttt = CG.total_time
             if ttt == 0:
@@ -593,33 +615,41 @@ def main(args):
         # Simulate #
         ############
         _fname = _tmpdir + '/' + name + '-' + str(tlen)
-        _t0 = args.t0  # if args.t0 > 0 else 1e-6
+        _t0 = args.t0
 
-        if tlen == args.stop - 1 :
+        if tlen == args.stop - 1:
             _t8 = args.t_end 
         else: 
             _t8 = psites[tlen] if tlen in psites else args.t_ext
         tprofile.append(_t8)
 
-        (t_lin, t_log) = (None, args.t_log) if tlen == args.stop - \
-            1 else (args.t_lin, None)
+        # Fallback mode: Python solver.
+        (t_lin, t_log) = (None, args.t_log) if tlen == args.stop - 1 else (args.t_lin, None)
 
         # produce input for treekin simulation
-        [bfile, rfile, p0, nlist] = CG.get_simulation_files_tkn(_fname)
+        nlist = CG.sorted_nodes(attribute = 'energy', nodes = CG.active_nodes)
+        rfile, br, bo, p0 = CG.get_simulation_files_tkn(_fname, nlist) 
 
+        # TODO: LATERfn!
         softmap = dict()
-        if args.plot_minh and args.plot_minh > CG._dG_min:
-            copyCG = CG.graph_copy()
-            softmap = copyCG.coarse_grain(dG_min=args.plot_minh)
-            del copyCG
+        #if args.plot_minh and args.plot_minh > CG._dG_min:
+        #    copyCG = CG.graph_copy()
+        #    softmap = copyCG.coarse_grain(dG_min=args.plot_minh)
+        #    del copyCG
 
         # Print the current state *before* the simulation starts.
+        totoc = 0
         if args.stdout == 'log' or lfh:
-            for e, (ni, data) in enumerate(nlist, 1):
-                sm = '-> {}'.format([CG.nodes[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
+            for e, node in enumerate(nlist, 1):
+                ne = CG.nodes[node]['energy']
+                no = CG.nodes[node]['occupancy']
+                ni = CG.nodes[node]['identity']
+                totoc += no
+                sm = '-> {}'.format([CG.nodes[tr]['identity'] for tr in softmap[node]]) if node in softmap else ''
                 fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
-                    tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
+                    tlen, e, node[:tlen], ne, no, ni, sm)
                 write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
+        print('TOTO', totoc)
 
         if args.verbose:
             itime = datetime.now()
@@ -630,36 +660,33 @@ def main(args):
             tfake += 1
             CG.total_time += _t8
             if args.stdout == 'drf' or dfh:
-                ss = nlist[0][0]
+                ss = nlist[0]
                 fdata = "{:d} {:03.9f} {:03.4f} {:s} {:6.2f}\n".format(CG.nodes[ss]['identity'],
                         CG.total_time, 1.0, ss[:len(CG.transcript)], CG.nodes[ss]['energy'])
-                write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
+                write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
 
             if args.pyplot:
-                ss = nlist[0][0]
+                ss = nlist[0]
                 ident = CG.nodes[ss]['identity']
                 all_courses[ident].append((CG.total_time, 1.0))
 
         else:
-            seq = ''
-            # sometimes bfile causes a segfault, so let's leave it out.
-            bfile = None
             try:  # - Simulate with treekin
-                tfile, _ = ril.sys_treekin_051(_fname, rfile,
+                tfile, _ = sys_treekin_051(_fname, rfile,
                         treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
                         binrates = True, mpack_method = args.mpack_method, quiet = True,
                         exponent = False, useplusI = False, force = True, verbose = (args.verbose > 1))
                 tnorm += 1
             except SubprocessError:
                 try:  # - Simulate with treekin and --exponent
-                    tfile, _ = ril.sys_treekin_051(_fname, rfile,
+                    tfile, _ = sys_treekin_051(_fname, rfile,
                             treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
                             binrates = True, mpack_method = args.mpack_method, quiet = True,
                             exponent = True, useplusI = False, force = True, verbose = (args.verbose > 1))
                     texpo += 1
                 except SubprocessError:
                     try:  # - Simulate with treekin and --useplusI
-                        tfile, _ = ril.sys_treekin_051(_fname, rfile,
+                        tfile, _ = sys_treekin_051(_fname, rfile,
                                 treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
                                 binrates = True, mpack_method = args.mpack_method, quiet = True,
                                 exponent = True, useplusI = True, force = True, verbose = (args.verbose > 1))
@@ -715,29 +742,27 @@ def main(args):
                         all_courses[id_].append((tt_, oc_))
                     write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
 
-
-
             CG.total_time += time_inc
 
             # Prune
             if args.o_min > 0:
                 # adjust o-min to size of current structure space:
                 pmin = args.o_min / len(nlist)
-                dn, sr = CG.prune(pmin, detailed = True, keep_reachables = False)
-            else:
-                dn = sr = 0
+                CG.prune(pmin)
 
-            if args.track_basins:
-                # add or substract a 0.1 kcal/mol plot-minh for every structure
-                # too much or too little.
-                approach = (len(nlist)-dn - args.track_basins) / 10
-                CG._dG_min = max(dG_min, CG._dG_min + approach)
+            print('FinalPPG:', len(CG))
+
+            #if args.track_basins:
+            #    # add or substract a 0.1 kcal/mol plot-minh for every structure
+            #    # too much or too little.
+            #    approach = (len(nlist)-dn - args.track_basins) / 10
+            #    CG._dG_min = max(dG_min, CG._dG_min + approach)
 
             if args.draw_graphs:
                 CG.graph_to_json(_fname)
 
         if args.verbose:
-            nZedges = len([a for (a, b, d) in CG.edges(data = True) if d['saddle'] != float('inf') and CG.nodes[a]['active'] and CG.nodes[b]['active']])
+            nZedges = len([a for (a, b, d) in CG.edges(data = True) if d['saddleE'] != float('inf') and CG.nodes[a]['active'] and CG.nodes[b]['active']])
             print("# Transcripton length: {}. Active graph size: {}. Non-zero transition edges: {}.  Hidden graph size: {}. Number of Edges: {}".format(
                 tlen, len(nlist), nZedges, len(CG), CG.number_of_edges()))
             stime = datetime.now()
@@ -747,41 +772,42 @@ def main(args):
             print("# Computation time at current nucleotide: algo: {} simu: {} total: {}".format(algotime, simutime, tot_time))
             print("# Deleted {} nodes, {} still reachable.".format(dn, sr))
             print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail, {} fake".format(tnorm, texpo, tplusI, tfail, tfake))
-            fp_tot = ril.trafo.PROFILE['findpath-calls']
-            fp_fr1 = ril.trafo.PROFILE['fraying1']
-            fp_fr2 = ril.trafo.PROFILE['fraying2']
-            fp_mfe = ril.trafo.PROFILE['mfe']
-            fp_con = ril.trafo.PROFILE['connect']
-            fp_cgr = ril.trafo.PROFILE['cogr']
-            fp_prn = ril.trafo.PROFILE['prune']
+            fp_tot = PROFILE['findpath-calls']
+            fp_fr1 = PROFILE['fraying1']
+            fp_fr2 = PROFILE['fraying2']
+            fp_mfe = PROFILE['mfe']
+            fp_con = PROFILE['connect']
+            fp_cgr = PROFILE['cogr']
+            fp_prn = PROFILE['prune']
             print("# Findpath stats: {} fraying, {} mfe connect, {} triangle connect, {} coarse-grain, {} prune, {} total.".format(fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot))
-            print("# dG-min: {} dG-max: {}".format(CG._dG_min, CG._dG_max))
-            print("{}  {} {} {} {}  {} {} {}  {} {}  {} {} {} {} {}  {} {} {} {} {} {}  {} {}".format(tlen, 
+            print("{}  {} {} {} {}  {} {} {}  {} {}  {} {} {} {} {}  {} {} {} {} {} {}".format(tlen, 
                 len(nlist), nZedges, len(CG), CG.number_of_edges(),
                 algotime, simutime, tot_time,
                 dn, sr,
                 tnorm, texpo, tplusI, tfail, tfake,
-                fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot, 
-                CG._dG_min, CG._dG_max))
+                fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot))
 
             atime = stime
-            ril.trafo.PROFILE['findpath-calls'] = 0
-            ril.trafo.PROFILE['fraying1'] = 0
-            ril.trafo.PROFILE['fraying2'] = 0
-            ril.trafo.PROFILE['mfe'] = 0
-            ril.trafo.PROFILE['connect'] = 0
-            ril.trafo.PROFILE['cogr'] = 0
-            ril.trafo.PROFILE['prune'] = 0
+            PROFILE['findpath-calls'] = 0
+            PROFILE['fraying1'] = 0
+            PROFILE['fraying2'] = 0
+            PROFILE['mfe'] = 0
+            PROFILE['connect'] = 0
+            PROFILE['cogr'] = 0
+            PROFILE['prune'] = 0
             sys.stdout.flush()
 
     # Write the last results
     if args.stdout == 'log' or lfh:
         fdata  = "# Distribution of structures at the end:\n"
         fdata += "#         {}\n".format(CG.transcript)
-        for e, (ni, data) in enumerate(CG.sorted_nodes(), 1):
-            sm = '-> {}'.format([CG.nodes[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
+        for e, node in enumerate(CG.sorted_nodes(nodes = CG.active_nodes), 1):
+            ne = CG.nodes[node]['energy']
+            no = CG.nodes[node]['occupancy']
+            ni = CG.nodes[node]['identity']
+            sm = '-> {}'.format([CG.nodes[tr]['identity'] for tr in softmap[node]]) if node in softmap else ''
             fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
-                tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
+                tlen, e, node[:tlen], ne, no, ni, sm)
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
 
 
