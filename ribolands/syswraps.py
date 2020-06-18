@@ -11,12 +11,6 @@
 #  Use double quotes or '#' for comments, such that single quotes are available
 #  for uncommenting large parts during testing
 #
-from __future__ import division, print_function
-from builtins import str
-from builtins import zip
-from builtins import map
-from builtins import range
-
 import os
 import re
 import sys

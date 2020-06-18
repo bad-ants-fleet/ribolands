@@ -49,10 +49,6 @@ On transition rates:
 Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
 University of Vienna, Department of Theoretical Chemistry
 """
-from __future__ import division, print_function
-from builtins import map
-from builtins import range
-
 import re
 import math
 import networkx as nx
@@ -252,7 +248,7 @@ class TrafoLandscape(nx.DiGraph):
     def graph_to_pdf(self, name):
         import matplotlib.pyplot as plt
         name += 'mpl.pdf'
-        nl = [x for x in self.nodes if self.node[x]['active']]
+        nl = [x for x in self.nodes if self.nodes[x]['active']]
         nd = nx.get_node_attributes(self, 'identity')
         nx.drawing.nx_pylab.draw_networkx(self, nodelist=nl, labels=nd)
 
@@ -342,7 +338,7 @@ class TrafoLandscape(nx.DiGraph):
             fpathW = self._fpath
 
         if self._dG_max: 
-            maxE = self.node[s1]['energy'] + self._dG_max + 1.00
+            maxE = self.nodes[s1]['energy'] + self._dG_max + 1.00
             fpathE = min(maxE, fpathE)
         elif ts:
             # Just to be sure, because right now there should be no situation
@@ -403,8 +399,8 @@ class TrafoLandscape(nx.DiGraph):
             self[s1][s2]['saddle'] = float('inf')
             self[s2][s1]['saddle'] = float('inf')
         elif saddleE < float('inf'):  # Add the edge.
-            e1 = self.node[s1]['energy']
-            e2 = self.node[s2]['energy'] if self.has_node(s2) \
+            e1 = self.nodes[s1]['energy']
+            e2 = self.nodes[s2]['energy'] if self.has_node(s2) \
                                          else round(fc.eval_structure(s2), 2)
 
             # ensure saddle is not lower than s1, s2
@@ -485,7 +481,7 @@ class TrafoLandscape(nx.DiGraph):
         num = self.expand_connect_mfe(parents, mfess, ddG = float('inf'))
         if num == 0 and len(parents) > 1:
             assert (not self.has_node(mfess) or \
-                (self.has_node(mfess) and not self.node[mfess]['active']))
+                (self.has_node(mfess) and not self.nodes[mfess]['active']))
             print("# WARNING: mfe secondary structure not connected\n# {}".format(
                     mfess[0:self._transcript_length]))
 
@@ -498,11 +494,11 @@ class TrafoLandscape(nx.DiGraph):
         # Post processing of graph after expansion:
         # remove nodes that have been inactive for a long time.
         for ni in list(self.nodes()):
-            if self.node[ni]['active']:
-                self.node[ni]['last_seen'] = 0
+            if self.nodes[ni]['active']:
+                self.nodes[ni]['last_seen'] = 0
             else:
-                self.node[ni]['last_seen'] += 1
-            if self.node[ni]['last_seen'] >= 5:
+                self.nodes[ni]['last_seen'] += 1
+            if self.nodes[ni]['last_seen'] >= 5:
                 self.remove_node(ni)
 
         if exp_mode == 'fullconnect':
@@ -545,7 +541,7 @@ class TrafoLandscape(nx.DiGraph):
         while (update):
             update = False
             for np in parents:
-                nbrs = [n for n in self.successors(np) if self.node[n]['active'] and \
+                nbrs = [n for n in self.successors(np) if self.nodes[n]['active'] and \
                         self.has_active_edge(n, np)]
 
                 for n1, n2 in combinations(nbrs, 2):
@@ -590,36 +586,36 @@ class TrafoLandscape(nx.DiGraph):
         connections = 0
         for parent in sorted(parents, key = lambda x: get_bpd_cache(mfess, x)):
             if parent == mfess: continue
-            assert TL.node[parent]['active']
+            assert TL.nodes[parent]['active']
     
-            fpathE = TL.node[parent]['energy'] + ddG
+            fpathE = TL.nodes[parent]['energy'] + ddG
     
             # If there is an active edge, make sure the MFE becomes an active node.
             if TL.has_active_edge(parent, mfess):
-                TL.node[mfess]['active'] = True
-                TL.node[mfess]['last_seen'] = 0
+                TL.nodes[mfess]['active'] = True
+                TL.nodes[mfess]['last_seen'] = 0
     
             # If there is a node, but no active edge, try to add it and activate the node.
             elif TL.has_node(mfess):
                 if TL.add_transition_edge(parent, mfess, 
                         fpathE = fpathE + 0.01, call = 'mfe'):
                     # in case it was there but inactive
-                    TL.node[mfess]['active'] = True
-                    TL.node[mfess]['last_seen'] = 0
+                    TL.nodes[mfess]['active'] = True
+                    TL.nodes[mfess]['last_seen'] = 0
     
             # If there is no node, try to add a new edge & initialize the node.
             elif TL.add_transition_edge(parent, mfess, 
                         fpathE = fpathE + 0.01, call = 'mfe'):
                     en = round(fc.eval_structure(mfess), 2)
-                    TL.node[mfess]['active'] = True
-                    TL.node[mfess]['last_seen'] = 0
-                    TL.node[mfess]['energy'] = en
-                    TL.node[mfess]['occupancy'] = 0.0
-                    TL.node[mfess]['identity'] = TL._nodeid
+                    TL.nodes[mfess]['active'] = True
+                    TL.nodes[mfess]['last_seen'] = 0
+                    TL.nodes[mfess]['energy'] = en
+                    TL.nodes[mfess]['occupancy'] = 0.0
+                    TL.nodes[mfess]['identity'] = TL._nodeid
                     TL._nodeid += 1
     
             if TL.has_active_edge(mfess, parent):
-                barrier = TL.get_saddle(mfess, parent) - TL.node[parent]['energy']
+                barrier = TL.get_saddle(mfess, parent) - TL.nodes[parent]['energy']
                 barrier = max(barrier, TL._dG_min)
                 if barrier < ddG:
                     ddG = barrier
@@ -663,7 +659,7 @@ class TrafoLandscape(nx.DiGraph):
 
                 # Now the case with historic differences ...
                 assert self.has_node(child) and self.has_node(nbr)
-                assert self.node[child]['active'] and self.node[nbr]['active']
+                assert self.nodes[child]['active'] and self.nodes[nbr]['active']
 
                 if self.has_active_edge(nbr, child):
                     continue
@@ -672,10 +668,10 @@ class TrafoLandscape(nx.DiGraph):
                 # The forward barrier parent -> saddle and reverse barrier ni -> saddle
                 # are added to the new structures child -> sp and nbr -> sp
                 sp = self.get_saddle(parent, ni)
-                fwbar = sp - self.node[parent]['energy'] 
-                bwbar = sp - self.node[ni]['energy'] 
-                fwsp = round(self.node[child]['energy'] + fwbar, 2)
-                bwsp = round(self.node[nbr]['energy'] + bwbar, 2)
+                fwbar = sp - self.nodes[parent]['energy'] 
+                bwbar = sp - self.nodes[ni]['energy'] 
+                fwsp = round(self.nodes[child]['energy'] + fwbar, 2)
+                bwsp = round(self.nodes[nbr]['energy'] + bwbar, 2)
 
                 if fwsp == bwsp:  # avoid findpath!
                     self.add_weighted_edges_from([(child, nbr, None)])
@@ -715,22 +711,22 @@ class TrafoLandscape(nx.DiGraph):
                 if self.has_active_edge(ni, nbr):
                     # NOTE: this may activate a previously coarse-grained node ...
                     # That's not pretty, but at least it is not wrong.
-                    self.node[nbr]['active'] = True
-                    self.node[nbr]['last_seen'] = 0
+                    self.nodes[nbr]['active'] = True
+                    self.nodes[nbr]['last_seen'] = 0
                 elif self.has_node(nbr):
                     if self.add_transition_edge(ni, nbr, call = 'fraying1'):
-                        self.node[nbr]['active'] = True
-                        self.node[nbr]['last_seen'] = 0
+                        self.nodes[nbr]['active'] = True
+                        self.nodes[nbr]['last_seen'] = 0
                 elif self.add_transition_edge(ni, nbr, call = 'fraying1'):
                     enbr = round(fc.eval_structure(nbr), 2)
-                    self.node[nbr]['energy'] = enbr
-                    self.node[nbr]['active'] = True
-                    self.node[nbr]['last_seen'] = 0
-                    self.node[nbr]['occupancy'] = 0.0
-                    self.node[nbr]['identity'] = self._nodeid
+                    self.nodes[nbr]['energy'] = enbr
+                    self.nodes[nbr]['active'] = True
+                    self.nodes[nbr]['last_seen'] = 0
+                    self.nodes[nbr]['occupancy'] = 0.0
+                    self.nodes[nbr]['identity'] = self._nodeid
                     self._nodeid += 1
 
-                if self.has_node(nbr) and self.node[nbr]['active']:
+                if self.has_node(nbr) and self.nodes[nbr]['active']:
                     new_nodes[ni].append(nbr)
                     # This is a shortcut to pre-calculate an edge from the next step:
                     # Every identical ext-change will be connected, if the parents
@@ -788,8 +784,8 @@ class TrafoLandscape(nx.DiGraph):
             # get all active neighbors (low to high) including the high
             # neighbors, bec we have to connect them later
             nbrs = [x for x in sorted(self.successors(ni), 
-                key = lambda y: (self.node[y]['energy'], y), 
-                    reverse = False) if self.node[x]['active']]
+                key = lambda y: (self.nodes[y]['energy'], y), 
+                    reverse = False) if self.nodes[x]['active']]
 
             nbrs = [x for x in nbrs if self.get_saddle(ni, x) != float('inf')]
 
@@ -797,7 +793,7 @@ class TrafoLandscape(nx.DiGraph):
                 break
 
             # lowest neighbor structure and energy
-            best, been = nbrs[0], self.node[nbrs[0]]['energy']
+            best, been = nbrs[0], self.nodes[nbrs[0]]['energy']
 
             if been - en > 0.0001:
                 # local minimum
@@ -807,7 +803,7 @@ class TrafoLandscape(nx.DiGraph):
             # neighbor(s) with the lowest energy barrier ...
             (transfer, minsE) = (set([best]), self.get_saddle(ni, best))
             for e, nbr in enumerate(nbrs[1:]):
-                if self.node[nbr]['energy'] - en >= 0.0001:
+                if self.nodes[nbr]['energy'] - en >= 0.0001:
                     break
                 sE = self.get_saddle(ni, nbr)
                 if sE + 0.01 < minsE : # a truly lower energy saddle
@@ -825,7 +821,7 @@ class TrafoLandscape(nx.DiGraph):
                 for trans in transfer:
                     if nb1 == trans:
                         continue
-                    if self.node[nb1]['energy'] > self.node[trans]['energy']:
+                    if self.nodes[nb1]['energy'] > self.nodes[trans]['energy']:
                         (s1, s2) = (nb1, trans) 
                     else:
                         (s1, s2) = (trans, nb1) 
@@ -834,11 +830,11 @@ class TrafoLandscape(nx.DiGraph):
                         raise TrafoAlgoError('Did not add the transition edge!')
 
             # remove the node
-            self.node[ni]['active'] = False
-            self.node[ni]['last_seen'] = 1
+            self.nodes[ni]['active'] = False
+            self.nodes[ni]['last_seen'] = 1
             for trans in transfer:
-                self.node[trans]['occupancy'] += self.node[ni]['occupancy']/len(transfer)
-            self.node[ni]['occupancy'] = 0.0
+                self.nodes[trans]['occupancy'] += self.nodes[ni]['occupancy']/len(transfer)
+            self.nodes[ni]['occupancy'] = 0.0
 
             # TODO: need to double check this...
             merged_nodes[ni] = transfer
@@ -956,14 +952,14 @@ class TrafoLandscape(nx.DiGraph):
                 tot_occ = sum(map(float, lastlines[1].split()[1:]))
                 for e, occu in enumerate(lastlines[1].split()[1:]):
                     ss = sorted_nodes[e][0]
-                    self.node[ss]['occupancy'] = float(occu)/tot_occ
+                    self.nodes[ss]['occupancy'] = float(occu)/tot_occ
             else :
                 time = float(lastlines[0].split()[0])
                 iterations = int(lastlines[-1].split()[-1])
                 tot_occ = sum(map(float, lastlines[0].split()[1:]))
                 for e, occu in enumerate(lastlines[0].split()[1:]):
                     ss = sorted_nodes[e][0]
-                    self.node[ss]['occupancy'] = float(occu)/tot_occ
+                    self.nodes[ss]['occupancy'] = float(occu)/tot_occ
 
         return time, iterations
 
@@ -994,8 +990,8 @@ class TrafoLandscape(nx.DiGraph):
 
             # get all active neighbors (low to high)
             nbrs = [x for x in sorted(self.successors(ni), 
-                key=lambda x: self.node[x]['energy'], reverse = False) \
-                        if self.node[x]['active']]
+                key=lambda x: self.nodes[x]['energy'], reverse = False) \
+                        if self.nodes[x]['active']]
 
             nbrs = [x for x in nbrs if self.get_saddle(ni, x) != float('inf')]
 
@@ -1003,7 +999,7 @@ class TrafoLandscape(nx.DiGraph):
                 raise TrafoAlgoError('there must be some valid neighbors! :-/')
 
             # lowest neighbor structure and energy
-            best, been = nbrs[0], self.node[nbrs[0]]['energy']
+            best, been = nbrs[0], self.nodes[nbrs[0]]['energy']
 
             if keep_reachables and been - en > 0.0001:
                 raise DeprecationWarning('do not keep keep reachables!')
@@ -1018,10 +1014,10 @@ class TrafoLandscape(nx.DiGraph):
                     (transfer, minsE) = (nbr, sE)
 
             # remove the node
-            self.node[ni]['active'] = False
-            self.node[ni]['last_seen'] = 1
-            self.node[transfer]['occupancy'] += self.node[ni]['occupancy']
-            self.node[ni]['occupancy'] = 0.0
+            self.nodes[ni]['active'] = False
+            self.nodes[ni]['last_seen'] = 1
+            self.nodes[transfer]['occupancy'] += self.nodes[ni]['occupancy']
+            self.nodes[ni]['occupancy'] = 0.0
             deleted_nodes += 1
 
             for e, nb1 in enumerate(nbrs, 1):
@@ -1087,8 +1083,8 @@ class TrafoLandscape(nx.DiGraph):
                         ss = sorted_nodes[e][0]
                         sss = ss[0:self._transcript_length]
 
-                        yield self.node[ss]['identity'], ttime + time, occu, \
-                            sss, self.node[ss]['energy']
+                        yield self.nodes[ss]['identity'], ttime + time, occu, \
+                            sss, self.nodes[ss]['energy']
                     prevcourse = course
         return
 

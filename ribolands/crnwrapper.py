@@ -1,21 +1,6 @@
-#
-#  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
-#  University of Vienna, Department of Theoretical Chemistry
-#
-#  -*- Style -*-
-#  Use double quotes or '#' for comments, such that single quotes are available
-#  for uncommenting large parts during testing
-#
-#  *) do not exceed 80 characters per line
-#
-
-from __future__ import division, print_function
-
-from builtins import str
 import subprocess as sub
 from ribolands.syswraps import SubprocessError
 from crnsimulator import ReactionGraph
-
 
 def DiGraphSimulator(CG, fname, nlist, p0, t0, t8,
                      t_lin=300,
@@ -51,10 +36,10 @@ def DiGraphSimulator(CG, fname, nlist, p0, t0, t8,
 
     crn = []
     for e in CG.edges():
-        if not CG.node[e[0]]['active'] or not CG.node[e[1]]['active']:
+        if not CG.nodes[e[0]]['active'] or not CG.nodes[e[1]]['active']:
             continue
-        reactant = 'id_' + str(CG.node[e[0]]['identity'])
-        product = 'id_' + str(CG.node[e[1]]['identity'])
+        reactant = 'id_' + str(CG.nodes[e[0]]['identity'])
+        product = 'id_' + str(CG.nodes[e[1]]['identity'])
         rate = CG[e[0]][e[1]]['weight']
         crn.append([[reactant], [product], rate])
 

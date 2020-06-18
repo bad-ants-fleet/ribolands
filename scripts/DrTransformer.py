@@ -5,13 +5,6 @@
 #
 # written by Stefan Badelt (stef@tbi.univie.ac.at)
 #
-
-from __future__ import division, print_function
-from builtins import map
-from builtins import zip
-from builtins import str
-from builtins import range
-
 import os
 import sys
 import math
@@ -601,7 +594,7 @@ def main(args):
         # Print the current state *before* the simulation starts.
         if args.stdout == 'log' or lfh:
             for e, (ni, data) in enumerate(nlist, 1):
-                sm = '-> {}'.format([CG.node[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
+                sm = '-> {}'.format([CG.nodes[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
                 fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                     tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
                 write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
@@ -616,13 +609,13 @@ def main(args):
             CG.total_time += _t8
             if args.stdout == 'drf' or dfh:
                 ss = nlist[0][0]
-                fdata = "{:d} {:03.9f} {:03.4f} {:s} {:6.2f}\n".format(CG.node[ss]['identity'],
-                        CG.total_time, 1.0, ss[:len(CG.transcript)], CG.node[ss]['energy'])
+                fdata = "{:d} {:03.9f} {:03.4f} {:s} {:6.2f}\n".format(CG.nodes[ss]['identity'],
+                        CG.total_time, 1.0, ss[:len(CG.transcript)], CG.nodes[ss]['energy'])
                 write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
 
             if args.pyplot:
                 ss = nlist[0][0]
-                ident = CG.node[ss]['identity']
+                ident = CG.nodes[ss]['identity']
                 all_courses[ident].append((CG.total_time, 1.0))
 
         else:
@@ -724,7 +717,7 @@ def main(args):
                 CG.to_json(_fname)
 
         if args.verbose:
-            nZedges = len([a for (a, b, d) in CG.edges(data = True) if d['saddle'] != float('inf') and CG.node[a]['active'] and CG.node[b]['active']])
+            nZedges = len([a for (a, b, d) in CG.edges(data = True) if d['saddle'] != float('inf') and CG.nodes[a]['active'] and CG.nodes[b]['active']])
             print("# Transcripton length: {}. Active graph size: {}. Non-zero transition edges: {}.  Hidden graph size: {}. Number of Edges: {}".format(
                 tlen, len(nlist), nZedges, len(CG), CG.number_of_edges()))
             stime = datetime.now()
@@ -766,7 +759,7 @@ def main(args):
         fdata  = "# Distribution of structures at the end:\n"
         fdata += "#         {}\n".format(CG.transcript)
         for e, (ni, data) in enumerate(CG.sorted_nodes(), 1):
-            sm = '-> {}'.format([CG.node[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
+            sm = '-> {}'.format([CG.nodes[tr]['identity'] for tr in softmap[ni]]) if ni in softmap else ''
             fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d} {:s}\n".format(
                 tlen, e, ni[:tlen], data['energy'], data['occupancy'], data['identity'], sm)
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)

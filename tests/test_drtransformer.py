@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-from __future__ import division, print_function
 import os
 import math
 
@@ -214,8 +213,8 @@ class Test_TrafoLand(unittest.TestCase):
             [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
         for (ss, occ, active) in ess:
             self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.node[ss]['occupancy'], occ)
-            self.assertEqual(TL.node[ss]['active'], active)
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
 
         TL.expand(extend=0)
         ess = [
@@ -229,8 +228,8 @@ class Test_TrafoLand(unittest.TestCase):
             [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
         for (ss, occ, active) in ess:
             self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.node[ss]['occupancy'], occ)
-            self.assertEqual(TL.node[ss]['active'], active)
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
 
         if verbose:
             TL.get_simulation_files_tkn(self.tmpdir+'/ecp1')
@@ -247,8 +246,8 @@ class Test_TrafoLand(unittest.TestCase):
             [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
         for (ss, occ, active) in ess:
             self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.node[ss]['occupancy'], occ)
-            self.assertEqual(TL.node[ss]['active'], active)
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
         
         if verbose:
             TL.get_simulation_files_tkn(self.tmpdir+'/ecp2')
@@ -265,8 +264,8 @@ class Test_TrafoLand(unittest.TestCase):
             [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
         for (ss, occ, active) in ess:
             self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.node[ss]['occupancy'], occ)
-            self.assertEqual(TL.node[ss]['active'], active)
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
 
         if verbose:
             TL.get_simulation_files_tkn(self.tmpdir+'/ecp3')
@@ -361,20 +360,20 @@ class Test_TrafoLand(unittest.TestCase):
             CG.add_weighted_edges_from([(ss2, ss, k_21)])
             CG[ss][ss2]['saddle'] = saddleE
             CG[ss2][ss]['saddle'] = saddleE
-            CG.node[ss]['active'] = True
-            CG.node[ss2]['active'] = True
-            CG.node[ss]['energy'] = float(en)
-            CG.node[ss2]['energy'] = float(en2)
-            CG.node[ss]['occupancy'] = 0
-            CG.node[ss2]['occupancy'] = 0
+            CG.nodes[ss]['active'] = True
+            CG.nodes[ss2]['active'] = True
+            CG.nodes[ss]['energy'] = float(en)
+            CG.nodes[ss2]['energy'] = float(en2)
+            CG.nodes[ss]['occupancy'] = 0
+            CG.nodes[ss2]['occupancy'] = 0
 
         for (id, ss, en, fa, ba) in bar:
             if verbose:
-                print('a', id, ss, en, fa, ba, CG.node[ss]['active'])
-            nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
-                              key=lambda x: (CG.node[x]['energy'], x), reverse=False))
+                print('a', id, ss, en, fa, ba, CG.nodes[ss]['active'])
+            nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 
+                              key=lambda x: (CG.nodes[x]['energy'], x), reverse=False))
             self.assertTrue(CG.has_node(ss))
-            self.assertEqual(CG.node[ss]['active'], True)
+            self.assertEqual(CG.nodes[ss]['active'], True)
 
         mn = CG.coarse_grain(dG_min=min_dG)
 
@@ -385,12 +384,12 @@ class Test_TrafoLand(unittest.TestCase):
 
         for (id, ss, en, fa, ba) in bar:
             if verbose:
-                print('c', id, ss, en, fa, ba, CG.node[ss]['active'])
+                print('c', id, ss, en, fa, ba, CG.nodes[ss]['active'])
             self.assertTrue(CG.has_node(ss))
             if ss in inactive:
-                self.assertFalse(CG.node[ss]['active'])
+                self.assertFalse(CG.nodes[ss]['active'])
             else:
-                self.assertEqual(CG.node[ss]['active'], True)
+                self.assertEqual(CG.nodes[ss]['active'], True)
 
     def test_coarse_graining_by_rates(self, verbose = False):
         """
@@ -466,38 +465,38 @@ class Test_TrafoLand(unittest.TestCase):
                             print('{} -> {} | {:.2f} {:.5f} {} {}'.format(
                                 m1+1, m2+1, dG, rate, bar[m1][4], sE))
 
-            CG.node[s1]['active'] = True
-            CG.node[s1]['energy'] = en1
-            CG.node[s1]['occupancy'] = 0
+            CG.nodes[s1]['active'] = True
+            CG.nodes[s1]['energy'] = en1
+            CG.nodes[s1]['occupancy'] = 0
 
         for (id, ss, en, fa, ba) in bar:
-            #print('b', id, ss, en, fa, ba, CG.node[ss]['active'])
-            nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
-                              key=lambda x: (CG.node[x]['energy'], x), reverse=False))
+            #print('b', id, ss, en, fa, ba, CG.nodes[ss]['active'])
+            nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 
+                              key=lambda x: (CG.nodes[x]['energy'], x), reverse=False))
             #for (x,y) in zip(nbrs, map(lambda x: CG[ss][x]['saddle'], nbrs)):
             #    print('   ', x, y)
             self.assertTrue(CG.has_node(ss))
-            self.assertTrue(CG.node[ss]['active'])
+            self.assertTrue(CG.nodes[ss]['active'])
 
         CG.coarse_grain(dG_min=min_dG)
 
         for (id, ss, en, fa, ba) in bar:
-            nbrs = filter(lambda x: CG.node[x]['active'], sorted(CG.successors(ss), 
-                              key=lambda x: (CG.node[x]['energy'], x), reverse=False))
+            nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 
+                              key=lambda x: (CG.nodes[x]['energy'], x), reverse=False))
             if verbose:
-                print(id, ss, en, fa, ba, CG.node[ss]['active'], end='')
+                print(id, ss, en, fa, ba, CG.nodes[ss]['active'], end='')
                 print(' ', list(map(lambda x: CG[ss][x]['saddle'], nbrs)))
             self.assertTrue(CG.has_node(ss))
             if ss in inactive:
-                self.assertFalse(CG.node[ss]['active'])
+                self.assertFalse(CG.nodes[ss]['active'])
             elif int(id) == 3:
                 # This is interesting, staring from min_dG=2.9 you can see that 
                 # the assertTrue would break.. because based on transition rates,
                 # there exists a path 3->4->2 which is energetically favorable 
                 # over 3->2, so after 4 is merged into 3, 3 can be merged into 2.
-                self.assertFalse(CG.node[ss]['active'])
+                self.assertFalse(CG.nodes[ss]['active'])
             else:
-                self.assertTrue(CG.node[ss]['active'])
+                self.assertTrue(CG.nodes[ss]['active'])
 
 @unittest.skipIf(skip, "slow tests are disabled by default")
 class Test_HelperFunctions(unittest.TestCase):
