@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 """
   BarMap.py -- cotranscriptional folding using *barriers* and *treekin*
@@ -9,7 +9,7 @@ import re
 import sys
 import argparse
 import numpy as np
-import subprocess as s  # barmap_treekin()
+import subprocess as s
 import collections as c
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -600,8 +600,8 @@ def add_barmap_args(parser):
     return
 
 
-def main(args):
-    """ BarMap-v2.0 -- cotransriptional folding
+def main():
+    """ BarMap -- cotransriptional folding
       Dependencies: RNAsubopt, barriers, treekin
 
       TODO: 
@@ -612,6 +612,17 @@ def main(args):
             Make use of the connect flag, if it is actually helpful.
 
     """
+    parser = argparse.ArgumentParser(
+        # formatter_class=argparse.RawTextHelpFormatter,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        # formatter_class=argparse.MetavarTypeHelpFormatter,
+        description='echo sequence | %(prog)s [options]')
+
+    add_barmap_args(parser)
+
+    args = parser.parse_args()
+
+
     # Read Input & Update Arguments
     name, seq = ril.parse_vienna_stdin(sys.stdin)
 
@@ -695,14 +706,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        # formatter_class=argparse.RawTextHelpFormatter,
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        # formatter_class=argparse.MetavarTypeHelpFormatter,
-        description='echo sequence | %(prog)s [options]')
-
-    add_barmap_args(parser)
-
-    args = parser.parse_args()
-
-    main(args)
+    main()

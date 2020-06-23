@@ -31,6 +31,7 @@ setup(
         'console_scripts': [
             'findpath=ribolands.pathfinder:main',
             'DrTransformer=ribolands.drtransformer:main'
+            'BarMap=ribolands.barmap:main'
             ],
         }
 )
