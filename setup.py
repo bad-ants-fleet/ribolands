@@ -30,7 +30,7 @@ setup(
     entry_points = {
         'console_scripts': [
             'findpath=ribolands.pathfinder:main',
-            'DrTransformer=ribolands.trafo:main'
+            'DrTransformer=ribolands.drtransformer:main'
             ],
         }
 )

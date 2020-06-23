@@ -11,6 +11,18 @@ from ribolands.pathfinder import (path_flooding,
                                   apply_bp_change,
                                   get_bp_change)
 
+
+#TODO:
+# WARNING - Ambiguous base-pair change!
+# WARNING - SQ: UAGCAGGAUCGAGUAGACCCGAGGAUUGUAUAGUUAGUCUCCACGGCAAUGACGAUGAGUGUCGAGAAUU, AGGNNNCUCCACGGCAAUGACGAUGAG
+# WARNING - S1: .....((.((.....)).))..((((((......))))))...((.......))................, .((xxx))...((.......)).....
+# WARNING - S2: None, ..(xxx)((..((.......))..)).
+# WARNING - Indices: [[4, 21], [38]]
+# WARNING -  - ......(.((.....)).))..((((((......)))))((..((.......))..))............, 0
+# WARNING -  - .....((.((.....)).))...(((((......)))))((..((.......))..))............, 0
+
+
+
 class Test_Pathflooding(unittest.TestCase):
 
     def setUp(self):
