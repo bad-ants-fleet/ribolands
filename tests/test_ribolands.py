@@ -1,3 +1,4 @@
+
 # Build a ribolandscape based on different models and try the different algorithms.
 import unittest
 import math
@@ -250,18 +251,18 @@ class TestRiboLandscape(unittest.TestCase):
         for lm in lmins[1:]: 
             RL.addnode(lm.structure, structure = lm.structure, energy = lm.energy)
 
-        nn, bn = RL.connect_nodes_n2(energyth = -10)
-        print('Graph size: {}, new: {}, better: {}'.format(len(RL), len(nn), len(bn)))
+        nn = RL.connect_nodes_n2()
+        print('Graph size: {}, new: {}'.format(len(RL), len(nn)))
 
         lr, hn = RL.coarse_grain()
         print('Hidden nodes: {}, Lmins: {}'.format(len(lr), len(hn)))
 
         self.plot_active_subgraph(RL, 'normal')
 
-        lim = 99
-        while bn:
-            nn, bn = RL.connect_nodes_n2(nodes = RL.active_nodes)
-            print('Graph size: {}, new: {}, better: {}'.format(len(RL), len(nn), len(bn)))
+        lim = 9
+        while nn:
+            nn = RL.connect_nodes_n2(nodes = RL.active_nodes)
+            print('Graph size: {}, new: {}'.format(len(RL), len(nn)))
             lr, hn = RL.coarse_grain()
             print('Hidden nodes: {}, Lmins: {}'.format(len(lr), len(hn)))
             lim -= 1

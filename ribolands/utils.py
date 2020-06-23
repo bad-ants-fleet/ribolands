@@ -4,17 +4,22 @@
 # All sorts of useful stuff.
 #
 
+import logging
+rlog = logging.getLogger(__name__)
+
 import re
 import sys
 from struct import pack, unpack, calcsize
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+class RiboUtilsError(Exception):
+    pass
 
 class ProgressBar(object):
     def __init__(self, clockmax):
         if clockmax < 1:
-            raise Exception("Imporper input.")
+            raise RiboUtilsError("Input clockmax {clockmax} should be a positive integer.")
 
         self.clock = 0
         self.clockmax = clockmax
@@ -158,15 +163,13 @@ def make_pair_table(ss, base=0, chars=['.']):
       [list]: A pair-table
     """
     stack = []
-
     if base is 0:
         pt = [-1] * len(ss)
     elif base == 1:
         pt = [0] * (len(ss) + base)
         pt[0] = len(ss)
     else:
-        raise ValueError("unexpected value in make_pair_table: \
-        (base = " + str(base) + ")")
+        raise RiboUtilsError(f"unexpected value in make_pair_table: (base = {base})")
 
     for i, char in enumerate(ss, base):
         if (char == '('):
@@ -175,16 +178,13 @@ def make_pair_table(ss, base=0, chars=['.']):
             try:
                 j = stack.pop()
             except IndexError as e:
-                raise RuntimeError(
-                    "Too many closing brackets in secondary structure")
+                raise RiboUtilsError("Too many closing brackets in secondary structure")
             pt[i] = j
             pt[j] = i
         elif (char not in set(chars)):
-            raise ValueError(
-                "unexpected character in sequence: '" + char + "'")
-
+            raise RiboUtilsError(f"unexpected character in sequence: '{char}'")
     if stack != []:
-        raise RuntimeError("Too many opening brackets in secondary structure")
+        raise RiboUtilsError("Too many opening brackets in secondary structure")
     return pt
 
 def make_loop_index(ss):
@@ -209,14 +209,14 @@ def make_loop_index(ss):
 def parse_vienna_stdin(stdin, chars = 'ACUGN&', skip = '-'):
     """Parse name and sequence information from file with fasta format.
 
-    Only one Input-Sequence is allowed at a time.
+    Only one input-sequence is allowed at a time.
 
     Args:
       stdin (list): Input to parse, ususally :obj:`sys.stdin`
       chars (string, optional): Allowed characters in a sequence.
 
     Returns:
-      [(str, str)]: A tuple containing name and sequence.
+      str, str: name and sequence.
     """
     name = 'NoName'
     seq = ''
@@ -229,17 +229,12 @@ def parse_vienna_stdin(stdin, chars = 'ACUGN&', skip = '-'):
                 name = line.strip().split()[0][1:]
         else:
             seq += line.strip()
-
-    try: # Python 3
-        seq = seq.translate({ord(c): None for c in skip})
-    except TypeError: # Python 2
-        seq = seq.translate(None, skip)
-
+    seq = seq.translate({ord(c): None for c in skip})
     m = re.search('[^' + chars + ']', seq)
     if m:
-        raise ValueError("Does not look like RNA: ('{}' in '{}')".format(
+        raise RiboUtilsError("Does not look like RNA: ('{}' in '{}')".format(
             m.string[m.span()[0]], seq))
-    return (name, seq)
+    return name, seq
 
 def parse_ratefile(rfile, binary = False):
     """Return the content of a barriers rates-file.
@@ -268,7 +263,6 @@ def parse_ratefile(rfile, binary = False):
         with open(rfile) as rates:
             for line in rates:
                 RM.append((list(map(float, line.strip().split()))))
-
     return RM
 
 def plot_nxy(name, tfile,
@@ -445,6 +439,5 @@ def natural_sort(l):
     def alphanum_key(key): 
         return [convert(c) for c in re.split('([0-9]+)', str(key))]
 
-    return sorted(l, key=alphanum_key)
-
+    return sorted(l, key = alphanum_key)
 

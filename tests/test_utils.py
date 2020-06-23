@@ -1,17 +1,13 @@
 #!/usr/bin/env python
 
-import sys
 import unittest
 import subprocess as sub
 
+from ribolands.utils import RiboUtilsError
 import ribolands.utils as rutils
 
-
-class vienna_stdin_test(unittest.TestCase):
+class test_io(unittest.TestCase):
     # fasta-like input parser that takes single name/sequence input
-    def setUp(self):
-        pass
-
     def test_vienna_stdin(self):
         # single sequence input
         regular_input = ['>testseq with additional info in header',
@@ -28,7 +24,7 @@ class vienna_stdin_test(unittest.TestCase):
         self.assertEqual(rutils.parse_vienna_stdin(regular_input), result)
         self.assertEqual(rutils.parse_vienna_stdin(fasta_input), result)
 
-    def test_fasta_stdin_(self):
+    def test_vienna_stdin_cofold(self):
         # cofold input with multiple cutpoints
         multifold_input = ['>testseq with additional info in header',
                            'CUUGUUCGAUGU& ',
@@ -39,28 +35,41 @@ class vienna_stdin_test(unittest.TestCase):
             'CUUGUUCGAUGU&UGUCUUUCACGAAUCCGGUCC&GCAACCCAUUAUAAGCAGAUGUGUAG')
         self.assertEqual(rutils.parse_vienna_stdin(multifold_input), result)
 
+    def test_parse_ratefile(self):
+        # TODO
+        pass
 
-class make_pair_table_test(unittest.TestCase):
+class dot_bracket_modifications(unittest.TestCase):
     # Make a pair table representation of secondary structures.
-    def setUp(self):
-        pass
-
     def test_pair_table(self):
-        s1 = '(((...)).((...)).((...)))'
-        Exp_pt1_s0 = [24, 7, 6, -1, -1, -1, 2, 1, -1, 15, 14, -
-                      1, -1, -1, 10, 9, -1, 23, 22, -1, -1, -1, 18, 17, 0]
-        Exp_pt1_s1 = [25, 25, 8, 7, 0, 0, 0, 3, 2, 0, 16, 15,
-                      0, 0, 0, 11, 10, 0, 24, 23, 0, 0, 0, 19, 18, 1]
-        Cmp_pt1_s0 = rutils.make_pair_table(s1)
-        Cmp_pt1_s1 = rutils.make_pair_table(s1, base=1)
+        ss = '(((...)).((...)).((...)))'
+        pt_b0 = [24, 7, 6, -1, -1, -1, 2, 1, -1, 15, 14, -1, -1, -1, 10, 9, -1, 23, 22, -1, -1, -1, 18, 17, 0]
+        pt_b1 = [25, 25, 8, 7, 0, 0, 0, 3, 2, 0, 16, 15, 0, 0, 0, 11, 10, 0, 24, 23, 0, 0, 0, 19, 18, 1]
+        assert pt_b0 == rutils.make_pair_table(ss)
+        assert pt_b1 == rutils.make_pair_table(ss, base = 1)
 
-        self.assertEqual(Cmp_pt1_s0, Exp_pt1_s0, '0 based pairtable')
-        self.assertEqual(Cmp_pt1_s1, Exp_pt1_s1, '1 based pairtable (C-style)')
+    def test_pair_table_errors(self):
+        ss = '(((...)).((&)).((...)))'
+        with self.assertRaises(RiboUtilsError):
+            rutils.make_pair_table(ss)
+        pt_b0 = rutils.make_pair_table(ss, chars = list('&.'))
+        pt_b1 = rutils.make_pair_table(ss, chars = list('&.'), base = 1)
+        assert pt_b0 == [22, 7, 6, -1, -1, -1, 2, 1, -1, 13, 12, -1, 10, 9, -1, 21, 20, -1, -1, -1, 16, 15, 0]
+        assert pt_b1 == [23, 23, 8, 7, 0, 0, 0, 3, 2, 0, 14, 13, 0, 11, 10, 0, 22, 21, 0, 0, 0, 17, 16, 1]
 
-    def test_cofold_pair_table(self):
-        s2 = '(((...)).((&)).((...)))'
-        pass
+        ss = '(((...)).((.).((...)))'
+        with self.assertRaises(RiboUtilsError):
+            rutils.make_pair_table(ss)
 
+        ss = '((...)).((.)).((...)))'
+        with self.assertRaises(RiboUtilsError):
+            rutils.make_pair_table(ss)
+
+    def test_loop_index(self):
+        ss = '.(((...)).((...))..(.(...)))'
+        li = '0123333321455555411667777761'
+        assert rutils.make_loop_index(ss) == list(map(int, li))
+ 
 
 if __name__ == '__main__':
     unittest.main()

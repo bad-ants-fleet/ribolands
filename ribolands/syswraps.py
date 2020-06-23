@@ -7,6 +7,7 @@
 
 import logging
 rlog = logging.getLogger(__name__)
+import warnings
 
 import os
 import re
@@ -286,10 +287,7 @@ class Workflow(object):
             os.mkdir(path)
         self._outdir = path + '/' if path[-1] != '/' else path
 
-    def find_subopt_range(self, nos, maxe, verbose = None):
-        if verbose is None:
-            verbose = self.verbose
-
+    def find_subopt_range(self, nos, maxe):
         if self.sequence is None:
             raise Exception('Must set sequence first.')
 
@@ -303,20 +301,17 @@ class Workflow(object):
                 params = self.paramFile,
                 temp = self.md.temperature,
                 noLP = self.md.noLP,
-                circ = self.md.circ,
-                verb = verbose)
+                circ = self.md.circ)
 
         self.subopt_range = sener
         self.subopt_number = snum
 
-    def call_RNAsubopt(self, opts = None, force = None, verbose = None):
+    def call_RNAsubopt(self, opts = None, force = None):
         if self.RNAsubopt is None:
             raise SystemExit(f'Need to specify executable for RNAsubopt.')
 
         if force is None:
             force = self.force
-        if verbose is None:
-            verbose = self.verbose
         
         if True: # more consistent
             sortopt = ['|', 'sort', '-T', '/tmp', '-k3r', '-k2n'] 
@@ -334,11 +329,10 @@ class Workflow(object):
                 opts = opts,
                 sort = sortopt,
                 zipped = self.zip_suboptimals,
-                force = force,
-                verb = verbose)
+                force = force)
         
-        if verbose and self.sofile:
-            print(f'Replacing internal subopt file: {sofile}')
+        if self.sofile:
+            rlog.info(f'Replacing internal subopt file: {sofile}')
 
         self.sofile = sofile
         return self.sofile
@@ -348,13 +342,11 @@ class Workflow(object):
             minh = 0.001, maxn = 50, 
             paths = None, bmfile = None, connected = False,
             bsize = False, ssize = False, saddle = False, plot = False, 
-            force = None, verbose = None):
+            force = None):
         
         if self.barriers is None:
             raise SystemExit(f'Need to specify executable for barriers.')
 
-        if verbose is None:
-            verbose = self.verbose
         if force is None:
             force = self.force
 
@@ -377,19 +369,18 @@ class Workflow(object):
                 bmfile = bmfile,
                 connected = connected,
                 plot = plot,
-                force = force,
-                verbose = verbose)
+                force = force)
 
-        if verbose and self.bofile:
-            print(f'Replacing internal barriers output file: {files[0]}')
-        if verbose and self.brfile:
-            print(f'Replacing internal barriers rates file: {files[2]}')
-        if verbose and self.bbfile:
-            print(f'Replacing internal barriers binary rates file: {files[3]}')
-        if verbose and self.bpfile:
-            print(f'Replacing internal barriers plot file: {files[4]}')
-        if verbose and self.bmfile:
-            print(f'Replacing internal barriers mapstruc file: {files[5]}')
+        if self.bofile:
+            rlog.info(f'Replacing internal barriers output file: {files[0]}')
+        if self.brfile:
+            rlog.info(f'Replacing internal barriers rates file: {files[2]}')
+        if self.bbfile:
+            rlog.info(f'Replacing internal barriers binary rates file: {files[3]}')
+        if self.bpfile:
+            rlog.info(f'Replacing internal barriers plot file: {files[4]}')
+        if self.bmfile:
+            rlog.info(f'Replacing internal barriers mapstruc file: {files[5]}')
 
         self.bofile = files[0]
         # efile 
@@ -405,15 +396,13 @@ class Workflow(object):
             t0 = 0, ti = 1.2, t8 = 1e6,
             binrates = True, bofile = None, # bofile = False to avid using internal one.
             useplusI = False, exponent = False, mpack_method = None,
-            quiet = True, force = None, verbose = None):
+            quiet = True, force = None):
 
         if self.treekin is None:
             raise SystemExit(f'Need to specify executable for treekin.')
 
         if force is None:
             force = self.force
-        if verbose is None:
-            verbose = self.verbose
 
         ratefile = self.bbfile if binrates else self.brfile
         if bofile is False:
@@ -434,11 +423,10 @@ class Workflow(object):
                 exponent = exponent,
                 mpack_method = mpack_method,
                 quiet = quiet,
-                force = force,
-                verbose = verbose)
+                force = force)
 
-        if verbose and self.tofile:
-            print(f'Replacing internal treekin output file: {tofile}')
+        if self.tofile:
+            rlog.info(f'Replacing internal treekin output file: {tofile}')
 
         self.tofile = tofile
         return tofile, tefile
@@ -448,13 +436,10 @@ class Workflow(object):
             ratemodel = 'Metropolis',
             lmin = False, silent = True, erange = 100,
             name = None,
-            force = None, verbose = None):
+            force = None):
 
         if self.Kinfold is None:
             raise SystemExit(f'Need to specify executable for Kinfold.')
-
-        if verbose is None:
-            verbose = self.verbose
 
         if name is None: 
             name = self.outdir + self.name
@@ -476,13 +461,12 @@ class Workflow(object):
                 erange = erange,
                 lmin = lmin,
                 silent = silent,
-                force = force,
-                verbose = verbose)
+                force = force)
 
-        if verbose and self.klfile:
-            print(f'Replacing internal kinfold log file: {klfile}')
-        if verbose and self.kofile:
-            print(f'Replacing internal kinfold output file: {kofile}')
+        if self.klfile:
+            rlog.info(f'Replacing internal kinfold log file: {klfile}')
+        if self.kofile:
+            rlog.info(f'Replacing internal kinfold output file: {kofile}')
 
         self.klfile = klfile
         self.kofile = kofile
@@ -506,8 +490,7 @@ def sys_treekin_051(basename, ratefile,
                 exponent = False,
                 mpack_method = None,
                 quiet = True,
-                force = False,
-                verbose = False):
+                force = False):
     """ Perform a system-call of the program ``treekin``.
 
     Prints the results into files and returns the respective filenames. This
@@ -533,7 +516,6 @@ def sys_treekin_051(basename, ratefile,
         mpack_method (str, optional): Set treekin parameter --mpack-method. 
             Defaults to None.
         force (bool, optional): Overwrite existing files. Defaults to False.
-        verbose (bool, optional): Print verbose information. Defaults to False.
 
     Raises:
         ExecError: Program does not exist.
@@ -555,8 +537,7 @@ def sys_treekin_051(basename, ratefile,
     tefile = basename + '.err'
 
     if not force and os.path.exists(tofile):
-        if verbose:
-            print("# {:s} <= Files exist".format(tofile))
+        rlog.info(f"# {tofile} <= Files exist")
         return tofile, tefile
 
     # Unfortunately, running treekin with a single state leads to an error that
@@ -594,9 +575,7 @@ def sys_treekin_051(basename, ratefile,
 
     call = "cat {} | {} 2> {} > {}".format(ratefile, ' '.join(syscall), tefile, tofile)
 
-    if verbose:
-        print(f'# {call}')
-
+    rlog.info(f'{call}')
     # Do the simulation (catch treekin errors)
     with open(ratefile, 'r') as rts, \
             open(tofile, 'w') as tkn, \
@@ -608,7 +587,11 @@ def sys_treekin_051(basename, ratefile,
 
     return tofile, tefile
 
-#Last update: version 1.8.0
+def sys_treekin(name, brfile, **kwargs):
+    warnings.warn("ribolands sys_treekin interface changed.")
+    return sys_treekin_051(name, brfile, **kwargs)
+
+#Last update: version 1.8.1
 def sys_barriers_180(basename, sofile,
                  barriers = 'barriers',
                  minh = 0.001,
@@ -627,8 +610,7 @@ def sys_barriers_180(basename, sofile,
                  bmfile = None,
                  plot = False,
                  connected = False,
-                 force = False,
-                 verbose = False):
+                 force = False):
     """Perform a system-call of the program ``barriers``.
 
     The print the results into a file and return the respective filename. This
@@ -639,7 +621,6 @@ def sys_barriers_180(basename, sofile,
       sofile (str): Input filename for ``barriers`` as produced by ``RNAsubopt``.
       temp (float, optional): Specify temperature in Celsius.
       force (bool, optional): Overwrite existing files with the same name.
-      verbose (bool, optional): Print the current system-call to ``stderr``.
 
     Raises:
       ExecError: Program does not exist.
@@ -672,8 +653,7 @@ def sys_barriers_180(basename, sofile,
       (not paths or all(map(os.path.exists, ['{:s}_path.{:03d}.{:03d}.txt'.format(basename, int(x), int(y)) for x, y in map(lambda x: x.split('='), paths)]))) and \
       (not plot or os.path.exists(bpfile)) and \
       (not bmfile or os.path.exists(msfile)):
-        if verbose:
-            print("#", bofile, brfile, " <= Files exist")
+        rlog.info(f"# files exist: {bofile}, {brfile}")
         return [bofile, befile, brfile, bbfile, bpfile, msfile]
 
     barcall = [barriers]
@@ -722,9 +702,7 @@ def sys_barriers_180(basename, sofile,
         barcall.extend(["--mapstruc-output", msfile])
 
     call = "{} 2> {} > {}".format(' '.join(barcall), befile, bofile)
-    if verbose:
-        print(f'# {call}')
-
+    rlog.info(f'# {call}')
     # TODO: This version is prettier than the old one, but it might be slower
     # than just writing the string and "shell = True".
     if zipped:
@@ -776,183 +754,9 @@ def sys_barriers_180(basename, sofile,
 
     return [bofile, befile, brfile, bbfile, bpfile, msfile]
 
-
-def sys_suboptimals(name, seq,
-                    RNAsubopt = 'RNAsubopt',
-                    params = None,
-                    ener = None,
-                    temp = 37.0,
-                    noLP = False,
-                    circ = False,
-                    opts = None,
-                    sort = ['|', 'sort', '-T', '/tmp', '-k3r', '-k2n'],
-                    zipped = True,
-                    force = False,
-                    verb = False):
-    """Perform a system-call of the program ``RNAsubopt``.
-
-    The print the results into a file and return the filename.
-
-    Args:
-        name (str): Name of the sequence used to name the output file.
-        seq (str): Nucleic acid sequence.
-        RNAsubopt (str, optional): Path to ``RNAsubopt'' executable.
-    :param ener: Specify energy range
-    :param temp: Specify temperature in Celsius.
-    :param noLP: exclude lonely-base-pairs in suboptimal structures
-    :param circ: compute density of states
-    :param opts: more options for ``RNAsubopt``
-
-    :param force: Overwrite existing files with the same name.
-    :param verb: Print verbose information as a comment '#'.
-
-    :type name: string
-    :type seq: string
-    :type RNAsubopt: string
-    :type ener: float
-    :type temp: float
-    :type noLP: bool
-    :type circ: bool
-    :type opts: list
-    :type force: bool
-    :type verb: bool
-
-    Returns:
-        [str]: Filename of the file containing ``RNAsubopt`` results.
-    """
-
-    if which(RNAsubopt) is None:
-        raise ExecError(RNAsubopt, "RNAsubopt", 'http://www.tbi.univie.ac.at/RNA')
-
-    if ener is None:
-        ener, nos = sys_subopt_range(seq, verb=verb,
-                                     RNAsubopt=RNAsubopt, noLP=noLP, circ=circ, temp=temp)
-        if verb:
-            print("# Energy-Update: {:.2f} kcal/mol to compute {} sequences".format(
-                ener, nos))
-
-    sofile = name + '.spt.gz' if zipped else name + '.spt'
-
-    if not force and os.path.exists(sofile):
-        if verb:
-            print("#", sofile, "<= File exists")
-        return sofile
-
-    sptcall = [RNAsubopt, "-e {:.2f} -T {:.2f}".format(ener, temp)]
-    if params:
-        sptcall.extend(["--paramFile", params])
-    if noLP:
-        sptcall.append("--noLP")
-    if circ:
-        sptcall.append("--circ")
-    if opts:
-        sptcall.extend(opts)
-    sptcall.extend(sort)
-
-    if zipped:
-        sptcall.extend(('|', 'gzip', '--best'))
-
-    if verb:
-        print("#", "echo \"{}\" | {} > {}".format(seq, ' '.join(sptcall), sofile))
-
-    with open(sofile, 'w') as shandle:
-        proc = sub.Popen([' '.join(sptcall)],
-                         stdin=sub.PIPE, stdout=shandle, shell=True)
-        proc.communicate(seq.encode())
-        if proc.returncode:
-            call = "echo \"{}\" | {} > {}".format(seq, ' '.join(sptcall), sofile)
-            raise SubprocessError(proc.returncode, call)
-
-    return sofile
-
-
-def sys_subopt_range(seq,
-                     RNAsubopt='RNAsubopt',
-                     params = None,
-                     nos=5100000,
-                     maxe=30.0,
-                     temp=37.0,
-                     noLP=False,
-                     circ=False,
-                     verb=False):
-    """Compute an energy range that computes a given number of structures.
-
-    .. note:: If your RAM is big enough, ``barriers`` can be compiled to read \
-      billions of structures, however computations with more than 10.000.000 \
-      structures may take a very long time.
-
-    Args:
-      seq (str): nucleic acid sequence.
-      RNAsubopt (str, optional): path to executable.
-      nos (int, optional): number of structures.
-      maxe (float, optional): an upper bound of the energy range.
-      temp (float, optional): temperature in Celsius.
-      noLP (bool): exclude lonely-base-pairs in suboptimal structures. Defaults to False.
-      circ (bool): compute density of states. Defaults to False.
-      verb (bool): Print verbose information as a comment '#'. Defaults to False.
-
-    Returns:
-      [tuple]: (energy-range, number-of-structures)
-    """
-
-    if which(RNAsubopt) is None:
-        raise ExecError(RNAsubopt, "RNAsubopt", 'http://www.tbi.univie.ac.at/RNA')
-
-    num, nump = 0, 0
-    e = maxe if nos == 0 else 5.  # Decreasing this value may introduce bugs ...
-    ep = e - 1
-    while (num < nos + 1):
-        if verb:
-            print("# Energy: ", "{:.2f}".format(float(e)))
-
-        sptcall = [RNAsubopt, "-D -e {:.2f} -T {:.2f}".format(float(e), temp)]
-        if params:
-            sptcall.extend(["--paramFile", params])
-        if circ:
-            sptcall.append("--circ")
-        if noLP:
-            sptcall.append("--noLP")
-
-        process = sub.Popen([' '.join(sptcall)],
-                            stdin=sub.PIPE, stdout=sub.PIPE, stderr=sub.PIPE, shell=True)
-        output, err = process.communicate(seq.encode())
-        if err:
-            # this one might be not so bad ...
-            raise Exception(err)
-
-        structures = 0
-        for l in output.split(b'\n')[1:-1]:
-            [interval, value] = l.split()
-            structures += int(value)
-
-            # Make sure that nump fits to the preset ep value
-            if nump == 0:
-                if ep * 10 == int(interval):
-                    nump = structures
-
-            # Break the loop if you reach the number of structures in the output
-            if (nos and structures >= nos - (nos * 0.01)) or float(interval) / 10 >= maxe:
-                e = float(interval) / 10
-                num = structures
-                break  # return to while
-
-        else:  # if the last loop didn't break, duh!
-            num = structures
-            if num > nos or num == nump:
-                e = float(interval) / 10
-                break
-
-            new = e + (e - ep) / (math.log(float(num) / nump)) * \
-                (math.log(float(nos) / num))
-            ep, nump = e, num
-            e = new if new < maxe else maxe
-            if abs(e - ep) < 0.1:
-                e = ep
-                break
-            continue
-        break  # end while after for loop exit
-
-    return e, num
+def sys_barriers(name, seq, **kwargs): 
+    warnings.warn("ribolands sys_barriers interface changed.")
+    return sys_barriers_180(name, seq, **kwargs)
 
 def sys_kinfold(name, seq, 
         kinfold = 'Kinfold',
@@ -973,8 +777,7 @@ def sys_kinfold(name, seq,
         erange = 20, # Kinfold Default.
         lmin = False,
         silent = False,
-        force = False,
-        verbose = False):
+        force = False):
     """Perform a system-call of the program ``Kinfold``.
 
     The print the results into a file and return the respective filename. This
@@ -995,13 +798,11 @@ def sys_kinfold(name, seq,
 
     if os.path.exists(klfile) and os.path.exists(kofile):
         if force is None:
-            if verbose:
-                print("#", klfile, kofile, "<= Files exist, appending output!")
+            rlog.info("# Files exist, appending output: {klfile}, {kofile}")
         elif force is False:
             return [klfile, kefile, kofile]
         else:
-            if verbose:
-                print("#", klfile, kofile, "<= Removing old files!")
+            rlog.info("# Removing old files: {klfile}, {kofile}")
             if os.path.exists(klfile):
                 os.remove(klfile)
             if os.path.exists(kofile):
@@ -1064,8 +865,7 @@ def sys_kinfold(name, seq,
             assert isinstance(stop, list)
             kinput += '\n'.join(stop)
 
-    if verbose:
-        print('#', ' '.join(syscall), '2>', kefile, '>', kofile)
+    rlog.info(f"# {' '.join(syscall)}, 2> {kefile} > {kofile}")
 
     with open(kofile, 'w') as khandle, open(kefile, 'w') as ehandle:
         proc = sub.Popen(' '.join(syscall), 
@@ -1079,9 +879,169 @@ def sys_kinfold(name, seq,
 
     return [klfile, kefile, kofile]
 
-# ***************** #
-# private functions #
-# ................. #
+def sys_suboptimals(name, seq,
+                    RNAsubopt = 'RNAsubopt',
+                    params = None,
+                    ener = None,
+                    temp = 37.0,
+                    noLP = False,
+                    circ = False,
+                    opts = None,
+                    sort = ['|', 'sort', '-T', '/tmp', '-k3r', '-k2n'],
+                    zipped = True,
+                    force = False):
+    """Perform a system-call of the program ``RNAsubopt``.
+
+    The print the results into a file and return the filename.
+
+    Args:
+        name (str): Name of the sequence used to name the output file.
+        seq (str): Nucleic acid sequence.
+        RNAsubopt (str, optional): Path to ``RNAsubopt'' executable.
+    :param ener: Specify energy range
+    :param temp: Specify temperature in Celsius.
+    :param noLP: exclude lonely-base-pairs in suboptimal structures
+    :param circ: compute density of states
+    :param opts: more options for ``RNAsubopt``
+
+    :param force: Overwrite existing files with the same name.
+
+    :type name: string
+    :type seq: string
+    :type RNAsubopt: string
+    :type ener: float
+    :type temp: float
+    :type noLP: bool
+    :type circ: bool
+    :type opts: list
+    :type force: bool
+
+    Returns:
+        [str]: Filename of the file containing ``RNAsubopt`` results.
+    """
+
+    if which(RNAsubopt) is None:
+        raise ExecError(RNAsubopt, "RNAsubopt", 'http://www.tbi.univie.ac.at/RNA')
+
+    if ener is None:
+        ener, nos = sys_subopt_range(seq, 
+                RNAsubopt = RNAsubopt, noLP = noLP, circ = circ, temp = temp)
+        rlog.info("# Energy-Update: {:.2f} kcal/mol to compute {} sequences".format(
+                ener, nos))
+
+    sofile = name + '.spt.gz' if zipped else name + '.spt'
+
+    if not force and os.path.exists(sofile):
+        rlog.info(f"# File exists: {sofile}")
+        return sofile
+
+    sptcall = [RNAsubopt, "-e {:.2f} -T {:.2f}".format(ener, temp)]
+    if params:
+        sptcall.extend(["--paramFile", params])
+    if noLP:
+        sptcall.append("--noLP")
+    if circ:
+        sptcall.append("--circ")
+    if opts:
+        sptcall.extend(opts)
+    sptcall.extend(sort)
+
+    if zipped:
+        sptcall.extend(('|', 'gzip', '--best'))
+
+    rlog.info(f"# echo '{seq}' | {' '.join(sptcall)} > {sofile}")
+
+    with open(sofile, 'w') as shandle:
+        proc = sub.Popen([' '.join(sptcall)],
+                         stdin=sub.PIPE, stdout=shandle, shell=True)
+        proc.communicate(seq.encode())
+        if proc.returncode:
+            call = "echo \"{}\" | {} > {}".format(seq, ' '.join(sptcall), sofile)
+            raise SubprocessError(proc.returncode, call)
+
+    return sofile
+
+def sys_subopt_range(seq,
+                     RNAsubopt = 'RNAsubopt',
+                     params = None,
+                     nos = 5100000,
+                     maxe = 30.0,
+                     temp = 37.0,
+                     noLP = False,
+                     circ = False):
+    """ Compute an energy range that computes a given number of structures.
+
+    .. note:: If your RAM is big enough, ``barriers`` can be compiled to read \
+      billions of structures, however computations with more than 10.000.000 \
+      structures may take a very long time.
+
+    Args:
+      seq (str): nucleic acid sequence.
+      RNAsubopt (str, optional): path to executable.
+      nos (int, optional): number of structures.
+      maxe (float, optional): an upper bound of the energy range.
+      temp (float, optional): temperature in Celsius.
+      noLP (bool): exclude lonely-base-pairs in suboptimal structures. Defaults to False.
+      circ (bool): compute density of states. Defaults to False.
+
+    Returns:
+      [tuple]: (energy-range, number-of-structures)
+    """
+
+    if which(RNAsubopt) is None:
+        raise ExecError(RNAsubopt, "RNAsubopt", 'http://www.tbi.univie.ac.at/RNA')
+
+    num, nump = 0, 0
+    e = maxe if nos == 0 else 5.  # Decreasing this value may introduce bugs ...
+    ep = e - 1
+    while num <= nos:
+        rlog.info("Energy: {:.2f}".format(float(e)))
+        sptcall = [RNAsubopt, "-D -e {:.2f} -T {:.2f}".format(float(e), temp)]
+        if params:
+            sptcall.extend(["--paramFile", params])
+        if circ:
+            sptcall.append("--circ")
+        if noLP:
+            sptcall.append("--noLP")
+
+        process = sub.Popen([' '.join(sptcall)],
+                            stdin = sub.PIPE, 
+                            stdout = sub.PIPE, 
+                            stderr = sub.PIPE, 
+                            shell = True)
+        output, err = process.communicate(seq.encode())
+        if err:
+            # this one might be not so bad ...
+            raise Exception(err)
+
+        structures = 0
+        for l in output.split(b'\n')[1:-1]:
+            [interval, value] = l.split()
+            structures += int(value)
+            # Make sure that nump fits to the preset ep value
+            if nump == 0:
+                if ep * 10 == int(interval):
+                    nump = structures
+            # Break the loop if you reach the number of structures in the output
+            if (nos and structures >= nos - (nos * 0.01)) or float(interval) / 10 >= maxe:
+                e = float(interval) / 10
+                num = structures
+                break  # return to while
+        else: # the last loop didn't break ...
+            num = structures
+            if num > nos or num == nump:
+                e = float(interval) / 10
+                break
+            new = e + (e - ep) / (math.log(float(num) / nump)) * \
+                (math.log(float(nos) / num))
+            ep, nump = e, num
+            e = new if new < maxe else maxe
+            if abs(e - ep) < 0.1:
+                e = ep
+                break
+            continue
+        break  # end while after for loop exit
+    return e, num
 
 def subopt_reaches_minh(fname, minh, zipped = True):
     """ Internal function to report on whether the energy-range of suboptimal
@@ -1116,141 +1076,6 @@ def subopt_reaches_minh(fname, minh, zipped = True):
             return searchit(f)
 
     raise AssertionError('Function must exit above.')
-
-# ===========
-# DEPRECATED
-# ===========
-def sys_treekin(name, seq, bofile, brfile,
-                treekin='treekin',
-                p0=['1=0.5', '2=0.5'],
-                t0=0,
-                ti=1.2,
-                t8=1e6,
-                binrates=False,
-                useplusI=False,
-                exponent=False,
-                mpack_method='',
-                force=False,
-                verb=False):
-    print('WARNING: Using deprecated function: sys_treekin, use sys_treekin_051 instead.')
-
-    return sys_treekin_051(name, brfile,
-                treekin = treekin,
-                bofile = bofile,
-                p0 = p0,
-                t0 = t0,
-                ti = ti,
-                t8 = t8,
-                binrates = binrates,
-                useplusI = useplusI,
-                exponent = exponent,
-                mpack_method = mpack_method,
-                force = force,
-                verbose = verb)
-
-
-def sys_barriers(name, seq, sofile,
-                 barriers='barriers',
-                 minh=0.001,
-                 maxn=50,
-                 k0=1.0,
-                 temp=37.0,
-                 noLP=False,
-                 moves='single-base-pair',
-                 gzip=True,
-                 rates=True,
-                 binrates=False,
-                 bsize=False,
-                 ssize=False,
-                 circ=False,
-                 saddle=False,
-                 bmfile='',
-                 force=False,
-                 verb=False):
-
-    print('WARNING: Using deprecated function: sys_barriers, use sys_barriers_180 instead.')
-
-    [bofile, befile, brfile, bbfile, bpfile, msfile] = sys_barriers_180(name, sofile,
-                 barriers = barriers,
-                 minh = minh, 
-                 maxn = maxn,
-                 temp = temp,
-                 noLP = noLP,
-                 moves = moves,
-                 zipped = gzip,
-                 rates = rates,
-                 k0 = k0,
-                 bsize = bsize,
-                 ssize = ssize,
-                 circ = circ,
-                 saddle = saddle,
-                 bmfile = bmfile,
-                 force = force,
-                 verbose = verb)
-    if binrates:
-        return [None, bofile, befile, bbfile, None, msfile]
-    else:
-        return [None, bofile, befile, brfile, None, msfile]
- 
-def main():
-    import RNA 
-    from ribolands.utils import parse_vienna_stdin, parse_ratefile, plot_nxy, plot_nxy_linlog
-    from ribolands.parser import parse_barriers
-
-    #if paramfile:
-    #    RNA.read_parameter_file(args.paramFile)
-
-    # Set model details.
-    vrna_md = RNA.md()
-    vrna_md.noLP = 0
-    vrna_md.temperature = 25
-    vrna_md.dangles = 2
-    vrna_md.logML = 0
-    vrna_md.special_hp = 1
-    vrna_md.noGU = 0
-    
-    # Quick set test model params """
-    name, seq = parse_vienna_stdin(sys.stdin)
-
-    Pipe = Workflow(seq, vrna_md, name = name)
-    Pipe.force = True
-    Pipe.verbose = True
-    Pipe.outdir = 'mypipe'
-    Pipe.RNAsubopt = 'RNAsubopt'
-    Pipe.barriers = 'barriers'
-    Pipe.treekin = 'treekin'
-    Pipe.Kinfold = 'Kinfold'
-    Pipe.zip_suboptimals = False
-
-    Pipe.find_subopt_range(nos = 10000, maxe = 20)
-
-    sofile = Pipe.call_RNAsubopt()
-    bofile, befile, brfile, bbfile, *_ = Pipe.call_barriers(minh = 3, maxn = 20, plot = False, 
-        connected = True, force = True, verbose = True)
-
-    tofile, _ = Pipe.call_treekin(p0 = ['2=1'], useplusI = True, verbose = True)
-
-
-    lmins = parse_barriers(bofile, return_tuple = True) 
-    assert lmins[0] == Pipe.sequence
-
-    for lm in lmins:
-        print(lm)
-
-    stop = []
-    for lm in lmins[1:-1]:
-        stop.append(lm.structure)
-
-    klfile, *_ = Pipe.call_Kinfold(start = lmins[-1].structure, stop = stop, time = 1e5, num = 5)
-
-    pfile = plot_nxy(Pipe.name + '.pdf', tofile, ylim = None, xlim = (1, 1e5), lines = [])
-
-    pfile = plot_nxy_linlog(Pipe.name + '_linlog.pdf', tofile, xlim = (0, 1000, 1e5), figdivide = 1.5)
-
-    RM = parse_ratefile(bbfile, binary = True)
-
-    for l in RM:
-        print(l)
 
 if __name__ == '__main__':
     main()

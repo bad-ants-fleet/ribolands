@@ -17,7 +17,7 @@ from crnsimulator import ReactionGraph
 from crnsimulator.crn_parser import parse_crn_string
 
 from ribolands.utils import natural_sort
-from ribolands.pathfinder import (apply_bp_change, get_fpath_flooding_cache)
+from ribolands.pathfinder import apply_bp_change, get_fpath_flooding_cache
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Custom error definitions                                                     #

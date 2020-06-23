@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-#
-# Written by Stefan Badelt (stef@tbi.univie.ac.at)
-#
-# ribolands.syswraps testing
-#
 
 import os
 import gzip
-import filecmp
 import unittest
+
 import ribolands.syswraps as rsys
-from scipy import constants
 
 # Assumes these programs to be executable.
 RNAsubopt = 'RNAsubopt'
@@ -20,8 +14,42 @@ treekin = 'treekin'
 def missing(program):
     return rsys.which(program) is None
 
-class Test_pipeline(unittest.TestCase):
+@unittest.skip(f"need to implement io handling!")
+class Test_Workflow(unittest.TestCase):
+    import RNA 
+    from ribolands.parser import parse_barriers
 
+    vrna_md = RNA.md()
+    vrna_md.noLP = 0
+    vrna_md.temperature = 25
+    vrna_md.dangles = 2
+    vrna_md.logML = 0
+    vrna_md.special_hp = 1
+    vrna_md.noGU = 0
+
+    seq = 'CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCAA'
+    name = 'test'
+    Pipe = rsys.Workflow(seq, vrna_md, name = name)
+
+    Pipe.force = True
+    Pipe.verbose = True
+    Pipe.outdir = 'tests/files'
+    Pipe.RNAsubopt = 'RNAsubopt'
+    Pipe.barriers = 'barriers'
+    Pipe.treekin = 'treekin'
+    Pipe.Kinfold = 'Kinfold'
+    Pipe.zip_suboptimals = False
+
+    Pipe.find_subopt_range(nos = 10000, maxe = 20)
+    sofile = Pipe.call_RNAsubopt()
+    bofile, befile, brfile, bbfile, *_ = Pipe.call_barriers(
+            minh = 3, maxn = 20, plot = False, connected = True, force = True)
+    tofile, _ = Pipe.call_treekin(p0 = ['2=1'], useplusI = True)
+
+    lmins = parse_barriers(bofile, return_tuple = True) 
+    assert lmins[0] == Pipe.sequence
+
+class Test_pipeline(unittest.TestCase):
     def setUp(self):
         self.testname = 'ribolands_testsuite'
         self.files = set()
@@ -43,45 +71,27 @@ class Test_pipeline(unittest.TestCase):
             rsys.sys_subopt_range(seq, RNAsubopt='x')
 
         # Testing defaults, adapt here if they change!
-        self.assertEqual(rsys.sys_subopt_range(seq), (30, 2937))
-
-        self.assertEqual(rsys.sys_subopt_range(seq, nos=20), (3.1, 22))
-
-        self.assertEqual(rsys.sys_subopt_range(seq, nos=1), (0, 1))
-
+        assert rsys.sys_subopt_range(seq) == (30, 2937)
+        assert rsys.sys_subopt_range(seq, nos = 1) == (0, 1)
+        assert rsys.sys_subopt_range(seq, nos = 20) == (3.1, 22)
         # Testing hidden feature: return number of structs for given energy:
-        self.assertEqual(
-            rsys.sys_subopt_range(
-                seq, nos=0, maxe=8.5), (8.5, 390))
+        assert rsys.sys_subopt_range(seq, nos = 0, maxe = 8.5) == (8.5, 390)
 
     def test_bugs_subopt_range(self):
         # These bugs have been fixed by increasing the starting energy range for
         # RNAsubopt computation from 2kcal/mol to 5kcal/mol.
         seq = 'UAACUCACAAUGGUUGCAAA'
 
-        # Returns energy-range 2.0 kcal/mol with 1 structure, because the secondary
-        # structure space starts at around 4 kcal/mol.
-        #self.assertEqual(rsys.sys_subopt_range(seq, nos=20, circ=True), (2.0, 1))
-        self.assertEqual(
-            rsys.sys_subopt_range(
-                seq, nos=20, circ=True), (8.4, 20))
+        # Those results may be off because RNAsubopt returns a wrong density of states output.
+        assert rsys.sys_subopt_range(seq, nos = 1, circ = True) == (0.0, 1)
+        assert rsys.sys_subopt_range(seq, nos = 2, circ = True) == (4.6, 2)
+        assert rsys.sys_subopt_range(seq, nos = 10, circ = True) == (6.6, 10)
+        assert rsys.sys_subopt_range(seq, nos = 20, circ = True) == (8.4, 20)
+        assert rsys.sys_subopt_range(seq, nos = 0, maxe = 8.5, circ = True) == (8.5, 20)
+        assert rsys.sys_subopt_range(seq, nos = 20, circ = True, temp = 10) == (6.0, 20)
 
-        # Hack the function to show that there exists a better result!
-        self.assertEqual(
-            rsys.sys_subopt_range(
-                seq, nos=0, maxe=8.5, circ=True), (8.5, 20))
-
-        # Interestingly, this effect gets reduced when reducing the temperature,
-        # but it terminates at 10 structures, instead of moving on ...
-        #self.assertEqual(rsys.sys_subopt_range(seq, nos=20, circ=True, temp=10), (4.7, 10))
-        self.assertEqual(
-            rsys.sys_subopt_range(
-                seq, nos=20, circ=True, temp=10), (6.0, 20))
-
-        seq2 = 'GGGUCGCCGUUACAUAGACCCUGCAACUAU'
-        self.assertEqual(
-            rsys.sys_subopt_range(
-                seq2, nos=7100000, maxe=20.00), (20.0, 60872))
+        seq = 'GGGUCGCCGUUACAUAGACCCUGCAACUAU'
+        assert rsys.sys_subopt_range(seq, nos = 7100000, maxe = 20.00) == (20.0, 60872)
 
     def test_sys_suboptimals(self):
         seq = 'UAACUCACAAUGGUUGCAAA'
@@ -117,8 +127,7 @@ class Test_pipeline(unittest.TestCase):
         brfile = 'tests/files/' + self.testname + '.rts'
         ref_tfile = 'tests/files/' + self.testname + '.tkn'
 
-        with self.assertRaises(rsys.SubprocessError):
-            # Not ergodic!
+        with self.assertRaises(rsys.SubprocessError): # Not ergodic!
             tofile, tefile = rsys.sys_treekin_051(name, brfile, bofile = bofile)
 
     @unittest.skipIf(missing(treekin) or missing(barriers), 
@@ -148,11 +157,9 @@ class Test_pipeline(unittest.TestCase):
             prefix + '_rates.bin',
             prefix + '.ps',
             prefix + '.tkn']
-
         for fname in files:
             if os.path.exists(fname):
                 raise Exception(f"Attempting to overwrite temporary file: {fname}")
-
         return files
 
     def assertFileWeakEqual(self, test_file, ref_file):
@@ -169,3 +176,6 @@ class Test_pipeline(unittest.TestCase):
                 if t[0] == '#':
                     continue
                 self.assertEqual(t, r)
+
+if __name__ == '__main__':
+    unittest.main()
