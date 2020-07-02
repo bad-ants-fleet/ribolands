@@ -654,6 +654,29 @@ def findpath_wrap(fc, s1, s2, maxE, fpath, cut = None, verbose = False):
             sE = float(dcal_sE)/100
     return sE
 
+
+def parse_model_details(parser):
+    """ ViennaRNA Model Details Argument Parser.  """
+    model = parser.add_argument_group('ViennaRNA model details')
+
+    model.add_argument("-T", "--temp", type = float, default = 37.0, metavar = '<flt>',
+        help = 'Rescale energy parameters to a temperature of temp C.')
+
+    model.add_argument("-4", "--noTetra", action = "store_true",
+        help = 'Do not include special tabulated stabilizing energies for tri-, tetra- and hexaloop hairpins.')
+
+    model.add_argument("-d", "--dangles", type = int, default = 2, metavar = '<int>',
+        help = 'How to treat "dangling end" energies for bases adjacent to helices in free ends and multi-loops.')
+
+    model.add_argument("--noGU", action = "store_true",
+        help = 'Do not allow GU/GT pairs.')
+
+    model.add_argument("--noClosingGU", action = "store_true",
+        help = 'Do not allow GU/GT pairs at the end of helices.')
+
+    model.add_argument("-P", "--paramFile", action = "store", default = None, metavar = '<str>',
+        help = 'Read energy parameters from paramfile, instead of using the default parameter set.')
+
 def main():
     """ A wrapper for ViennaRNA findpath functions. """
     parser = argparse.ArgumentParser()
@@ -667,6 +690,7 @@ def main():
             help = "Specify upper bound for barrier energy (kcal/mol).")
     parser.add_argument("--primepaths", action = "store_true",
             help = "Decompose findpath into primepaths.")
+    parse_model_details(parser)
     args = parser.parse_args()
 
     # Verbose level 0: show output
@@ -685,7 +709,14 @@ def main():
     if cut != cut_:
         raise PathfinderError('Inconsistent cut-points.')
 
+    # Set model details.
     md = RNA.md()
+    md.temperature = args.temp
+    md.dangles = args.dangles
+    md.logML = 0
+    md.special_hp = not args.noTetra
+    md.noGU = args.noGU
+    md.noGUclosure = args.noClosingGU
     fc = RNA.fold_compound(seq, md)
 
     bpd = RNA.bp_distance(ss1, ss2)
