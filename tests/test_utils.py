@@ -70,6 +70,9 @@ class dot_bracket_modifications(unittest.TestCase):
         li = '0123333321455555411667777761'
         assert rutils.make_loop_index(ss) == list(map(int, li))
  
-
+        ss = '.(((...)(...).((.(...))).)).'
+        li = '0123333344444256677777652210'
+        assert rutils.make_loop_index(ss) == list(map(int, li))
+ 
 if __name__ == '__main__':
     unittest.main()

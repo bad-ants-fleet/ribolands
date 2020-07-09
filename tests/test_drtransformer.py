@@ -17,8 +17,7 @@ skip = False
 def write_log(TL, nlist):
     tlen = len(TL.transcript)
     for e, (ni, data) in enumerate(nlist, 1):
-        print("{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d}".format(
-                tlen, e, ni[:tlen], 
+        print("{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d}".format(tlen, e, ni[:tlen], 
                 data['energy'], data['occupancy'], data['identity']))
 
 @unittest.skipIf(skip, "slow tests are disabled by default")
@@ -40,7 +39,7 @@ class Test_TrafoLand(unittest.TestCase):
 
         for ss in sss:
             if not TL.has_node(ss):
-                TL.addnode(ss)
+                TL.addnode(ss, structure = ss)
                 TL.nodes[ss]['occupancy'] = 1.0 / len(sss),
 
         return TL
@@ -92,7 +91,7 @@ class Test_TrafoLand(unittest.TestCase):
         snodes = TL.sorted_nodes(attribute = 'energy', rev = True)
         enth = TL.nodes[snodes[0]]['energy']
 
-        nn, be = TL.connect_nodes_n2(energyth = enth)
+        nn = TL.connect_nodes_n2()
         TL.coarse_grain()
         print(len(TL.active_nodes))
 
@@ -100,22 +99,19 @@ class Test_TrafoLand(unittest.TestCase):
         if TL.has_node(mss):
             assert TL.nodes[mss]['active']
 
-        nn, be = TL.connect_nodes_n2(nodes = TL.active_nodes, energyth = enth)
+        nn = TL.connect_nodes_n2(nodes = TL.active_nodes)
         print(nn)
-        print(be)
 
         TL.coarse_grain()
         print(len(TL.active_nodes), len(TL.nodes))
 
         nbrs = TL.find_fraying_neighbors(TL.active_nodes, mfree = 6)
         for par, new in sorted(nbrs.items(), key = lambda x: x[0]):
-            for nbr in new:
-                assert TL.has_node(nbr) # this wouldn't have to be true...
             TL.connect_nodes_n2(nodes = new)
         TL.coarse_grain()
         print(len(TL.active_nodes), len(TL.nodes))
 
-    def dont_test_TL_connect_mfe(self):
+    def test_TL_connect_mfe(self):
         rbar = """# A random barriers example:
              CCCCGGAAGGAAUGGGUAGUGACAGCAGCUUAGGUCGCUGCAUCAUCCCC
            1 ........((.((((((((((((..........)))))))).)))).)). -15.10    0  15.00
@@ -134,41 +130,32 @@ class Test_TrafoLand(unittest.TestCase):
           14 .((.....))...(((..(((.((((.((....)).)))))))...))). -12.90    6   3.30
         """
 
-        lm = parse_barriers(rbar, is_file = False)
+        lmins = parse_barriers(rbar, is_file = False, return_tuple = True)
 
-        seq = lm[0][1]
-        assert lm[1][1][0] == 'structure'
-        mss = lm[1][1][1]
-        assert lm[1][2][0] == 'energy'
-        mfe = float(lm[1][2][1])
+        seq = lmins[0]
+        mss = lmins[1].structure
+        mfe = float(lmins[1].energy)
 
         sss = [] # Everything except for MFE structure
-        for l in lm[2:]:
-            assert l[1][0] == 'structure'
-            sss.append(l[1][1])
+        for l in lmins[2:]:
+            sss.append(l.structure)
 
         TL = self._init_TL(seq, sss)
         TL.minh = 3.30
         for n in TL.nodes():
-            print(n)
             TL.nodes[n]['active'] = True
-            print(TL.nodes[n])
 
         assert mss not in sss
         assert not TL.has_node(mss)
 
-        #TL.plot_to('test1.pdf', label = 'identity')
-
-        nn, _ = TL.connect_to_active(nodes = [mss])
+        nn = TL.connect_to_active(nodes = [mss])
         for node in nn:
             assert TL.nodes[node]['active'] is None
 
         assert TL.nodes[mss]['active'] is None
-        print(TL.nodes[mss]['identity'])
-        #TL.plot_to('test2.pdf', label = 'identity')
         assert nx.is_strongly_connected(TL)
 
-    def don_test_minitrafo(self, verbose = False):
+    def test_minitrafo(self, verbose = False):
         fullseq = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCA"
         TL = trafo.TrafoLandscape(fullseq, RNA.md())
         fname = self.tmpdir + '/' + 'minitrafo'
@@ -179,7 +166,7 @@ class Test_TrafoLand(unittest.TestCase):
         TL.expand()
         self.assertEqual(len(TL), 1)
         self.assertEqual(list(TL.nodes), ['.' * len(fullseq)])
-        self.assertEqual(TL._nodeid, 1)
+        self.assertEqual(TL.nodeID, 1)
 
         [bfile, rfile, p0, nlist] = TL.get_simulation_files_tkn(fname)
 
@@ -190,20 +177,22 @@ class Test_TrafoLand(unittest.TestCase):
         for i in range(2, len(fullseq), stepsize):
             seq  = fullseq[0:i]
             tlen = len(TL.transcript)
-            #print(i, tlen, i-tlen)
-            TL.expand(extend=i-tlen)
+            TL.expand(extend = i - tlen)
+            TL.coarse_grain()
             self.assertEqual(i, len(TL.transcript))
             [bfile, rfile, p0, nlist] = TL.get_simulation_files_tkn(fname)
             if len(nlist) == 1:
                 TL.total_time += 0.2
             else:
                 bfile = None # sometimes bfile causes a segfault, ...
-                tfile, _ = sys_treekin_051(fname, rfile, 
+                tfile = sys_treekin(fname, rfile, 
+                        treekin = 'treekin', 
                         bofile = bfile,
-                        binrates=True, treekin='treekin', 
-                        p0=p0, t0=0, ti=1.5, t8=0.2, 
-                        exponent=False, useplusI=False, 
-                        force=True, verbose=False)
+                        binrates = True, 
+                        p0 = p0, t0 = 0, ti = 1.5, t8 = 0.2, 
+                        exponent = False, 
+                        useplusI = False, 
+                        force = True)
 
                 time_inc, iterations = TL.update_occupancies_tkn(tfile, nlist)
                 TL.total_time += time_inc
@@ -213,7 +202,7 @@ class Test_TrafoLand(unittest.TestCase):
 
             dn, sr = TL.prune(0.01)
 
-    def don_test_expand_and_coarse_grain(self, verbose = True):
+    def dont_test_expand_and_coarse_grain(self, verbose = True):
         seq = "AUAUAGCUUGUUUACUUUGGAUGAACUGGGGAGAAAAUCCUGGUAAAACU"
         sss = [
             "..........((((((..((((...((....))...)))).))))))...",
@@ -291,7 +280,7 @@ class Test_TrafoLand(unittest.TestCase):
         if verbose:
             TL.get_simulation_files_tkn(self.tmpdir+'/ecp3')
 
-    def don_test_coarse_graining_dG(self, verbose = False):
+    def dont_test_coarse_graining_dG(self, verbose = False):
         """
         A coarse graining test based on this example...
         All structures are connected based on the barrier-tree, 
@@ -405,7 +394,7 @@ class Test_TrafoLand(unittest.TestCase):
             else:
                 self.assertEqual(CG.nodes[ss]['active'], True)
 
-    def don_test_coarse_graining_by_rates(self, verbose = False):
+    def dont_test_coarse_graining_by_rates(self, verbose = False):
         """
         A coarse graining test based on this example...
         All structures are connected based on rates in the corresponding 
@@ -525,13 +514,6 @@ class Test_TrafoLand(unittest.TestCase):
 
 @unittest.skipIf(skip, "slow tests are disabled by default")
 class Test_HelperFunctions(unittest.TestCase):
-
-    def setUp(self):
-        pass
-
-    def tearDown(self):
-        pass
-
     def test_fold_exterior_loop(self):
         se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
         ss = ".....(((((......)).)))((((((((....))))....)))).."

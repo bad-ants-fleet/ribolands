@@ -14,6 +14,7 @@ import math
 import argparse
 import numpy as np
 from itertools import islice, product, permutations
+from operator import itemgetter
 
 from ribolands.utils import make_loop_index, make_pair_table
 
@@ -136,101 +137,124 @@ def get_bp_change(seq, s1, s2):
 def apply_bp_change(seq, s1, s2, subseq, subs1, subs2):
     """Applies all bp changes of subs2 to s1.
 
-    Note: s2 is only provided for sanity checks. s2 must be the output of this
-        function, if subs2 is the only change from s1 to s2.
-
     Args:
-        seq (str): Full length sequence
-        s1 (str): Starting structure (containing subs1)
-        s2 (str): Stop structure (containing subs2), can be None.
+        seq (str): Full length sequence.
+        s1 (str): Starting structure (containing subs1).
+        s2 (str): Stop structure (containing -- parts of -- subs2).
         subseq (str): subsequence of bpairs to be changed.
         subs1 (str): substructure to be changed from.
         subs2 (str): substructure to be changed to.
 
+    If s2 is given and contains the exact changes from subs2 then a quick
+    string comparison is enough and we can use a quick implementation.
+    However, sometimes subs2 contains only a subset of the changes shown in s2.
+    To make sure that we find the right spot when applying subs2 to s1 we need
+    to:
+        - calculate the loop index on s1 and find 
+            all combinations how subs1 occurs in s1
+        - filter to find the single site where the base pair changes do not
+            conflict with the constraints of s2.
+
     Returns:
         [str]: The new structure.
     """
-    subs = subseq.split('NNN')
-    sb1s = subs1.split('xxx')
-    sb2s = subs2.split('xxx')
 
-    idxs = [[]] * len(subs)
-    def find_indices(ssq, ss1, ss2):
-        """Extract the indices where ssq + ss1 (+ ss2) match the parent structure.
+    def find_s1_indices(ssq, ss1):
+        """ Extract the indices where ssq + ss1 match the parent structure.
         """
         slen = len(ssq)
         ixs = []
-
         idx = -1 
         while True:
-            idx = seq.find(ssq, idx+1)
-            if ss1 == s1[idx:idx+slen] and (s2 is None or ss2 == s2[idx:idx+slen]):
+            idx = seq.find(ssq, idx + 1)
+            if ss1 == s1[idx:idx+slen]:
                 ixs.append(idx)
             if idx == -1:
                 break
         return ixs 
 
-    for e in range(len(subs)):
-        idxs[e] = find_indices(subs[e], sb1s[e], sb2s[e])
-
-    def get_news_iter():
-        """ Iterate over all new structures that can be composed from the indices.
-        """
-        li = make_loop_index(s1)
+    def gen_combos(idxs):
         for x in product(*idxs):
+            assert len(x) == len(subs)
             # There is some excess work done here, 
             # because not all products are valid combiations ...
-            loops = []
-            news = s1
-            assert len(x) == len(subs)
-            idx = x[0]
-            alen = len(subs[0])
-            news = news[0:idx] + sb2s[0] + news[idx+alen:]
-            for a, b in enumerate(range(1, len(x))):
-                alen = len(subs[a])
-                blen = len(subs[b])
-                aid = x[a]
-                bid = x[b]
-                if aid + alen >= bid:
+            olds = news = s1
+            (aid, alen) = (x[0], len(subs[0]))
+            # The target loop index of 0 can help to narrow down some cases
+            # when we know the change must be in the exterior loop.
+            # Unfortunately, it does not 
+            target_lix = 0 if sb1s[0][0] == '.' or sb1s[-1][-1] == '.' else None
+            olds = olds[0:aid] + '.' * alen + olds[aid + alen:]
+            news = news[0:aid] + sb2s[0] + news[aid + alen:]
+
+            for a, b in enumerate(range(1, len(x))): # (0, 1), (1, 2), ... 
+                (aid, alen) = (x[a], len(subs[a]))
+                (bid, blen) = (x[b], len(subs[b]))
+                if aid + alen >= bid: # This x cannot be correct due to overlaps.
                     break
-                elif li[aid] != li[bid+blen-1] and li[bid] != li[aid+alen-1]:
-                    # At least one of them has to match ...
-                    break
-                else:
-                    if li[aid] == li[bid+blen-1]:
-                        loops.append(li[aid])
-                    if li[bid] == li[aid+alen-1]:
-                        loops.append(li[bid])
-                    news = news[0:bid] + sb2s[b] + news[bid+blen:]
+                olds = olds[0:bid] + '.' * blen + olds[bid + blen:]
+                news = news[0:bid] + sb2s[b] + news[bid+blen:]
             else:
-                yield news, min(loops)
-   
-    if not all(len(x)==1 for x in idxs):
-        # do the more expensive stuff
-        results = set(get_news_iter())
-        if len(results) > 1:
-            # NOTE: This is full of hacks and special cases ... 
-            # very, very bad style!
-            exteriors = []
-            for new, ml in results:
-                if ml == 0:
-                    exteriors.append(new)
-            if len(exteriors) > 1:
-                rlog.warning('Ambiguous base-pair change!')
-                rlog.warning(f"SQ: {seq}, {subseq}")
-                rlog.warning(f"S1: {s1}, {subs1}")
-                rlog.warning(f"S2: {s2}, {subs2}")
-                rlog.warning(f"Indices: {idxs}")
-                for new, ml in results:
-                    rlog.warning(f" - {new}, {ml}")
-                raise PathfinderError('Ambiguous base-pair change!')
-        news = list(results)[0][0] # list index out of range?
-    else:
+                rlog.debug(f"let's check: {x}\n{olds}\n{news}")
+                try:
+                    li1 = make_loop_index(olds)
+                except IndexError as err:
+                    continue
+                b = itemgetter(*x)(li1)
+                if (target_lix == 0 and b[0] != 0) or not all(i == b[0] for i in b):
+                    # After removing subs1 all unpaired regions must have 
+                    # the same loop index.
+                    rlog.debug('not same loop index fail')
+                    continue
+                #else:
+                #    # still in the game for x.
+                #    pt1 = make_pair_table(s1, base = 0, chars = list('.x'))
+                #    pt2 = make_pair_table(s2, base = 0, chars = list('.x'))
+                #    #pto = make_pair_table(olds, base = 0, chars = list('.x'))
+                #    ptn = make_pair_table(news, base = 0, chars = list('.x'))
+                #    for e, j in enumerate(ptn):
+                #        if j < e:
+                #            continue
+                #        # We have a basepair in the new structure
+                #        # which we haven't seen in either start or stop.
+                #        if ptn[j] != pt1[j] and ptn[j] != pt2[j]:
+                #            raise Exception('not same pair table fail', i, j)
+                #            #print('1', s1, pt1[i], pt1[j])
+                #            #print('2', s2, pt2[i], pt2[j])
+                #            #print('o', olds, pto[i], pto[j]) 
+                #            #print('n', news, ptn[i], ptn[j]) 
+                #            break
+                #    else:
+                yield news, x
+
+    #print('s1', s1, subs1)
+    #print('s2', s2, subs2)
+    assert s1 != s2
+    subs = subseq.split('NNN')
+    sb1s = subs1.split('xxx')
+    sb2s = subs2.split('xxx')
+    idxs = [[]] * len(subs)
+    for e in range(len(subs)):
+        idxs[e] = find_s1_indices(subs[e], sb1s[e])
+
+    if all(len(x) == 1 for x in idxs):
+        # In this case it is save to return with the only possible result.
         news = s1
-        for e, site in enumerate(idxs):
-            idx = site[0]
+        for e, [idx] in enumerate(idxs):
             slen = len(subs[e])
-            news = news[0:idx] + sb2s[e] + news[idx+slen:]
+            news = news[0:idx] + sb2s[e] + news[idx + slen:]
+    else: # slow method.
+        results = set(gen_combos(idxs))
+        if len(results) > 1:
+            # can it be that we actually have ambiguous input???
+            rlog.warning('Ambiguous base-pair change!')
+            rlog.warning(f"SQ: {seq}, {subseq}")
+            rlog.warning(f"S1: {s1}, {subs1}")
+            rlog.warning(f"S2: {s2}, {subs2}")
+            rlog.warning(f"Indices: {idxs}")
+            rlog.warning(f"Results: {results}")
+            raise NotImplementedError('Ambiguous base-pair change!')
+        news = list(results)[0][0]
     return news
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #

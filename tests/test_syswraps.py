@@ -28,6 +28,7 @@ class Test_Workflow(unittest.TestCase):
     vrna_md.noGU = 0
 
     seq = 'CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCAA'
+    seq = 'AAAGCCGCCUUAAGCCUACUUAGAUGGAAGUGACGUACGGGUAUUGGUACACGAUUUUAC'
     name = 'test'
     Pipe = rsys.Workflow(seq, vrna_md, name = name)
 
@@ -43,8 +44,9 @@ class Test_Workflow(unittest.TestCase):
     Pipe.find_subopt_range(nos = 10000, maxe = 20)
     sofile = Pipe.call_RNAsubopt()
     bofile, befile, brfile, bbfile, *_ = Pipe.call_barriers(
-            minh = 3, maxn = 20, plot = False, connected = True, force = True)
-    tofile, _ = Pipe.call_treekin(p0 = ['2=1'], useplusI = True)
+            minh = 3, maxn = 20, plot = False, bsize = True,
+            connected = True, force = True)
+    tofile, _ = Pipe.call_treekin(p0 = ['8=1'], useplusI = True)
 
     lmins = parse_barriers(bofile, return_tuple = True) 
     assert lmins[0] == Pipe.sequence

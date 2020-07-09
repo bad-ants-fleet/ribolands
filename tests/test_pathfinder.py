@@ -3,7 +3,8 @@
 import RNA
 import unittest
 
-from ribolands.pathfinder import (path_flooding, 
+from ribolands.pathfinder import (PathfinderError,
+                                  path_flooding, 
                                   local_flooding, 
                                   get_fpath_cache,
                                   get_fpath_flooding_cache,
@@ -12,19 +13,46 @@ from ribolands.pathfinder import (path_flooding,
                                   get_bp_change)
 
 
-#TODO:
-# WARNING - Ambiguous base-pair change!
-# WARNING - SQ: UAGCAGGAUCGAGUAGACCCGAGGAUUGUAUAGUUAGUCUCCACGGCAAUGACGAUGAGUGUCGAGAAUU, AGGNNNCUCCACGGCAAUGACGAUGAG
-# WARNING - S1: .....((.((.....)).))..((((((......))))))...((.......))................, .((xxx))...((.......)).....
-# WARNING - S2: None, ..(xxx)((..((.......))..)).
-# WARNING - Indices: [[4, 21], [38]]
-# WARNING -  - ......(.((.....)).))..((((((......)))))((..((.......))..))............, 0
-# WARNING -  - .....((.((.....)).))...(((((......)))))((..((.......))..))............, 0
+class Test_base_pair_changes(unittest.TestCase):
+    def tearDown(self):
+        clear_fpath_cache()
 
+    def test_apply_bp_change_bug1(self):
+        seq = 'AAAGCCGCCUUAAGCCUACUUAGAUGGAAGUGACGUACGGGUAUUGGUACACGAUUUUAC' 
+        s1 =  '...((((.......(((((((......)))).......)))...))))............'
+        s2 = None
+        subseq =    'GCCUUAAGCCUACUUAGAUGGAAGUGACGUACGGGUAUU'
+        subs1  =    '(......((((((((......)))).......))))..)'
+        subs2  =    '((((.......((((......)))).......)))...)'
 
+        # Index error
+        with self.assertRaises(IndexError):
+            apply_bp_change(seq, s1, s2, subseq, subs1, subs2)
+
+    def test_apply_bp_change_bug2(self):
+        seq = 'UAGCAGGAUCGAGUAGACCCGAGGAUUGUAUAGUUAGUCUCCACGGCAAUGACGAUGAGUGUCGAGAAUU'
+        s1  = '.....((.((.....)).))..((((((......))))))...((.......))................'
+        s2  = None
+        subseq = 'AGGNNNCUCCACGGCAAUGACGAUGAG'
+        subs1  = '.((xxx))...((.......)).....'
+        subs2  = '..(xxx)((..((.......))..)).'
+        apply_bp_change(seq, s1, s2, subseq, subs1, subs2)
+
+    def test_apply_bp_change_multiple_results(self):
+        # TODO: The routine breaks if there are multiple 
+        # changes that have the same bp motif.
+        # This is not a feature!
+        seq = 'AAAGCCGCCUUAAGCCUACUUAGAUGGAAGUGACGUACGGGUAUUGGUACACGAUUUUACAAAGCCGCCUUAAGCCUACUUAGAUGGAAGUGACGUACGGGUAUUGGUACACGAUUUUAC'
+        s1  = '...((((.(((..((.(((((......)))))..))..)))...))))...............((((.(((..((.(((((......)))))..))..)))...))))............'
+        s2  = '....((((((.......((((......)))).......))))...)).................((((((.......((((......)))).......))))...)).............',
+        subseq = 'AGCNNNGUA'
+        subs1  = '.((xxx)).' 
+        subs2  = '..(xxx)..'
+
+        with self.assertRaises(NotImplementedError):
+            apply_bp_change(seq, s1, s2, subseq, subs1, subs2)
 
 class Test_Pathflooding(unittest.TestCase):
-
     def setUp(self):
         pass
 
