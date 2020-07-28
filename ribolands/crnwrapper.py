@@ -42,15 +42,15 @@ def DiGraphSimulator(CG, oname, nlist, p0, t0, t8,
 
     crn = []
     for e in CG.edges():
-        if not CG.node[e[0]]['active'] or not CG.node[e[1]]['active']:
+        if not CG.nodes[e[0]]['active'] or not CG.nodes[e[1]]['active']:
             continue
-        reactant = 'id_' + str(CG.node[e[0]]['identity'])
-        product = 'id_' + str(CG.node[e[1]]['identity'])
+        reactant = 'id_' + str(CG.nodes[e[0]]['identity'])
+        product = 'id_' + str(CG.nodes[e[1]]['identity'])
         rate = CG[e[0]][e[1]]['weight']
         crn.append([[reactant], [product], rate])
 
     RG = ReactionGraph(crn)
-    svars = ['id_' + str(x[1]['identity']) for x in nlist]
+    svars = ['id_' + str(CG.nodes[x]['identity']) for x in nlist]
 
     filename, _ = RG.write_ODE_lib(sorted_vars=svars, filename=xfile)
 
@@ -65,7 +65,7 @@ def DiGraphSimulator(CG, oname, nlist, p0, t0, t8,
         syscall.extend(['--t-log', str(t_log)])
     syscall.extend(['--p0'])
     syscall.extend(p0)
-    rlog.debug(f"{join(syscall)} > {tfile}")
+    rlog.debug(f"{' '.join(syscall)} > {tfile}")
 
     # Do the simulation (catch treekin errors)
     with open(tfile, 'w') as tf:

@@ -18,8 +18,11 @@ from crnsimulator.crn_parser import parse_crn_string
 
 from ribolands.utils import natural_sort, plot_nxy
 from ribolands.syswraps import sys_treekin
-from ribolands.pathfinder import apply_bp_change, get_fpath_flooding_cache
+from ribolands.pathfinder import (apply_bp_change, 
+                                  get_fpath_flooding_cache,
+                                  BPD_CACHE, get_bpd_cache)
 
+#
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Custom error definitions                                                     #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -166,7 +169,7 @@ class RiboLandscape(nx.DiGraph):
             basename (str): Basename of output files.
 
         Returns:
-            [str, str, str]: Binary rates file, Text rates file, barriers-like output.
+            [str, str, str, str]: Binary rates file, Text rates file, barriers-like output, p0 string
         """
         seq = self.sequence
         if snodes is None:
@@ -259,6 +262,16 @@ class PrimePathLandscape(RiboLandscape):
         self.k0 = 1
 
     def addnode(self, *kargs, **kwargs):
+        """Add a node with specific tags:
+
+        - Active (bool) is to filter a subset of interesting nodes.
+        - Lminreps (set) is to return a set of nodes that are the local minimum
+            reperesentatives of this node.
+        - Hiddennodes (set) is to return a set of nodes that are associated with
+            this local minimum.
+        After coarse graining, a node should have either lminreps or
+        hiddennodes set, but not both. 
+        """
         if 'active' not in kwargs:
             kwargs['active'] = None
         if 'lminreps' not in kwargs:
@@ -267,6 +280,14 @@ class PrimePathLandscape(RiboLandscape):
             kwargs['hiddennodes'] = None
         super(PrimePathLandscape, self).addnode(*kargs, **kwargs)
     
+    @property
+    def local_mins(self):
+        return [n for n in self.nodes if not self.nodes[n]['lminreps']]
+
+    @property
+    def hidden_nodes(self):
+        return [n for n in self.nodes if self.nodes[n]['lminreps']]
+
     @property
     def active_nodes(self):
         return [n for n in self.nodes if self.nodes[n]['active'] is True]
@@ -281,15 +302,20 @@ class PrimePathLandscape(RiboLandscape):
 
     @property
     def active_subgraph(self):
-        """ Return a new object with only active nodes (and edges) """
+        """ Return a new object with only active nodes (and edges) 
+
+        Typically, active nodes are also local minima, but not all
+        local minima are active.
+        """
         other = self.__class__(self.sequence)
         other.md = self.md
         other.fc = self.fc
         other.minh = self.minh
+        other.k0 = self.k0
 
         for n, data in self.nodes.data():
             if data['active'] is None:
-                raise RiboLandscapeError("Did you forget to call coarse-graining",
+                raise RiboLandscapeError("Did you forget to define 'active' nodes", 
                         "before extracting the active subgraph?")
             if data['active']:
                 other.add_node(n, **data)
@@ -321,119 +347,45 @@ class PrimePathLandscape(RiboLandscape):
         else:
             return None
 
-    def coarse_grain(self, minh = None):
-        """ Take all (in)active nodes and coarse grain them into in/active nodes.
-
-        Coarse graining information can be accessed via node attributes:
-        active, inactive, None. More details can be found in the attributes
-        lminreps (the set of active nodes representing this inactive node) 
-        or hiddennodes (the set of inactive nodes associated with this active node).
-
-        Note: During that process, inactive nodes can become active and vice
-        versa. Also, the internal dictionaries lminreps and hiddennodes are
-        overwritten. If you want to ignore inactive nodes in the
-        coarse-graining process, then extract the active graph first.
-        """
-        if minh is None: 
-            minh = self.minh
-
-        rlog.debug(f'Coarse graining landscape with minh = {minh}')
-
-        # lminreps = set() => what we care about ... where did a node end up?
-        # hiddennodes = set() => bookkeeping, what nodes are part of this lmin?
-        for node in self.sorted_nodes(rev = True):
-            reps = self.merge_to_representatives(node, minh)
-            assert self.nodes[node]['active'] is not None
-            if len(reps):
-                self.nodes[node]['lminreps'] = reps # the node was merged to reps
-                for rep in reps:      # representatives are lmins (for now)!
-                    if self.nodes[rep]['hiddennodes'] is None:
-                        self.nodes[rep]['hiddennodes'] = set([node])
-                    else:
-                        self.nodes[rep]['hiddennodes'].add(node)
-                # if the merged node was considered an lmin earlier:
-                if self.nodes[node]['hiddennodes'] is not None:
-                    basin = self.nodes[node]['hiddennodes']
-                    for hn in basin:
-                        assert self.nodes[hn]['active'] is False
-                        self.nodes[hn]['lminreps'] |= reps 
-                        self.nodes[hn]['lminreps'].discard(node)
-                        for rep in reps:
-                            self.nodes[rep]['hiddennodes'].add(hn)
-                    self.nodes[node]['hiddennodes'] = None
-        return
-
-    def merge_to_representatives(self, node, minh, mode = 'flooding'):
-        """Identify one or more local minimum representatives for a node and
-        connect all node-neighbors to those representatives.
-
-        NOTE: mode = 'absolute' is for testing purposes only.
-
-        NOTE: If the node finds an active lmin representative with equal
-        energy, then that neighbor will stay active and the current node
-        becomes inactive. If the node finds an inactive equal energy state,
-        that state is ignored.
-        """
-        if minh is None:
-            raise RiboLandscapeError(f'minh paramter not set: {minh}')
-        en = self.nodes[node]['energy']
-
-        # Sort neighbors from lowest to highest energy. A neighbor can be an
-        # inactive node that becomes active in the process..  
-        nbrs = sorted(self.successors(node), 
-                key = lambda x: (self.nodes[x]['energy'], x), reverse = False)
-
-        # starting maximum barrier is just a tick lower than minh
-        (reps, min_se) = (set(), en + minh - 0.01) 
-        for nbr in nbrs:
-            if self.nodes[nbr]['energy'] >= en + 0.0001:
-                # No more lower/equal energy nodes ...
-                break
-            if abs(self.nodes[nbr]['energy'] - en < 0.0001) and \
-                    self.nodes[nbr]['active'] is False:
-                # Do shift representation on a flat surface
-                rlog.debug(f'Avoiding inactive equal energy neighbor:\n{node}\n{nbr}')
-                continue
-            se = self.get_saddle(node, nbr)
-            if mode == 'flooding':
-                if se + 0.01 < min_se : 
-                    # a neighbor with truly lower saddle-energy 
-                    (reps, min_se) = (set([nbr]), se)
-                elif abs(se - min_se) < 0.0001: 
-                    # a neighbor with equally best saddle-energy 
-                    reps.add(nbr)
-            elif mode == 'absolute':
-                if se <= min_se : # a valid neighbor 
-                    reps.add(nbr)
-            else:
-                raise NotImplementedError(f'Unkown neighbor merging mode: {mode}')
-
-        # Connect the representatives with all other neighbors
-        if len(reps):
-            for lm in reps:
-                self.nodes[lm]['active'] = True
-                self.nodes[lm]['last_seen'] = 0
-                for nbr in nbrs: 
-                    if nbr == lm: 
-                        continue
-                    se = max(self.get_saddle(nbr, node), self.get_saddle(node, lm)) 
-                    if self.has_edge(lm, nbr) and self.get_saddle(lm, nbr) < se:
-                        continue
-                    fw = se - self.nodes[lm]['energy']
-                    rv = se - self.nodes[nbr]['energy']
-                    self.addedges(lm, nbr, fw, rv, se)
-            self.nodes[node]['active'] = False
-        else:
-            self.nodes[node]['active'] = True
-            self.nodes[node]['last_seen'] = 0
-        return reps
-
     def connect_nodes_n2(self, nodes = None, **kwargs):
         return self.connect_nodes_nm(nodesA = nodes, nodesB = nodes, **kwargs)
 
     def connect_to_active(self, nodes = None, **kwargs):
         active = self.active_nodes
         return self.connect_nodes_nm(nodesA = active, nodesB = nodes, **kwargs)
+
+    def connect_nodes_bpdist(self, nodesA = None, nodesB = None, direct = False):
+
+        newnodes = set()
+        for ss1 in nodesA:
+            nodesB = sorted(nodesB, key = lambda s2: get_bpd_cache(ss1, s2))
+            ss2  = nodesB[0]
+            if ss1 not in self.nodes:
+                ss1, ss2 = ss2, ss1
+            if self.has_edge(ss1, ss2):
+                continue
+            primepath = self.get_prime_path_minima(ss1, ss2, single_step = direct)
+            if primepath is None:
+                assert direct is True
+                continue
+            for start, stop, fwb, fwg, rvb in primepath:
+                assert start in self.nodes
+                if stop not in self.nodes:
+                    myen = round(self.nodes[start]['energy'] + fwg, 2)
+                    self.addnode(stop, structure = stop, energy = myen)
+                    newnodes.add(stop)
+                elif self.has_edge(start, stop):
+                    continue
+        
+                se = round(self.nodes[start]['energy'] + fwb, 2)
+                assert se == round(self.nodes[stop]['energy'] + rvb, 2)
+        
+                if self.has_edge(start, stop):
+                    if se < self.get_saddle(start, stop):
+                        self.edgeupdate(start, stop, fwb, rvb, se)
+                else:
+                    self.addedges(start, stop, fwb, rvb, se)
+        return newnodes
 
     def connect_nodes_nm(self, nodesA = None, nodesB = None, direct = False):
         """ Connect all by all, no sorting, no stopping condition.
@@ -471,6 +423,8 @@ class PrimePathLandscape(RiboLandscape):
                     myen = round(self.nodes[start]['energy'] + fwg, 2)
                     self.addnode(stop, structure = stop, energy = myen)
                     newnodes.add(stop)
+                elif self.has_edge(start, stop):
+                    continue
         
                 se = round(self.nodes[start]['energy'] + fwb, 2)
                 assert se == round(self.nodes[stop]['energy'] + rvb, 2)
@@ -480,9 +434,6 @@ class PrimePathLandscape(RiboLandscape):
                         self.edgeupdate(start, stop, fwb, rvb, se)
                 else:
                     self.addedges(start, stop, fwb, rvb, se)
-            #if not self.has_edge(ss1, ss2):
-            #    self.add_edge(ss1, ss2, weight = 0, saddle_energy = float('inf'))
-            #    self.add_edge(ss2, ss1, weight = 0, saddle_energy = float('inf'))
         return newnodes
 
     def get_prime_path_minima(self, ss1, ss2, single_step = False):
@@ -496,6 +447,7 @@ class PrimePathLandscape(RiboLandscape):
         """
         assert self.minh is not None
         seq = self.sequence
+        rlog.debug(f'Get prime path minima: {ss1} {ss2}')
         #print(f'My initial input: \n{seq}\n{ss1}\n{ss2} (single step = {single_step})')
 
         valid = [True]
@@ -503,6 +455,10 @@ class PrimePathLandscape(RiboLandscape):
         def get_ppms(seq, ss1, ss2, startseq, start, stop):
             # get prime path minima
             #print(f'My input: \n{seq}\n{ss1}\n{ss2}')
+            if self.has_edge(ss1, ss2):
+                # Shortcut: let's rely on the neighborhood we know already!
+                primepath.append([ss1, ss2, None, None, None])
+                return
             lmp = get_fpath_flooding_cache(seq, ss1, ss2, self.md, self.minh)
             #print(f'My lminpath: {lmp}')
             if lmp[0] is None:
@@ -534,9 +490,109 @@ class PrimePathLandscape(RiboLandscape):
                 revp = get_fpath_flooding_cache(seq, ss2, ss1, None, None)
                 primepath.append([start, stop, lmp[0], lmp[1], revp[0]])
         get_ppms(seq, ss1, ss2, seq, ss1, ss2)
+        [rlog.debug(f'PPM: {p}') for p in primepath]
         return primepath if valid[0] else None
 
-    def minimal_prime_path_graph(self, nodes = None):
+    def coarse_grain(self, minh = None):
+        """ Take all nodes and coarse grain them into lminreps and hidden nodes.
+
+        Coarse graining information can be accessed via node attributes:
+        lminreps (the set of local minimum representative nodes representing
+        this node) or hiddennodes (the set of non-representative -- hidden --
+        nodes associated with this node).
+
+        Note: In this function the internal dictionaries lminreps and
+        hiddennodes are overwritten. (If you want to ignore inactive nodes in
+        the coarse-graining process, then extract the active graph first.)
+        """
+        if minh is None: 
+            minh = self.minh
+
+        rlog.info(f'Coarse graining landscape with minh = {minh}')
+
+        def find_representatives(node, mode = 'flooding'):
+            """ Identify one or more local minimum representatives for a node and
+            connect all node-neighbors to those representatives.
+
+            NOTE: mode = 'absolute' is for testing purposes only.
+
+            If a hidden equal energy state is found, then that state is
+            ignored. Otherwise, if a neighbor with equal energy is found (e.g.
+            a known lmin representative or unassigned), then 
+            the current node becomes hidden and may be assigned to this lmin.
+
+            """
+            en = self.nodes[node]['energy']
+            # Sort neighbors from lowest to highest energy. 
+            nbrs = sorted(self.successors(node), 
+                    key = lambda x: (self.nodes[x]['energy'], x), reverse = False)
+
+            # starting maximum barrier is just a tick lower than minh
+            (reps, min_se) = (set(), en + minh - 0.01) 
+            for nbr in nbrs:
+                if self.nodes[nbr]['energy'] >= en + 0.0001:
+                    # No more lower/equal energy nodes ...
+                    break
+                if abs(self.nodes[nbr]['energy'] - en) < 0.0001 and \
+                        self.nodes[nbr]['lminreps']:
+                    # Do NOT shift representation on a flat surface
+                    rlog.debug(f'Avoiding non-representative equal energy neighbor: {en}' +
+                    f'\n{node} {self.nodes[node]["energy"]} \n{nbr} {self.nodes[nbr]["energy"]}')
+                    continue
+                se = self.get_saddle(node, nbr)
+                if mode == 'flooding':
+                    if se + 0.01 < min_se : 
+                        # a neighbor with truly lower saddle-energy 
+                        (reps, min_se) = (set([nbr]), se)
+                    elif abs(se - min_se) < 0.0001: 
+                        # a neighbor with equally best saddle-energy 
+                        reps.add(nbr)
+                elif mode == 'absolute':
+                    if se <= min_se : # a valid neighbor 
+                        reps.add(nbr)
+                else:
+                    raise NotImplementedError(f'Unkown neighbor merging mode: {mode}')
+            return reps, nbrs
+
+        for node in self.sorted_nodes(rev = True):
+            reps, nbrs = find_representatives(node)
+            rlog.debug(f'Node: {node}, Reps: {reps}')
+            if len(reps) == 0:
+                self.nodes[node]['lminreps'] = None
+                continue
+            # Connect the representatives with all other neighbors
+            for lm, nbr in product(reps, nbrs):
+                if nbr == lm: 
+                    continue
+                se = max(self.get_saddle(nbr, node), self.get_saddle(node, lm)) 
+                if self.has_edge(lm, nbr) and self.get_saddle(lm, nbr) < se:
+                    continue
+                fw = se - self.nodes[lm]['energy']
+                rv = se - self.nodes[nbr]['energy']
+                if self.has_edge(lm, nbr):
+                    self.edgeupdate(lm, nbr, fw, rv, se)
+                else:
+                    self.addedges(lm, nbr, fw, rv, se)
+            # lminreps = set() => what we care about ... where did a node end up?
+            # hiddennodes = set() => bookkeeping, what nodes are part of this lmin?
+            self.nodes[node]['lminreps'] = reps # the node was merged to reps
+            for rep in reps: # representatives are assumed to be lmins (for now)!
+                if self.nodes[rep]['hiddennodes'] is None:
+                    self.nodes[rep]['hiddennodes'] = set([node])
+                else:
+                    self.nodes[rep]['hiddennodes'].add(node)
+            # if the merged node was considered an lmin earlier:
+            if self.nodes[node]['hiddennodes'] is not None:
+                basin = self.nodes[node]['hiddennodes']
+                for hn in basin:
+                    self.nodes[hn]['lminreps'] |= reps 
+                    self.nodes[hn]['lminreps'].discard(node)
+                    for rep in reps:
+                        self.nodes[rep]['hiddennodes'].add(hn)
+                self.nodes[node]['hiddennodes'] = None
+        return
+
+    def xxx_remove_xxx_minimal_pp_basin_graph(self, nodes):
         """ Uses lminreps.
 
         Hmmmm... so what is the difference of just taking out the interesting
@@ -554,14 +610,18 @@ class PrimePathLandscape(RiboLandscape):
 
         keep = set() # All nodes we are going to keep.
         for x, y in combinations(nodes, 2):
+            if self.has_edge(x, y):
+                keep.add(x)
+                keep.add(y)
+                continue
             for [start, stop, fwb, fwg, rvb] in self.get_prime_path_minima(x, y):
                 d1 = self.nodes[start]
                 d2 = self.nodes[stop]
-                basin1 = set([start]) if d1['active'] else d1['lminreps']
-                basin2 = set([stop]) if d2['active'] else d2['lminreps']
+                basin1 = set([start]) if d1['lminreps'] is None else d1['lminreps']
+                basin2 = set([stop]) if d2['lminreps'] is None else d2['lminreps']
                 if not any(s1 == s2 or self.get_barrier(s1, s2) is not None \
                         for (s1, s2) in product(basin1, basin2)):
-                    rlog.info(f'Minimal prime path basins are not directly connected!\n' + \
+                    rlog.debug(f'Minimal prime path basins are not directly connected!\n' + \
                             f'{x}\n{y}')
                 keep |= basin1 | basin2
 
@@ -569,9 +629,9 @@ class PrimePathLandscape(RiboLandscape):
             self.nodes[node]['pruned'] = self.nodes.get('pruned', 0)
             if node in keep:
                 self.nodes[node]['pruned'] = 0
+                if not self.nodes[node]['lminreps']:
+                    self.nodes[node]['active'] = True
             else:
-                # NOTE: this is potentially problematic!
-                # -> now we have two types of inactive nodes ...
                 self.nodes[node]['active'] = False
                 self.nodes[node]['pruned'] += 1
 

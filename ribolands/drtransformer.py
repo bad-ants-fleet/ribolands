@@ -21,7 +21,7 @@ import RNA
 from ribolands import __version__
 import ribolands as ril
 from ribolands.utils import parse_vienna_stdin
-from ribolands.syswraps import sys_treekin_051
+from ribolands.syswraps import sys_treekin
 from ribolands.syswraps import SubprocessError, ExecError, check_version, VersionError
 from ribolands.crnwrapper import DiGraphSimulator
 from ribolands.trafo import TrafoLandscape, PROFILE
@@ -607,32 +607,33 @@ def main():
     for tlen in range(args.start, args.stop):
         # Get new nodes and connect them.
         nn = CG.expand()
-
-        # lminreps, hiddennodes
-        lrep, hn = CG.coarse_grain()
+        CG.coarse_grain()
         
         # Now update the occupancies:
-        for hnode in lrep:
+        for hnode in CG.hidden_nodes:
             if CG.nodes[hnode]['occupancy'] == 0:
                 continue
-            if hnode in lrep[hnode]:
-                if len(lrep[hnode]) > 1:
-                    print(hnode)
-                    print(lrep[hnode])
-                    raise SystemExit('wtf')
-                continue
-            tot = len(lrep[hnode])
-            for mnode in lrep[hnode]:
-                CG.nodes[mnode]['occupancy'] += CG.nodes[hnode]['occupancy']/tot
+            lmins = CG.nodes[hnode]['lminreps']
+            for lmin in lmins:
+                CG.nodes[lmin]['occupancy'] += CG.nodes[hnode]['occupancy']/len(lmins)
             CG.nodes[hnode]['occupancy'] = 0
-        logger.info('New Nodes {}, Hiden nodes: {}, Lmins: {}'.format(nn, len(lrep), len(hn)))
 
+        for n in CG.nodes:
+            if not CG.nodes[n]['lminreps']:
+                CG.nodes[n]['active'] = True
+            else:
+                assert CG.nodes[n]['hiddennodes'] is None
+                CG.nodes[n]['active'] = False
+
+        logger.info('New Nodes {}, Hidden nodes: {}, Lmins: {}'.format(len(nn), len(CG.hidden_nodes), len(CG.local_mins)))
+
+        # Now here we could iterate to get more connections ivolving new nodes...
         if args.pyplot:
             ttt = CG.total_time
             if ttt == 0:
-                all_courses.extend([[] for i in range(nn)])
+                all_courses.extend([[] for i in range(len(nn))]) # len(nn) is likely to cause a bug, let's use IDs
             else:
-                all_courses.extend([[(ttt, 0)] for i in range(nn)])
+                all_courses.extend([[(ttt, 0)] for i in range(len(nn))])
 
         ############
         # Simulate #
@@ -692,24 +693,24 @@ def main():
 
         else:
             try:  # - Simulate with treekin
-                tfile, _ = sys_treekin_051(_fname, rfile,
+                tfile, _ = sys_treekin(_fname, rfile,
                         treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
                         binrates = True, mpack_method = args.mpack_method, quiet = True,
-                        exponent = False, useplusI = False, force = True, verbose = (args.verbose > 1))
+                        exponent = False, useplusI = False, force = True)
                 tnorm += 1
             except SubprocessError:
                 try:  # - Simulate with treekin and --exponent
-                    tfile, _ = sys_treekin_051(_fname, rfile,
+                    tfile, _ = sys_treekin(_fname, rfile,
                             treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
                             binrates = True, mpack_method = args.mpack_method, quiet = True,
-                            exponent = True, useplusI = False, force = True, verbose = (args.verbose > 1))
+                            exponent = True, useplusI = False, force = True)
                     texpo += 1
                 except SubprocessError:
                     try:  # - Simulate with treekin and --useplusI
-                        tfile, _ = sys_treekin_051(_fname, rfile,
+                        tfile, _ = sys_treekin(_fname, rfile,
                                 treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
                                 binrates = True, mpack_method = args.mpack_method, quiet = True,
-                                exponent = True, useplusI = True, force = True, verbose = (args.verbose > 1))
+                                exponent = True, useplusI = True, force = True)
                         tplusI += 1
                     except SubprocessError:
                         logger.debug("After {} nucleotides: treekin cannot find a solution!".format(tlen))
@@ -738,21 +739,16 @@ def main():
                 fdata, itime = None, None
                 for rdata in CG.sorted_trajectories_iter(nlist, tfile, softmap):
                     [id_, tt_, oc_, ss_, en_] = rdata
-
                     if fdata is None:
                         if itime is None or itime == tt_:
                             itime = tt_
                             continue
-
                     # id time conc struct energy
                     fdata = "{:d} {:03.9f} {:03.4f} {:s} {:6.2f}\n".format(*rdata)
-
                     # NOTE: It seems reasonable to activate the following line
-                    # to reduce the plot size. However, it doesn't help much
-                    # and it might introduce a visualization bug for some weird
-                    # examples, so let's leave it for now:
-                    #if oc_ < 0.001: continue
-
+                    # to reduce the plot size. However, it might introduce a
+                    # visualization bug for some weird examples:
+                    if oc_ < 0.001: continue
                     if args.pyplot:
                         all_courses[id_].append((tt_, oc_))
                     write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
@@ -764,12 +760,6 @@ def main():
                 # adjust o-min to size of current structure space:
                 pmin = args.o_min / len(nlist)
                 CG.prune(pmin)
-
-            #if args.track_basins:
-            #    # add or substract a 0.1 kcal/mol plot-minh for every structure
-            #    # too much or too little.
-            #    approach = (len(nlist)-dn - args.track_basins) / 10
-            #    CG._dG_min = max(dG_min, CG._dG_min + approach)
 
             if args.draw_graphs:
                 CG.graph_to_json(_fname)
@@ -825,7 +815,7 @@ def main():
 
 
     statprof.stop()
-    statprof.display()
+    #statprof.display()
 
     # CLEANUP file handles
     if lfh: lfh.close()

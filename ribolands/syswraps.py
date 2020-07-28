@@ -588,7 +588,7 @@ def sys_treekin_051(basename, ratefile,
     return tofile, tefile
 
 def sys_treekin(basename, brfile, **kwargs):
-    warnings.warn("ribolands sys_treekin interface changed.")
+    #warnings.warn("ribolands sys_treekin interface changed.")
     return sys_treekin_051(basename, brfile, **kwargs)
 
 #Last update: version 1.8.1

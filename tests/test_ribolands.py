@@ -310,15 +310,15 @@ class TestPrimePathLandscape(unittest.TestCase):
                         energy = lm.energy)
 
         print(f'\nInitial graph size: {len(PPL)}')
-
         nn = PPL.connect_nodes_n2()
         print(f'N2 connected graph size: {len(PPL)}, new: {len(nn)}')
-
         PPL.coarse_grain()
-        print(f'After coarse graining: {len(PPL.active_nodes)} active,',
-                                     f'{len(PPL.inactive_nodes)} hidden.')
+        print(f'After coarse graining: {len(PPL.local_mins)} local minima,',
+                                     f'{len(PPL.hidden_nodes)} hidden.')
 
         # Look at it!
+        for n in PPL.nodes:
+            PPL.nodes[n]['active'] = PPL.nodes[n]['hiddennodes'] is None
         self.plot_active_subgraph(PPL, 'PPL_01_normal')
 
         PPL.get_simulation_files_tkn('PPL_01_normal')
@@ -335,7 +335,7 @@ class TestPrimePathLandscape(unittest.TestCase):
         # ... and then get the active subgraph.
         APL = PPL.active_subgraph
         APL.get_simulation_files_tkn('PPL_01_mini')
-        APL.plot_to('PPL_01_mini.pdf', label = 'identity')
+        APL.plot_to('PPL_01_mini_graph.pdf', label = 'identity')
         APL.to_crnsimulator('PPL_01_simu')
 
 
@@ -400,30 +400,32 @@ class TestPrimePathLandscape(unittest.TestCase):
         # Construct the state-space as PrimePathLandscape graph:
         for lm in lmins[1:]: 
             PPL.addnode(lm.structure, structure = lm.structure, energy = lm.energy)
-
         print(f'\nInitial graph size: {len(PPL)}')
-
         nn = PPL.connect_nodes_n2()
         print(f'N2 connected graph size: {len(PPL)}, new: {len(nn)}')
-
         PPL.coarse_grain()
-        print(f'After coarse graining: {len(PPL.active_nodes)} active,',
-                                     f'{len(PPL.inactive_nodes)} hidden.')
+        print(f'After coarse graining: {len(PPL.local_mins)} local minima,',
+                                     f'{len(PPL.hidden_nodes)} hidden.')
 
+        # Look at it!
+        for n in PPL.nodes:
+            PPL.nodes[n]['active'] = PPL.nodes[n]['hiddennodes'] is None
         self.plot_active_subgraph(PPL, 'PPL_02_normal')
 
         # Unfortunately, this takes a long time, but you can set lim higher 
         # for more fine-grained results
         lim = 5
         while nn:
-            be = [n for n in PPL.active_nodes if PPL.nodes[n]['energy'] < -8.50] 
+            be = [n for n in PPL.local_mins if PPL.nodes[n]['energy'] < -8.50] 
             nn = PPL.connect_nodes_n2(nodes = be)
             print(f'New n2 connected graph size: {len(PPL)}, new: {len(nn)}')
             PPL.coarse_grain()
-            print(f'After coarse graining: {len(PPL.active_nodes)} active,',
-                                         f'{len(PPL.inactive_nodes)} hidden.')
+            print(f'After coarse graining: {len(PPL.local_mins)} local minima,',
+                                         f'{len(PPL.hidden_nodes)} hidden.')
             lim -= 1
             if not lim: break
+        for n in PPL.nodes:
+            PPL.nodes[n]['active'] = PPL.nodes[n]['hiddennodes'] is None
         self.plot_active_subgraph(PPL, 'PPL_02_big')
 
         islist = []

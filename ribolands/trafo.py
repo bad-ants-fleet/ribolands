@@ -18,7 +18,6 @@ import RNA
 from ribolands import PrimePathLandscape
 from ribolands.utils import make_pair_table
 from ribolands.pathfinder import (show_flooded_prime_path, 
-                                  get_fpath_cache, get_bp_change,
                                   BPD_CACHE, get_bpd_cache)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
@@ -178,7 +177,9 @@ class TrafoLandscape(PrimePathLandscape):
             print(ss, self.nodes[ss]['energy'], 
                     self.nodes[ss]['identity'], 
                     self.nodes[ss]['active'], 
-                    self.nodes[ss]['occupancy']) 
+                    '{:.4f}'.format(self.nodes[ss]['occupancy']))
+                    #self.nodes[ss]['hiddennodes'],
+                    #self.nodes[ss]['lminreps'])
 
     def print_transitions(self, nodes = None):
         if nodes is None:
@@ -193,26 +194,10 @@ class TrafoLandscape(PrimePathLandscape):
     @property
     def active_subgraph(self):
         """ Return a new object with only active nodes (and edges) """
-        other = TrafoLandscape(self.sequence)
-        other.md = self.md
-        other.fc = self.fc
-
+        other = super(TrafoLandscape, self).active_subgraph
         # Private instance variables:
         other._transcript_length = self._transcript_length
         other.total_time = self.total_time
-
-        # Default parameters:
-        other.k0 = self.k0
-        other.minh = self.minh
-
-        for n, data in self.nodes.data():
-            raise RiboLandscapeError("Did you forget to call coarse-graining",
-                        "before extracting the active subgraph?")
-            if data['active']:
-                other.add_node(n, **data)
-        for n1, n2, data in self.edges.data():
-            if self.nodes[n1]['active'] and self.nodes[n2]['active']:
-                other.add_edge(n1, n2, **data)
         return other
  
     def expand(self, extend = 1, mfree = 6):
@@ -231,6 +216,7 @@ class TrafoLandscape(PrimePathLandscape):
         Returns:
             int: Number of new nodes
         """
+        rlog.info(f'Expand: {len(self.active_nodes)} extend = {extend} mfree = {mfree}')
         fseq = self.sequence
         self._transcript_length += extend
         if self._transcript_length > len(fseq):
@@ -246,28 +232,31 @@ class TrafoLandscape(PrimePathLandscape):
         mfess = mfess + future
 
         # If there is no node because we are in the beginning, add the node.
-        if len(self) == 0:
-            self.addnode(mfess, structure = mfess)
+        if len(self) == 0: 
+            self.addnode(mfess, structure = mfess, active = True)
             self.nodes[mfess]['occupancy'] = 1
-        else: # There are no active nodes yet ...
-            nn = self.connect_to_active(nodes = [mfess], direct = False)
-            rlog.debug(f'Connected MFE: {mfess[:len(seq)]}, new structs: {len(nn)}')
-
+            nn = set([mfess])
+        else: 
             # Save the set of active parent nodes for later.
             parents = self.active_nodes
+            #nn = self.connect_nodes_n2(parents) 
+            #rlog.info(f'Connected parents, new structs: {len(nn)}')
+            #[rlog.debug(f' {new}') for new in nn]
+            nn = self.connect_nodes_nm(nodesA = parents, 
+                                       nodesB = [mfess], direct = False)
+            rlog.info(f'Connected MFE: {mfess[:len(seq)]}, new structs: {len(nn)}')
+            [rlog.info(f' {new}') for new in nn]
 
             # They can also be previously inactive nodes or other parents ...
             fraying_nodes = self.find_fraying_neighbors(parents, mfree = 6)
-
-            newn = set()
             for p, fn in fraying_nodes.items():
                 # Connects fraying neighbors to other active nodes
-                n1 = self.connect_to_active(nodes = list(fn), direct = False)
+                nn |= self.connect_nodes_nm(nodesA = self.active_nodes, nodesB = list(fn))
                 # Connect fraying neighbors with each other
-                n2 = self.connect_nodes_n2(nodes = list(fn), direct = True)
-                newn |= n1 | n2
-            rlog.debug(f'New fraying neighbors: {newn}')
-        return self.nodeID - cnid
+                nn |= self.connect_nodes_n2(nodes = list(fn), direct = True)
+            rlog.info(f'Connected fraying neighbors, new structs: {len(nn)}')
+            [rlog.info(f' {new}') for new in nn]
+        return nn
 
     def find_fraying_neighbors(self, parents, mfree = 6):
         """ Test me!
@@ -399,33 +388,76 @@ class TrafoLandscape(PrimePathLandscape):
                     self.nodes[ss]['occupancy'] = float(occu)/tot_occ
         return time, iterations
 
-    def prune(self, pmin):
+    def prune(self, pmin, keepers = None):
         """ 
         We prune by base-pair distance to active nodes... 
+
+        Identify the nodes we have to keep, either because they are
+        occupied local minima, or because they are basins connecting
+        occupied local minima.
+
         """
-        keepers = []
-        for n in self.active_nodes:
-            no = self.nodes[n]['occupancy']
-            if no >= pmin:
-                keepers.append(n)
+        rlog.info(f'Pruning: pmin = {pmin} keepers = {len(keepers) if keepers else 0}')
+        if keepers is None:
+            keepers = set()
+            for n in self.active_nodes:
+                no = self.nodes[n]['occupancy']
+                if no >= pmin:
+                    keepers.add(n)
+                    rlog.debug(f'Keeper: {n}')
 
         if len(keepers) == 1:
-            # In this case, the node is not removed, although it should be ...
             rlog.info('Only one active node with occupancy!')
-            return
+            for node in list(self.nodes):
+                self.nodes[node]['pruned'] = self.nodes.get('pruned', 0)
+                if node in keepers:
+                    assert self.nodes[node]['lminreps'] is None
+                    self.nodes[node]['active'] = True
+                    self.nodes[node]['pruned'] = 0
+                else:
+                    self.nodes[node]['active'] = False
+                    self.nodes[node]['pruned'] += 1
         else:
             # Inactivate old nodes and increment "pruned"
-            self.minimal_prime_path_graph(keepers)
+            for x, y in combinations(keepers, 2):
+                if self.has_edge(x, y):
+                    continue
+                for [start, stop, fwb, fwg, rvb] in self.get_prime_path_minima(x, y):
+                    if stop not in self.nodes:
+                        rlog.debug(f'Minimal prime path basins are not directly connected!\n' + \
+                                f'{x}\n{y}')
+                        break
+                    d1 = self.nodes[start]
+                    d2 = self.nodes[stop]
+                    basin1 = set([start]) if d1['lminreps'] is None else d1['lminreps']
+                    basin2 = set([stop]) if d2['lminreps'] is None else d2['lminreps']
+                    if not any(s1 == s2 or self.get_barrier(s1, s2) is not None \
+                            for (s1, s2) in product(basin1, basin2)):
+                        rlog.debug(f'Minimal prime path basins are not directly connected!\n' + \
+                                f'{x}\n{y}')
+                    keepers |= basin1 | basin2
+            for node in list(self.nodes):
+                self.nodes[node]['pruned'] = self.nodes.get('pruned', 0)
+                if node in keepers:
+                    assert self.nodes[node]['lminreps'] is None
+                    self.nodes[node]['active'] = True
+                    self.nodes[node]['pruned'] = 0
+                else:
+                    self.nodes[node]['active'] = False
+                    self.nodes[node]['pruned'] += 1
 
         parents = self.active_nodes
         for node in self.sorted_nodes(attribute = 'energy', rev = True):
+            self.nodes[node]['lminreps'] = None
+            self.nodes[node]['hiddennodes'] = None
             if not self.nodes[node]['active'] and self.nodes[node]['occupancy'] > 0:
-                assert self.nodes[node]['pruned'] > 0
+                assert self.nodes[node]['pruned'] == 1
                 # We prune by base-pair distance to active nodes... 
                 move = sorted(parents, key = lambda x: get_bpd_cache(node, x))
                 self.nodes[move[0]]['occupancy'] += self.nodes[node]['occupancy']
                 self.nodes[node]['occupancy'] = 0
             if self.nodes[node]['pruned'] > 0:
+                rlog.debug(f'Removing node: {node}')
                 self.remove_node(node)
         return
 

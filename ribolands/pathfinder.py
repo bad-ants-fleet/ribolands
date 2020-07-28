@@ -598,7 +598,6 @@ def local_flooding(fc, lmin, basinh = 2, rates = True, RT = None, k0 = None):
                 k_mj += P_i * k_ij
                 k_exit += P_i * k_ij
             fstep[fs] = [P_mj, k_mj]
-        p_tot = 0
         for fs, [P_mj, k_mj] in fstep.items():
             assert P_mj == 0
             fstep[fs][0] = fstep[fs][1]/k_exit

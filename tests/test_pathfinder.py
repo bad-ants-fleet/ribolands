@@ -52,6 +52,16 @@ class Test_base_pair_changes(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             apply_bp_change(seq, s1, s2, subseq, subs1, subs2)
 
+    def todo_test_apply_bp_change_bug3(self):
+        seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCG"
+        s1  = "..((....(((........(((.....)))....)))..(((........)))..))." 
+        s2  = ".((((....))))..(((.(.((...)).)..)))......(((.......)))...."
+        subseq = "GUCNNNGGC"
+        subs1  = "(((xxx)))"
+        subs2  = "(.(xxx).)"
+
+        apply_bp_change(seq, s1, s2, subseq, subs1, subs2)
+
 class Test_Pathflooding(unittest.TestCase):
     def setUp(self):
         pass
