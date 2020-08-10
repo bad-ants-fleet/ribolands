@@ -184,7 +184,7 @@ class Workflow(object):
         self.brfile = None # barriers rate file
         self.bbfile = None # barriers binary rate file
         self.bpfile = None # barriers plot file
-        self.bmfile = None # barriers mapstruc file
+        self.bmfile = None # barriers mapstruc output file
         self.tofile = None # treekin output file
         self.kofile = None # kinfold output file
         self.klfile = None # kinfold log file
@@ -340,7 +340,7 @@ class Workflow(object):
     def call_barriers(self, 
             rates = True, k0 = 1.0,
             minh = 0.001, maxn = 50, 
-            paths = None, bmfile = None, connected = False,
+            paths = None, msfile = None, connected = False,
             bsize = False, ssize = False, saddle = False, plot = False, 
             force = None):
         
@@ -366,7 +366,7 @@ class Workflow(object):
                 bsize = bsize,
                 ssize = ssize,
                 saddle = saddle,
-                bmfile = bmfile,
+                msfile = msfile,
                 connected = connected,
                 plot = plot,
                 force = force)
@@ -607,7 +607,7 @@ def sys_barriers_180(basename, sofile,
                  ssize = False,
                  circ = False,
                  saddle = False,
-                 bmfile = None,
+                 msfile = None,
                  plot = False,
                  connected = False,
                  force = False):
@@ -627,7 +627,7 @@ def sys_barriers_180(basename, sofile,
       SuboprocessError: Program terminated with exit code: ...
 
     Returns:
-      [bofile, befile, brfile, bbfile, bpfile, msfile]: 
+      [bofile, befile, brfile, bbfile, bpfile, bmfile]: 
         A list of produced files containing ``barriers`` results.
     """
 
@@ -647,14 +647,14 @@ def sys_barriers_180(basename, sofile,
     brfile = basename + '_rates.txt'
     bbfile = basename + '_rates.bin'
     bpfile = basename + '_tree.ps' if plot else None
-    msfile = basename + '.ms' if bmfile else None
+    bmfile = basename + '.ms' if msfile else None
 
     if not force and os.path.exists(bofile) and os.path.exists(brfile) and os.path.exists(bbfile) and \
       (not paths or all(map(os.path.exists, ['{:s}_path.{:03d}.{:03d}.txt'.format(basename, int(x), int(y)) for x, y in map(lambda x: x.split('='), paths)]))) and \
       (not plot or os.path.exists(bpfile)) and \
-      (not bmfile or os.path.exists(msfile)):
+      (not msfile or os.path.exists(bmfile)):
         rlog.info(f"# files exist: {bofile}, {brfile}")
-        return [bofile, befile, brfile, bbfile, bpfile, msfile]
+        return [bofile, befile, brfile, bbfile, bpfile, bmfile]
 
     barcall = [barriers]
 
@@ -698,8 +698,8 @@ def sys_barriers_180(basename, sofile,
         barcall.extend(['--saddle'])
 
     if bmfile:
-        barcall.extend(["--mapstruc", bmfile])
-        barcall.extend(["--mapstruc-output", msfile])
+        barcall.extend(["--mapstruc", msfile])
+        barcall.extend(["--mapstruc-output", bmfile])
 
     call = "{} 2> {} > {}".format(' '.join(barcall), befile, bofile)
     rlog.info(f'# {call}')
@@ -752,7 +752,7 @@ def sys_barriers_180(basename, sofile,
             pfname = 'path.{:03d}.{:03d}.txt'.format(int(x), int(y))
             os.rename(pfname, basename + '_' + pfname)
 
-    return [bofile, befile, brfile, bbfile, bpfile, msfile]
+    return [bofile, befile, brfile, bbfile, bpfile, bmfile]
 
 def sys_barriers(name, seq, **kwargs): 
     warnings.warn("ribolands sys_barriers interface changed.")
@@ -798,11 +798,11 @@ def sys_kinfold(name, seq,
 
     if os.path.exists(klfile) and os.path.exists(kofile):
         if force is None:
-            rlog.info("# Files exist, appending output: {klfile}, {kofile}")
+            rlog.info(f"# Files exist, appending output: {klfile}, {kofile}")
         elif force is False:
             return [klfile, kefile, kofile]
         else:
-            rlog.info("# Removing old files: {klfile}, {kofile}")
+            rlog.info(f"# Removing old files: {klfile}, {kofile}")
             if os.path.exists(klfile):
                 os.remove(klfile)
             if os.path.exists(kofile):
