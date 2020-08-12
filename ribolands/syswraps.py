@@ -533,8 +533,8 @@ def sys_treekin_051(basename, ratefile,
     reg_flt = re.compile(b'[-+]?[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?.')
     # http://www.regular-expressions.info/floatingpoint.html
 
-    tofile = basename + '.tkn'
-    tefile = basename + '.err'
+    tofile = basename + '_treekin.nxy'
+    tefile = basename + '_treekin.err'
 
     if not force and os.path.exists(tofile):
         rlog.info(f"# {tofile} <= Files exist")
@@ -642,12 +642,12 @@ def sys_barriers_180(basename, sofile,
     if not sofile or not os.path.exists(sofile):
         raise Exception('Cannot find input file:', sofile)
 
-    bofile = basename + '.bar'
-    befile = basename + '.err'
-    brfile = basename + '_rates.txt'
-    bbfile = basename + '_rates.bin'
-    bpfile = basename + '_tree.ps' if plot else None
-    bmfile = basename + '.ms' if msfile else None
+    bofile = basename + '_barriers.bar'
+    befile = basename + '_barriers.err'
+    brfile = basename + '_barriers_rates.txt'
+    bbfile = basename + '_barriers_rates.bin'
+    bpfile = basename + '_barriers_tree.ps' if plot else None
+    bmfile = basename + '_barriers.ms' if msfile else None
 
     if not force and os.path.exists(bofile) and os.path.exists(brfile) and os.path.exists(bbfile) and \
       (not paths or all(map(os.path.exists, ['{:s}_path.{:03d}.{:03d}.txt'.format(basename, int(x), int(y)) for x, y in map(lambda x: x.split('='), paths)]))) and \
@@ -758,7 +758,7 @@ def sys_barriers(name, seq, **kwargs):
     warnings.warn("ribolands sys_barriers interface changed.")
     return sys_barriers_180(name, seq, **kwargs)
 
-def sys_kinfold(name, seq, 
+def sys_kinfold(basename, seq, 
         kinfold = 'Kinfold',
         start = None,
         stop = None,
@@ -790,11 +790,11 @@ def sys_kinfold(name, seq,
       ...
     """
 
-    name += '_kinfold'
+    basename += '_kinfold'
 
-    klfile = name + '.log'
-    kefile = name + '.err'
-    kofile = name + '.out'
+    klfile = basename + '.log'
+    kefile = basename + '.err'
+    kofile = basename + '.out'
 
     if os.path.exists(klfile) and os.path.exists(kofile):
         if force is None:
@@ -813,7 +813,7 @@ def sys_kinfold(name, seq,
     syscall = [kinfold]
     syscall.extend(['--num', str(int(num))])
     syscall.extend(['--time', str(time)])
-    syscall.extend(['--log', name])
+    syscall.extend(['--log', basename])
     syscall.extend(['--cut', str(erange)])
     #syscall.extend(['--seed', "62159=58010=26254"])
     if params:
@@ -879,7 +879,7 @@ def sys_kinfold(name, seq,
 
     return [klfile, kefile, kofile]
 
-def sys_suboptimals(name, seq,
+def sys_suboptimals(basename, seq,
                     RNAsubopt = 'RNAsubopt',
                     params = None,
                     ener = None,
@@ -895,7 +895,7 @@ def sys_suboptimals(name, seq,
     The print the results into a file and return the filename.
 
     Args:
-        name (str): Name of the sequence used to name the output file.
+        basename (str): Name of the sequence used to name the output file.
         seq (str): Nucleic acid sequence.
         RNAsubopt (str, optional): Path to ``RNAsubopt'' executable.
     :param ener: Specify energy range
@@ -904,9 +904,9 @@ def sys_suboptimals(name, seq,
     :param circ: compute density of states
     :param opts: more options for ``RNAsubopt``
 
-    :param force: Overwrite existing files with the same name.
+    :param force: Overwrite existing files with the same basename.
 
-    :type name: string
+    :type basename: string
     :type seq: string
     :type RNAsubopt: string
     :type ener: float
@@ -929,7 +929,7 @@ def sys_suboptimals(name, seq,
         rlog.info("# Energy-Update: {:.2f} kcal/mol to compute {} sequences".format(
                 ener, nos))
 
-    sofile = name + '.spt.gz' if zipped else name + '.spt'
+    sofile = basename + '.spt.gz' if zipped else basename + '.spt'
 
     if not force and os.path.exists(sofile):
         rlog.info(f"# File exists: {sofile}")

@@ -68,7 +68,7 @@ class RiboLandscape(nx.DiGraph):
             energy = round(self.fc.eval_structure(structure), 2)
         if identity is None:
             identity = self.nodeID
-        assert isinstance(energy, float) if energy else True
+        assert isinstance(energy, float) or isinstance(energy, int) if energy else True
         self.add_node(key,
                 structure = structure, 
                 identity = identity,
