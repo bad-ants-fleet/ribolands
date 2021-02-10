@@ -2,58 +2,32 @@
 # ribolands.syswraps
 # 
 # Build a customn Workflow with system calls of ViennaRNA related software.
-# May only work with linux.
+# May only work on linux.
 #
 
 import logging
 rlog = logging.getLogger(__name__)
-import warnings
 
 import os
-import re
-import sys
 import gzip
 import math
 import subprocess as sub
+from copy import deepcopy
+from shutil import which
+from packaging import version
 from struct import pack, unpack, calcsize
+
 from ribolands import (_MIN_VIENNARNA_VERSION, 
                        _MIN_KINFOLD_VERSION,
                        _MIN_BARRIERS_VERSION,
                        _MIN_TREEKIN_VERSION)
 
-# **************************************************************************** #
-# Helper functions, Errors, etc.                                               #
-# ............................................................................ #
-
-def which(program):
-    """Emulates the unix ``which`` command. 
-    
-    Taken from:
-        `http://stackoverflow.com/questions/377017/test-if-executable-exists-in-python`
-
-    Args:
-        program (str): executable
-
-    Returns:
-        [str]: The path-to-executable or None
-    """
-    def is_exe(fpath):
-        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
-
-    fpath, fname = os.path.split(program)
-    if fpath:
-        if is_exe(program):
-            return program
-    else:
-        for path in os.environ["PATH"].split(os.pathsep):
-            path = path.strip('"')
-            exe_file = os.path.join(path, program)
-            if is_exe(exe_file):
-                return exe_file
-    return None
+# ****************************** #
+# Helper functions, Errors, etc. #
+# .............................. #
 
 def check_version(program, rv):
-    """Check if the version of an installed program meets minimum requirements.
+    """ Check if the version of an installed program meets minimum requirements.
 
     Args:
         program (str): executable
@@ -65,10 +39,6 @@ def check_version(program, rv):
     Returns:
         None: If everything is ok.
     """
- 
-    def versiontuple(rv):
-        return tuple(map(int, (rv.split("."))))
-
     if which(program) is None:
         if 'treekin' in program:
             raise ExecError(program, "treekin", 
@@ -84,71 +54,58 @@ def check_version(program, rv):
                             'https://www.tbi.univie.ac.at/RNA')
         else:
             raise ExecError(program)
-
     p, pv = sub.check_output([program, '--version']).split()
     pv = pv.decode()
-
-    if versiontuple(pv) < versiontuple(rv):
+    if version.parse(pv) < version.parse(rv):
         raise VersionError(program, pv, rv)
-
     return None
 
 class SubprocessError(Exception):
-    """Raise Error: Commandline call failed."""
-
+    """ Raise: commandline call failed. """
     def __init__(self, code, call=None):
-        self.message = "Process terminated with return code: {}.\n".format(
-            code)
+        self.message = f"Process terminated with return code: {code}.\n"
         if call:
             self.message += "|==== \n"
-            self.message += "{}\n".format(call)
+            self.message += f"{call}\n"
             self.message += "|====\n"
-
         super(SubprocessError, self).__init__(self.message)
 
 class ExecError(Exception):
-    """Raise Error: Executable not found."""
-
+    """ Raise: executable not found."""
     def __init__(self, var, program=None, download=None):
-        self.message = "{} is not executable.\n".format(var)
+        self.message = f"{var} is not executable.\n"
         self.message += "|==== \n"
         if program:
-            self.message += "|You need to install *{}*.\n".format(program)
+            self.message += f"|You need to install *{program}*.\n"
             if download:
-                self.message += "|Download: {}\n".format(download)
-
+                self.message += f"|Download: {download}\n"
         self.message += "|If the program is installed, "
         self.message += "make sure that the path you specified is executable.\n"
         self.message += "|====\n"
-
         super(ExecError, self).__init__(self.message)
 
 class VersionError(Exception):
-    """Raise Error: Update program to latest version."""
-
+    """ Raise: must update program to latest version. """
     def __init__(self, var, cv, mv, download=None):
-        self.message = "{} has version {}.\n".format(var, cv)
+        self.message = f"{var} has version {cv}.\n"
         self.message += "|==== \n"
-        self.message += "|You need to install version v{} or higher.\n".format(
-            mv)
+        self.message += f"|You need to install version v{mv} or higher.\n"
         if download:
-            self.message += "|Download: {}\n".format(download)
+            self.message += f"|Download: {download}\n"
         self.message += "|====\n"
-
         super(VersionError, self).__init__(self.message)
 
-
-# **************************************************************************** #
-# System call Workflow object                                                  #
-# ............................................................................ #
+# ************************** #
+# Workflow object & syscalls #
+# .......................... #
 
 class Workflow(object):
     """ A wrapper class to unify workflows using the syscalls provided.
 
     Use a Workflow for a specific pipeline, such that input and output files do
-    not have to be specified or set manually. If you want to fork a pipeline, e.g.
-    to branch off and use different minh for barriers, then use copy() and 
-    keep the names of the files up to that point in memory.
+    not have to be specified or set manually. If you want to fork a pipeline,
+    e.g. to branch off and use different minh for barriers, then use copy()
+    to keep track of the names of all files.
     """
 
     def __init__(self, sequence, model_details, name = 'NoName'):
@@ -156,7 +113,6 @@ class Workflow(object):
         #   - Kinfold does not crash, it reports to STDERR and exits.
         #   - Treekin does not crash with single rate, it reports to STDERR and exits.
         #   - Barriers rate model should allow to adjust the k0 parameter.
-
         self.md = model_details
         
         # Simple properties, I/O handling:
@@ -167,7 +123,7 @@ class Workflow(object):
         self.verbose = False
         self.zip_suboptimals = True
     
-        # Prgrams -- need to be set for a mandatory version check.
+        # Executables -- need to go through mandatory version check.
         self._RNAsubopt = None
         self._barriers = None
         self._treekin = None
@@ -211,7 +167,7 @@ class Workflow(object):
         other.verbose = self.verbose
         other.zip_suboptimals = self.zip_suboptimals
     
-        # Prgrams -- need to be set for a mandatory version check.
+        # Executables
         other._RNAsubopt = self._RNAsubopt
         other._barriers = self._barriers
         other._treekin = self._treekin
@@ -287,90 +243,95 @@ class Workflow(object):
             os.mkdir(path)
         self._outdir = path + '/' if path[-1] != '/' else path
 
+    @property
+    def files(self):
+        yield self.sofile
+        yield self.bofile
+        yield self.brfile
+        yield self.bbfile
+        yield self.bpfile
+        yield self.bmfile
+        yield self.tofile
+        yield self.kofile
+        yield self.klfile
+
     def find_subopt_range(self, nos, maxe):
         if self.sequence is None:
             raise Exception('Must set sequence first.')
-
         if self.RNAsubopt is None:
             raise SystemExit(f'Need to specify executable for RNAsubopt.')
-
         sener, snum = sys_subopt_range(self.sequence, 
-                nos = nos,
-                maxe = maxe,
-                RNAsubopt = self.RNAsubopt,
-                params = self.paramFile,
-                temp = self.md.temperature,
-                noLP = self.md.noLP,
-                circ = self.md.circ)
-
+                                       nos = nos,
+                                       maxe = maxe,
+                                       RNAsubopt = self.RNAsubopt,
+                                       params = self.paramFile,
+                                       temp = self.md.temperature,
+                                       noLP = self.md.noLP,
+                                       circ = self.md.circ)
         self.subopt_range = sener
         self.subopt_number = snum
+        return
 
-    def call_RNAsubopt(self, opts = None, force = None):
+    def call_RNAsubopt(self, 
+                       opts = None, force = None):
         if self.RNAsubopt is None:
             raise SystemExit(f'Need to specify executable for RNAsubopt.')
-
         if force is None:
             force = self.force
         
-        if True: # more consistent
+        if True: # reproducable 
             sortopt = ['|', 'sort', '-T', '/tmp', '-k3r', '-k2n'] 
-        else: # faster
+        else: # fast
             sortopt = ['-s']
 
         name = self.outdir + self.name
         sofile = sys_suboptimals(name, self.sequence,
-                RNAsubopt = self.RNAsubopt,
-                params = self.paramFile,
-                ener = self.subopt_range,
-                temp = self.md.temperature,
-                noLP = self.md.noLP,
-                circ = self.md.circ,
-                opts = opts,
-                sort = sortopt,
-                zipped = self.zip_suboptimals,
-                force = force)
-        
+                                 RNAsubopt = self.RNAsubopt,
+                                 params = self.paramFile,
+                                 ener = self.subopt_range,
+                                 temp = self.md.temperature,
+                                 noLP = self.md.noLP,
+                                 circ = self.md.circ,
+                                 opts = opts,
+                                 sort = sortopt,
+                                 zipped = self.zip_suboptimals,
+                                 force = force)
         if self.sofile:
             rlog.info(f'Replacing internal subopt file: {sofile}')
-
         self.sofile = sofile
         return self.sofile
 
     def call_barriers(self, 
-            rates = True, k0 = 1.0,
-            minh = 0.001, maxn = 50, 
-            paths = None, msfile = None, connected = False,
-            bsize = False, ssize = False, saddle = False, plot = False, 
-            force = None):
-        
+                      rates = True, k0 = 1.0,
+                      minh = 0.001, maxn = 50, 
+                      paths = None, msfile = None, connected = False,
+                      bsize = False, ssize = False, saddle = False, plot = False, 
+                      force = None):
         if self.barriers is None:
             raise SystemExit(f'Need to specify executable for barriers.')
-
         if force is None:
             force = self.force
 
         name = self.outdir + self.name
         files = sys_barriers_180(name, self.sofile,
-                barriers = self.barriers,
-                minh = minh, 
-                maxn = maxn,
-                temp = self.md.temperature,
-                noLP = self.md.noLP,
-                circ = self.md.circ,
-                moves = self.moves,
-                zipped = self.zip_suboptimals,
-                rates = rates,
-                k0 = k0,
-                paths = paths,
-                bsize = bsize,
-                ssize = ssize,
-                saddle = saddle,
-                msfile = msfile,
-                connected = connected,
-                plot = plot,
-                force = force)
-
+                                 barriers = self.barriers,
+                                 minh = minh, 
+                                 maxn = maxn,
+                                 temp = self.md.temperature,
+                                 noLP = self.md.noLP,
+                                 circ = self.md.circ,
+                                 moves = self.moves,
+                                 zipped = self.zip_suboptimals,
+                                 rates = rates,
+                                 k0 = k0,
+                                 paths = paths,
+                                 bsize = bsize,
+                                 ssize = ssize,
+                                 saddle = saddle,
+                                 msfile = msfile,
+                                 connected = connected,
+                                 plot = plot,
+                                 force = force)
         if self.bofile:
             rlog.info(f'Replacing internal barriers output file: {files[0]}')
         if self.brfile:
@@ -381,22 +342,20 @@ class Workflow(object):
             rlog.info(f'Replacing internal barriers plot file: {files[4]}')
         if self.bmfile:
             rlog.info(f'Replacing internal barriers mapstruc file: {files[5]}')
-
         self.bofile = files[0]
         # efile 
         self.brfile = files[2]
         self.bbfile = files[3]
         self.bpfile = files[4]
         self.bmfile = files[5]
-
         return files
 
     def call_treekin(self, 
-            p0 = ['1=0.5', '2=0.5'], 
-            t0 = 0, ti = 1.2, t8 = 1e6,
-            binrates = True, bofile = None, # bofile = False to avid using internal one.
-            useplusI = False, exponent = False, mpack_method = None,
-            quiet = True, force = None):
+                     p0 = ['1=0.5', '2=0.5'], 
+                     t0 = 0, ti = 1.2, t8 = 1e6,
+                     binrates = True, bofile = None, # bofile = False to avid using internal one.
+                     useplusI = False, exponent = False, mpack_method = None,
+                     quiet = True, force = None):
 
         if self.treekin is None:
             raise SystemExit(f'Need to specify executable for treekin.')
@@ -431,16 +390,15 @@ class Workflow(object):
         self.tofile = tofile
         return tofile, tefile
 
-    def call_Kinfold(self, start, stop, fpt = True, rect = False,
-            time = 5000, num = 1, 
-            ratemodel = 'Metropolis',
-            lmin = False, silent = True, erange = 100,
-            name = None,
-            force = None):
-
+    def call_Kinfold(self, start, stop, 
+                     fpt = True, rect = False,
+                     time = 5000, num = 1, 
+                     ratemodel = 'Metropolis',
+                     lmin = False, silent = True, erange = 100,
+                     name = None,
+                     force = None):
         if self.Kinfold is None:
             raise SystemExit(f'Need to specify executable for Kinfold.')
-
         if name is None: 
             name = self.outdir + self.name
         klfile, kefile, kofile = sys_kinfold(name, self.sequence, 
@@ -479,18 +437,18 @@ class Workflow(object):
 
 #Last update: version 0.5.1
 def sys_treekin_051(basename, ratefile,
-                treekin = 'treekin',
-                bofile = None,
-                p0 = ['1=0.5', '2=0.5'],
-                t0 = 0,
-                ti = 1.2,
-                t8 = 1e6,
-                binrates = True,
-                useplusI = False,
-                exponent = False,
-                mpack_method = None,
-                quiet = True,
-                force = False):
+                    treekin = 'treekin',
+                    bofile = None,
+                    p0 = ['1=0.5', '2=0.5'],
+                    t0 = 0,
+                    ti = 1.2,
+                    t8 = 1e6,
+                    binrates = True,
+                    useplusI = False,
+                    exponent = False,
+                    mpack_method = None,
+                    quiet = True,
+                    force = False):
     """ Perform a system-call of the program ``treekin``.
 
     Prints the results into files and returns the respective filenames. This
@@ -529,9 +487,6 @@ def sys_treekin_051(basename, ratefile,
     if which(treekin) is None:
         raise ExecError(treekin,
                         "treekin", 'http://www.tbi.univie.ac.at/RNA/Treekin')
-
-    reg_flt = re.compile(b'[-+]?[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?.')
-    # http://www.regular-expressions.info/floatingpoint.html
 
     tofile = basename + '_treekin.nxy'
     tefile = basename + '_treekin.err'
@@ -588,29 +543,28 @@ def sys_treekin_051(basename, ratefile,
     return tofile, tefile
 
 def sys_treekin(basename, brfile, **kwargs):
-    #warnings.warn("ribolands sys_treekin interface changed.")
     return sys_treekin_051(basename, brfile, **kwargs)
 
 #Last update: version 1.8.1
 def sys_barriers_180(basename, sofile,
-                 barriers = 'barriers',
-                 minh = 0.001,
-                 maxn = 50,
-                 temp = 37.0,
-                 noLP = False,
-                 moves = 'single-base-pair',
-                 zipped = True,
-                 rates = True,
-                 k0 = 1.,
-                 paths = None,
-                 bsize = False,
-                 ssize = False,
-                 circ = False,
-                 saddle = False,
-                 msfile = None,
-                 plot = False,
-                 connected = False,
-                 force = False):
+                     barriers = 'barriers',
+                     minh = 0.001,
+                     maxn = 50,
+                     temp = 37.0,
+                     noLP = False,
+                     moves = 'single-base-pair',
+                     zipped = True,
+                     rates = True,
+                     k0 = 1.,
+                     paths = None,
+                     bsize = False,
+                     ssize = False,
+                     circ = False,
+                     saddle = False,
+                     msfile = None,
+                     plot = False,
+                     connected = False,
+                     force = False):
     """Perform a system-call of the program ``barriers``.
 
     The print the results into a file and return the respective filename. This
@@ -755,29 +709,28 @@ def sys_barriers_180(basename, sofile,
     return [bofile, befile, brfile, bbfile, bpfile, bmfile]
 
 def sys_barriers(name, seq, **kwargs): 
-    warnings.warn("ribolands sys_barriers interface changed.")
     return sys_barriers_180(name, seq, **kwargs)
 
-def sys_kinfold(basename, seq, 
-        kinfold = 'Kinfold',
-        start = None,
-        stop = None,
-        fpt  = False,
-        rect = False,
-        time = 5000,
-        num = 1,
-        ratemodel = 'Metropolis',
-        moves = 'single-base-pair',
-        noLP = False,
-        logML = False,
-        dangle = 2,
-        temp = 37,
-        params = None,
-        # Output
-        erange = 20, # Kinfold Default.
-        lmin = False,
-        silent = False,
-        force = False):
+def sys_kinfold_14(basename, seq, 
+                kinfold = 'Kinfold',
+                start = None,
+                stop = None,
+                fpt  = False,
+                rect = False,
+                time = 5000,
+                num = 1,
+                ratemodel = 'Metropolis',
+                moves = 'single-base-pair',
+                noLP = False,
+                logML = False,
+                dangle = 2,
+                temp = 37,
+                params = None,
+                # Output
+                erange = 20, # Kinfold Default.
+                lmin = False,
+                silent = False,
+                force = False):
     """Perform a system-call of the program ``Kinfold``.
 
     The print the results into a file and return the respective filename. This
@@ -878,6 +831,9 @@ def sys_kinfold(basename, seq,
             print(call)
 
     return [klfile, kefile, kofile]
+
+def sys_kinfold(name, seq, **kwargs): 
+    return sys_kinfold_14(name, seq, **kwargs)
 
 def sys_suboptimals(basename, seq,
                     RNAsubopt = 'RNAsubopt',
@@ -1077,5 +1033,3 @@ def subopt_reaches_minh(fname, minh, zipped = True):
 
     raise AssertionError('Function must exit above.')
 
-if __name__ == '__main__':
-    main()

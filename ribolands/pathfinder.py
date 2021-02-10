@@ -13,8 +13,7 @@ import RNA
 import math
 import argparse
 import numpy as np
-from itertools import islice, product, permutations
-from operator import itemgetter
+from itertools import chain, combinations
 
 from ribolands.utils import make_loop_index, make_pair_table
 
@@ -39,325 +38,173 @@ def get_bpd_cache(s1, s2):
         return BPD_CACHE[(s1, s2)]
     elif (s2, s1) in BPD_CACHE:
         return BPD_CACHE[(s2, s1)]
-    else :
+    else:
         dist = RNA.bp_distance(s1, s2)
         BPD_CACHE[(s1, s2)] = dist
         return dist
 
-def get_bp_change(seq, s1, s2):
-    """ Extract (multiple) minimal regions where base-pairs change.
-
-    Assume every common base-pair between s1 and s2 divides the direct path
-    barrier estimation into two problems. This algorithm returns all pairs of
-    substructures between s1 and s2 where base-pairs change, including the
-    constant enclosing base-pairs (or adjacent dangling ends in the exterior
-    loop case).
-
-    TODO: This is a quick implementation, not particularly efficient.
-
-    Args:
-        seq (str): RNA sequence
-        s1 (str): first structure
-        s2 (str): second structure
-
-    Returns:
-        list[(seq, c1, c2),...]: A list of independent base-pair changes.
-    """
-    pt1 = make_pair_table(s1, base = 0, chars = list('.x'))
-    pt2 = make_pair_table(s2, base = 0, chars = list('.x'))
-
-    final_features = []
-
-    feature_stack = []
-    cse, cf1, cf2 = '', '', ''
+def common_exterior_bases(pt1, pt2):
+    hide = -1 
     for e in range(0, len(pt1)):
-        if pt1[e] == pt2[e] and pt1[e] != -1 : # a common base-pair
-            if pt1[e] > e: 
-                assert s1[e] == s2[e] and s1[e] == '('
-                cse += seq[e]
-                cf1 += s1[e]
-                cf2 += s2[e]
-                feature_stack.append([cse, cf1, cf2])
-                cse, cf1, cf2 = seq[e], s1[e], s2[e]
-            else:
-                assert s1[e] == s2[e] and s1[e] == ')'
-                cse += seq[e]
-                cf1 += s1[e]
-                cf2 += s2[e]
-                if cf1 != cf2:
-                    final_features.append((cse, cf1, cf2))
-                [cse, cf1, cf2] = feature_stack.pop()
-                cse += 'NNN' + seq[e]
-                cf1 += 'xxx' + s1[e]
-                cf2 += 'xxx' + s2[e]
-        else:
-            cse += seq[e]
-            cf1 += s1[e]
-            cf2 += s2[e]
-    assert feature_stack == []
+        if e > hide and pt1[e] == -1 and pt2[e] == -1: # a common unpaired base
+            yield e
+        elif pt1[e] > e or pt2[e] > e: # a common base-pair
+            hide = max([hide, pt1[e], pt2[e]])
 
-    # Exterior loop processing
-    pf1 = make_pair_table(cf1, base = 0, chars = ['x','.'])
-    pf2 = make_pair_table(cf2, base = 0, chars = ['x','.'])
+def common_basepairs(pt1, pt2):
+    return ((i, j1) for i, (j1, j2) in enumerate(zip(pt1, pt2)) if j1 == j2 and i < j1)
 
-    eloop = True
-    record = 0
-    xse, xf1, xf2 = '', '', ''
-    pfiter = iter(range(0, len(pf1)))
-    for e in pfiter:
-        if pf1[e] == -1 and pf2[e] == -1 and eloop: # a single base-pair in the exerior loop
-            assert cf1[e] == '.' and cf2[e] == '.'
-            if xf1 != xf2:
-                xse += cse[e]
-                xf1 += cf1[e]
-                xf2 += cf2[e]
-                final_features.append((xse, xf1, xf2))
-            xse, xf1, xf2 = cse[e], cf1[e], cf2[e]
-            record = 0
-        elif not eloop or pf1[e] != pf2[e]: # Start or keep recording.
-            eloop = False
-            record = max(record, pf1[e], pf2[e])
-            xse += cse[e]
-            xf1 += cf1[e]
-            xf2 += cf2[e]
-            if e == record:
-                eloop = True
-                record = 0
-        elif pf1[e] == pf2[e]: # skip a common base-pair in the exterior loop
-            xse += cse[e] + 'NNN' + cse[pf1[e]]
-            xf1 += cf1[e] + 'xxx' + cf1[pf1[e]]
-            xf2 += cf2[e] + 'xxx' + cf2[pf1[e]]
-            next(islice(pfiter, pf1[e]-e-1, None))
-
-    if xf1 != xf2:
-        final_features.append((xse, xf1, xf2))
-
-    return final_features
-
-def apply_bp_change(seq, s1, s2, subseq, subs1, subs2):
-    """Applies all bp changes of subs2 to s1.
-
-    Args:
-        seq (str): Full length sequence.
-        s1 (str): Starting structure (containing subs1).
-        s2 (str): Stop structure (containing -- parts of -- subs2).
-        subseq (str): subsequence of bpairs to be changed.
-        subs1 (str): substructure to be changed from.
-        subs2 (str): substructure to be changed to.
-
-    If s2 is given and contains the exact changes from subs2 then a quick
-    string comparison is enough and we can use a quick implementation.
-    However, sometimes subs2 contains only a subset of the changes shown in s2.
-    To make sure that we find the right spot when applying subs2 to s1 we need
-    to:
-        - calculate the loop index on s1 and find 
-            all combinations how subs1 occurs in s1
-        - filter to find the single site where the base pair changes do not
-            conflict with the constraints of s2.
-
-    Returns:
-        [str]: The new structure.
-    """
-
-    def find_s1_indices(ssq, ss1):
-        """ Extract the indices where ssq + ss1 match the parent structure.
-        """
-        slen = len(ssq)
-        ixs = []
-        idx = -1 
-        while True:
-            idx = seq.find(ssq, idx + 1)
-            if ss1 == s1[idx:idx+slen]:
-                ixs.append(idx)
-            if idx == -1:
-                break
-        return ixs 
-
-    def gen_combos(idxs):
-        for x in product(*idxs):
-            assert len(x) == len(subs)
-            # There is some excess work done here, 
-            # because not all products are valid combiations ...
-            olds = news = s1
-            (aid, alen) = (x[0], len(subs[0]))
-            # The target loop index of 0 can help to narrow down some cases
-            # when we know the change must be in the exterior loop.
-            # Unfortunately, it does not 
-            target_lix = 0 if sb1s[0][0] == '.' or sb1s[-1][-1] == '.' else None
-            olds = olds[0:aid] + '.' * alen + olds[aid + alen:]
-            news = news[0:aid] + sb2s[0] + news[aid + alen:]
-
-            for a, b in enumerate(range(1, len(x))): # (0, 1), (1, 2), ... 
-                (aid, alen) = (x[a], len(subs[a]))
-                (bid, blen) = (x[b], len(subs[b]))
-                if aid + alen >= bid: # This x cannot be correct due to overlaps.
-                    break
-                olds = olds[0:bid] + '.' * blen + olds[bid + blen:]
-                news = news[0:bid] + sb2s[b] + news[bid+blen:]
-            else:
-                rlog.debug(f"let's check: {x}\n{olds}\n{news}")
-                try:
-                    li1 = make_loop_index(olds)
-                except IndexError as err:
-                    continue
-                b = itemgetter(*x)(li1)
-                if (target_lix == 0 and b[0] != 0) or not all(i == b[0] for i in b):
-                    # After removing subs1 all unpaired regions must have 
-                    # the same loop index.
-                    rlog.debug('not same loop index fail')
-                    continue
-                #else:
-                #    # still in the game for x.
-                #    pt1 = make_pair_table(s1, base = 0, chars = list('.x'))
-                #    pt2 = make_pair_table(s2, base = 0, chars = list('.x'))
-                #    #pto = make_pair_table(olds, base = 0, chars = list('.x'))
-                #    ptn = make_pair_table(news, base = 0, chars = list('.x'))
-                #    for e, j in enumerate(ptn):
-                #        if j < e:
-                #            continue
-                #        # We have a basepair in the new structure
-                #        # which we haven't seen in either start or stop.
-                #        if ptn[j] != pt1[j] and ptn[j] != pt2[j]:
-                #            raise Exception('not same pair table fail', i, j)
-                #            #print('1', s1, pt1[i], pt1[j])
-                #            #print('2', s2, pt2[i], pt2[j])
-                #            #print('o', olds, pto[i], pto[j]) 
-                #            #print('n', news, ptn[i], ptn[j]) 
-                #            break
-                #    else:
-                yield news, x
-
-    #print('s1', s1, subs1)
-    #print('s2', s2, subs2)
-    assert s1 != s2
-    subs = subseq.split('NNN')
-    sb1s = subs1.split('xxx')
-    sb2s = subs2.split('xxx')
-    idxs = [[]] * len(subs)
-    for e in range(len(subs)):
-        idxs[e] = find_s1_indices(subs[e], sb1s[e])
-
-    if all(len(x) == 1 for x in idxs):
-        # In this case it is save to return with the only possible result.
-        news = s1
-        for e, [idx] in enumerate(idxs):
-            slen = len(subs[e])
-            news = news[0:idx] + sb2s[e] + news[idx + slen:]
-    else: # slow method.
-        results = set(gen_combos(idxs))
-        if len(results) > 1:
-            # can it be that we actually have ambiguous input???
-            rlog.warning('Ambiguous base-pair change!')
-            rlog.warning(f"SQ: {seq}, {subseq}")
-            rlog.warning(f"S1: {s1}, {subs1}")
-            rlog.warning(f"S2: {s2}, {subs2}")
-            rlog.warning(f"Indices: {idxs}")
-            rlog.warning(f"Results: {results}")
-            raise NotImplementedError('Ambiguous base-pair change!')
-        news = list(results)[0][0]
-    return news
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-# Cache to look-up findpath barriers                                           #
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-# FPATH_CACHE[(seq, ss1, ss2)] = (round(sE - e1, 2), round(e2 - e1, 2), maxbar, fpw)
-# FPATH_CACHE[(seq, ss1, ss2)] = (None, [(cs1, ss1, a), (cs1, ss1, ss3), ...])
-FPATH_CACHE = {}
-
-def clear_fpath_cache():
-    global FPATH_CACHE
-    FPATH_CACHE = {}
-
-def get_fpath_cache(seq, ss1, ss2, md, maxbar = None, fpw = None):
-    """ Store/update/return the cache for a given findpath calculation.
-
-    Note: This routine accepts any input for ss1 and ss2. There is no restriction
-        on whether it is a minimal change or not. However, as a fold compound is
-        generated every time this function is called, it is more suitable for a 
-        context where the input sequence changes, such as when regions of minimal
-        change are given.
-
-    TODO: Unify the usage in combination with get_fpath_flooding_cache().
-
-    Args:
-        seq (str): Nucleic acid sequence.
-        ss1 (str): Start secondary structure.
-        ss2 (str): Stop secondary structure.
-        md (obj): ViennaRNA model details object.
-        maxbar (float, optional): The maximum acceptable barrier. If maxbar is None or
-            float('inf'), then a barrier must be found. Defaults to None.
-        fpw (int, optional): The findpath width parameter. If not specified, it
-            is calculated as twice the base-pair distance.  Defaults to None.
-
-    Returns:
-        FPATH_CACHE[(seq, ss1, ss2)]
-    """
-    global FPATH_CACHE
-
-    if maxbar is None:
-        maxbar = float('inf')
-    if fpw is None:
-        fpw = 2 * get_bpd_cache(ss1, ss2) 
-
-    def fp_wrap(seq, ss1, ss2, md, maxbar, fpw):
-        # Call findpath and store metadata.
-        fc = RNA.fold_compound(seq, md)
-        e1 = round(fc.eval_structure(ss1), 2)
-        e2 = round(fc.eval_structure(ss2), 2)
-
-        # Default mode: do findpath and store the results.
-        if maxbar == float('inf'):
-            dcal_sE = fc.path_findpath_saddle(ss1, ss2, width = fpw)
-        else:
-            dcal_bound = int(round((maxbar + e1) * 100))
-            dcal_sE = fc.path_findpath_saddle(ss1, ss2, maxE = dcal_bound, width = fpw)
-
-        sE = float(dcal_sE)/100 if dcal_sE is not None else float('inf')
-        FPATH_CACHE[(seq, ss1, ss2)] = (round(sE - e1, 2), round(e2-e1, 2), maxbar, fpw)
-        FPATH_CACHE[(seq, ss2, ss1)] = (round(sE - e2, 2), round(e1-e2, 2), maxbar, fpw)
-        del fc
- 
-    if (seq, ss1, ss2) not in FPATH_CACHE:
-        fp_wrap(seq, ss1, ss2, md, maxbar, fpw)
+def split_struct(struct, i, j, spacer = '...'):
+    if j is None:
+        return struct[:i+1], struct[i:]
     else:
-        (obar, ogain, omax, ofpw) = FPATH_CACHE[(seq, ss1, ss2)]
-        if obar == float('inf') and (maxbar > omax or fpw > ofpw): # retry with a higher bound.
-            fp_wrap(seq, ss1, ss2, md, maxbar, fpw)
-        elif obar != float('inf') and (obar + 0.01 <= maxbar and fpw > ofpw):
-            fp_wrap(seq, ss1, ss2, md, maxbar, fpw)
-        assert obar >= FPATH_CACHE[(seq, ss1, ss2)][0]
-        assert ogain == FPATH_CACHE[(seq, ss1, ss2)][1]
-    return FPATH_CACHE[(seq, ss1, ss2)]
+        return struct[:i+1] + spacer + struct[j:], struct[i:j+1]
+
+def merge_struct(outside, inside, i, j, slen = 4):
+    if j is None:
+        return outside[:i] + inside
+    else:
+        return outside[:i] + inside[:-1] + outside[j-len(inside)+slen+1:]
+
+def findpath_merge(outside, inside, i, j):
+    """ Merge two composable findpath runs.
+
+    This is a simplified variant which just appends the two runs ...
+    """
+    starten = outside[0][1] + inside[0][1]
+    bh1 = bh2 = 0
+
+    path1 = []
+    stepI, enI = inside[0]
+    for stepO, enO in outside:
+        merged = merge_struct(stepO, stepI, i, j)
+        energy = enO + enI - starten
+        path1.append((merged, energy))
+        bh1 = max(bh1, energy)
+    stepO, enO = outside[-1]
+    for stepI, enI in inside[1:]:
+        merged = merge_struct(stepO, stepI, i, j)
+        energy = enO + enI - starten
+        path1.append((merged, energy))
+        bh1 = max(bh1, energy)
+
+    path2 = []
+    stepO, enO = outside[0]
+    for stepI, enI in inside:
+        merged = merge_struct(stepO, stepI, i, j)
+        energy = enO + enI - starten
+        path2.append((merged, energy))
+        bh2 = max(bh2, energy)
+    stepI, enI = inside[-1]
+    for stepO, enO in outside[1:]:
+        merged = merge_struct(stepO, stepI, i, j)
+        energy = enO + enI - starten
+        bh2 = max(bh2, energy)
+        path2.append((merged, energy))
+    return (path1, bh1) if bh1 < bh2 else (path2, bh2)
+
+def findpath_split(seq, ss1, ss2, md, th = 5, w = None):
+    """ Calculate findpath barriers for smaller components.
+
+    Args:
+        seq: RNA sequence.
+        ss1: Structure 1.
+        ss2: Structure 2.
+        md: ViennaRNA model details.
+        th: Threshold of how many basepairs must change for an independent findpath run. Defaults to 5.
+        w: Findpath width. Defaults to None.
+
+    Returns:
+        path, barrier: The folding path and the barrier height. 
+            WARNING: If path splitting actually took place, then energy values
+            given in the path data are only relative to the starting structure.
+    """
+    pt1 = make_pair_table(ss1, base = 0, chars = list('.x'))
+    pt2 = make_pair_table(ss2, base = 0, chars = list('.x'))
+    mindiff = None
+    recurse = None
+    for ij in chain(common_exterior_bases(pt1, pt2),
+                    common_basepairs(pt1, pt2)):
+        (i, j) = ij if isinstance(ij, tuple) else (ij, None)
+        st1O, st1I = split_struct(ss1, i, j, spacer = '...')
+        st2O, st2I = split_struct(ss2, i, j, spacer = '...')
+        do = RNA.bp_distance(st1O, st2O)
+        if do < th: continue
+        di = RNA.bp_distance(st1I, st2I)
+        if di < th: continue
+        diff = abs(di-do)
+        if mindiff is None or diff < mindiff:
+            mindiff = diff
+            seqO, seqI = split_struct(seq, i, j, spacer = 'NNN')
+            recurse = ((i, j),
+                       (seqO, st1O, st2O), 
+                       (seqI, st1I, st2I))
+        elif mindiff is not None and diff > mindiff:
+            # No need to check the rest if we are getting worse.
+            break
+
+    if mindiff is not None:
+        pathO, _ = findpath_split(*recurse[1], md, th, w)
+        pathI, _ = findpath_split(*recurse[2], md, th, w)
+        return findpath_merge(pathO, pathI, *recurse[0])
+    else:
+        fpw = 2 * RNA.bp_distance(ss1, ss2) if w is None else w
+        return call_findpath(seq, ss1, ss2, md, w = fpw)
+
+def call_findpath(seq, ss1, ss2, md, w, maxbar = float('inf')):
+    """ Call ViennaRNA findpath.
+
+    TODO: This is where we could minimize the motif and look it up in a cache.
+    """
+    fc = RNA.fold_compound(seq, md)
+    if maxbar == float('inf'):
+        path = fc.path_findpath(ss1, ss2, width = w)
+    else:
+        e1 = round(fc.eval_structure(ss1), 2)
+        dcal_bound = int(round((maxbar + e1) * 100))
+        path = fc.path_findpath(ss1, ss2, maxE = dcal_bound, width = w)
+    del fc
+
+    if len(path):
+        mypath = []
+        barrier = None
+        for step in path:
+            struct = step.s
+            energy = int(round(step.en*100))
+            mypath.append((struct, energy))
+            if barrier is None or barrier < energy:
+                barrier = energy
+        barrier -= int(round(path[0].en*100))
+        del step, path # potentially a good idea.
+        return mypath, barrier
+    return None, None
 
 def path_flooding(path, minh):
-    """Use flooding algorithm to determine local minima on a folding path.
+    """ Use flooding algorithm to determine local minima on a folding path.
     
     Identifies the lowest energy of the local minimum, one representative
     stucture and "other structures" associated with that minimum. Beware that
     the "other structures" can contain saddle components when the function
     is applied to paths with degenerate saddle components.
 
-    Note: Local minima on a folding path are only local minima with respect to
-    that path, not with respect to the full neighborhood.
-
     Args:
-        path (list): A list of tuples (ss, en).
-        minh (float): minimal height of an energy barrier separatig two basins.
+        path (list[(str, int)]): A list of tuples (structure, energy). 
+            The energy must be an integer with unit dcal/mol.
+        minh (int): Minimal height of an energy barrier separatig two
+            basins [dcal/mol].
 
     Returns:
         [dict, dict]: properties of the local minima.
     """
+    assert isinstance(minh, int) # dcal/mol
+    assert isinstance(path[0][1], int) # dcal/mol
     indexpath = [[ss, en, step] for step, [ss, en] in enumerate(path)]
     sconf = sorted(indexpath, key = lambda x: x[1]) # by energy
 
-    def get_ss(step):
-        return path[step][0]
-
     lmins = dict() # lmins[ss] = [en, set(steps)]
     ssmap = dict() # ssmap[step] = step
-
     for e, (ss, en, step) in enumerate(sconf):
-        if step == 0 or step == len(path)-1: # edge cases
+        if step == 0 or step == len(path) - 1: # edge cases
             nbr = step + 1 if step == 0 else step - 1
             if nbr in ssmap:
                 nbr = ssmap[nbr]
@@ -380,7 +227,8 @@ def path_flooding(path, minh):
                 [lower, higher] = [left, right] if lmel < lmer else [right, left]
                 [lowlm, highlm] = [lmsl, lmsr] if lmel < lmer else [lmsr, lmsl]
                 [lowen, highen] = [lmel, lmer] if lmel < lmer else [lmer, lmel]
-                if en - highen < minh - 0.0001: # merge higher minimum into lower one.
+                # TODO: highen - en?
+                if en - highen < minh: # merge higher minimum into lower one.
                     lmins[lowlm][1] |= lmins[highlm][1] | set([step]) 
                     for hlm in lmins[highlm][1]:
                         ssmap[hlm] = lower
@@ -401,183 +249,162 @@ def path_flooding(path, minh):
             else:
                 lmins[ss] = [en, set([step])]
                 ssmap[step] = step
-    return lmins, ssmap
+    return ssmap
 
-def get_fpath_flooding_cache(seq, ss1, ss2, md, minh, maxbar = None, fpwf = 2):
-    """ Chop a direct folding path into multiple (independent?) steps.
-
-    Note: This routine uses the same global FPATH_CACHE as get_fpath_cache, but 
-        with a different format. They must not be used together!
+def guiding_neighborhood(nodes, k = None, edges = None):
+    """ Find all edges of the guiding neighborhood.
 
     Args:
-        seq (str): Nucleic acid sequence.
-        ss1 (str): Start secondary structure.
-        ss2 (str): Stop secondary structure.
-        md (obj): ViennaRNA model details object.
-        maxbar (float, optional): The maximum acceptable barrier. If maxbar is None or
-            float('inf'), then a barrier will be found.  Defaults to None.
-        fpwf (int, optional): The findpath width factor. For every findpath call,
-            the width is calculated as fpwf * base-pair distance.  Defaults to 2.
-
-    Returns:
-        FPATH_CACHE[(seq, ss1, ss2)]
+        edges (set, optional): Provide a set of edges. They will not be deleted!
     """
-
-    global FPATH_CACHE
-
-    if maxbar is None:
-        maxbar = float('inf')
-
-    def findpath_get_path(seq, ss1, ss2, md, maxbar):
-        # Call findpath and store metadata.
-        fpw = fpwf * get_bpd_cache(ss1, ss2) 
-        fc = RNA.fold_compound(seq, md)
-        e1 = round(fc.eval_structure(ss1), 2)
-        e2 = round(fc.eval_structure(ss2), 2)
-        if maxbar == float('inf'):
-            path = fc.path_findpath(ss1, ss2, width = fpw)
+    if edges is None:
+        edges = set()
+    for p, q in combinations(nodes, 2):
+        if (p, q) in edges:
+            assert (q, p) in edges
+            continue
+        for i in nodes:
+            if i == p or i == q:
+                continue
+            dpq = get_bpd_cache(p, q)
+            dpi = get_bpd_cache(p, i)
+            diq = get_bpd_cache(i, q)
+            md = min([dpi, diq]) 
+            tk = md - 1 if k is None or k >= md else k
+            if dpq + tk >= dpi + diq:
+                #print(f'Cannot add {p}, {q} at {dpq=} due to {i=} {dpi+diq=} at width {k=}.')
+                break
         else:
-            dcal_bound = int(round((maxbar + e1) * 100))
-            path = fc.path_findpath(ss1, ss2, maxE = dcal_bound, width = fpw)
-        del fc # ?
-        return [(step.s, step.en) for step in path] if len(path) else None
+            edges.add((p, q))
+            edges.add((q, p))
+    return edges
 
-    def decompose_path(seq, ss1, ss2, firsttime = False):
-        # Find a set of orthogonal pathways.
-        # NOTE: We always start and stop with decomposition.
-        FPATH_CACHE[(seq, ss1, ss2)] = [None, []]
-        # Assume we will have to refer to some subproblem ...
-        chopped = get_bp_change(seq, ss1, ss2)
-        rlog.debug(f'My chopped path: {chopped}')
-        if firsttime or len(chopped) > 1 or chopped[0][0] != seq:
-            # Always do at least one cycle of flooding.
-            # Iterate over a set of orthogonal of steps.
-            FPATH_CACHE[(seq, ss1, ss2)][1] = set(chopped)
-            for (msq, ms1, ms2) in chopped:
-                assert len(ms1) == len(ms2)
-                lminp = flood_path(msq, ms1, ms2)
-                # iterate over a sequence of steps.
-                for (ls1, ls2) in lminp:
-                    assert len(ls1) == len(ls2)
-                    decompose_path(msq, ls1, ls2)
-        else: # stop condition
-            assert len(chopped) == 1
-            (msq, ms1, ms2) = chopped[0]
-            assert [msq, ms1, ms2] == [seq, ss1, ss2]
-            # Do the findpath calculation.
-            if FPATH_CACHE[(msq, ms1, ms2)][0] is None:
-                del FPATH_CACHE[(msq, ms1, ms2)] # delete the placeholder key
-            _ = get_fpath_cache(msq, ms1, ms2, md, maxbar) # caching / final entry
+def edge_flooding(seq, md, s1, s2, e1, e2, minh = None):
+    """ Connect two arbitrary secondary structures.
 
-    def flood_path(msq, ms1, ms2):
-        # Return a sequence of start/end structures along all path minima (using minh).
-        if (msq, ms1, ms2) in FPATH_CACHE and FPATH_CACHE[(msq, ms1, ms2)][0] is not None:
-            pminpath = [(ms1, ms2)]
-        elif (msq, ms1, ms2) in FPATH_CACHE and isinstance(FPATH_CACHE[(msq, ms1, ms2)][1], list): 
-            pminpath = FPATH_CACHE[(msq, ms1, ms2)][1]
-        else:
-            path = findpath_get_path(msq, ms1, ms2, md, maxbar)
-            if path is None: 
-                raise NotImplementedError
-            lmins, ssmap = path_flooding(path, minh)
-            
-            pminpath = []
-            rpminpath = []
-            ss1 = path[0][0]
-            for ss, en in path[1:-1]: 
-                if ss in lmins:
-                    pminpath.append((ss1, ss))
-                    rpminpath.insert(0, (ss, ss1))
-                    ss1 = ss
-            pminpath.append((ss1, path[-1][0]))
-            rpminpath.insert(0, (path[-1][0], ss1))
-            FPATH_CACHE[(msq, ms1, ms2)] = (None, pminpath)
-            FPATH_CACHE[(msq, ms2, ms1)] = (None, rpminpath)
-        return pminpath
+    Args:
+        minh (int): Minimal height of an energy barrier separatig two basins in dcal/mol.
+    """
+    path, barrier = findpath_split(seq, s1, s2, md)
 
-    if (seq, ss1, ss2) not in FPATH_CACHE:
-        decompose_path(seq, ss1, ss2, firsttime = True)
-    elif FPATH_CACHE[(seq, ss1, ss2)][0] is None:
-        pass
+    assert path[0][1] == e1 or path[0][1] == 0
+    def scaled_energy(energy):
+        # The energies returned by findpath_split may be relative to starting
+        # structure, and in that case the starting structure has energy = 0. We
+        # are using the "scaled_energy" function to return the correct path
+        # energies!
+        if path[0][1] == e1:
+            return energy
+        elif path[0][1] == 0:
+            return e1 + energy
+        raise AssertionError(f'Mismatch between {e1=} and {path[0][1]=}.')
+
+    if minh is not None:
+        ssmap = path_flooding(path, minh)
+        for e, si in enumerate(sorted(ssmap)):
+            lm = ssmap[si]
+            if isinstance(lm, list):
+                [si1, si2] = sorted(lm)
+                (ssB, enB) = path[si]
+                (ss1, en1) = path[si1]
+                (ss2, en2) = path[si2]
+                en1 = scaled_energy(en1)
+                en2 = scaled_energy(en2)
+                yield ss1, en1, ssB, enB, ss2, en2
+            elif e == 0 and si != lm:
+                rlog.warning(f'Starting structure {s1} is not a mimimum!')
+                (ss2, en2) = path[lm]
+                en2 = scaled_energy(en2)
+                yield s1, e1, s1, e1, ss2, en2
+            elif e == len(ssmap) - 1 and si != lm:
+                rlog.warning(f'Final structure {s2} is not a mimimum!')
+                (ss1, en1) = path[lm]
+                en1 = scaled_energy(en1)
+                yield ss1, en1, s2, e2, s2, e2
     else:
-        (obar, ogain, omax, ofpw) = FPATH_CACHE[(seq, ss1, ss2)]
-        fpw = fpwf * get_bpd_cache(ss1, ss2) 
-        if obar == float('inf') and (maxbar > omax or fpw > ofpw): # retry with a higher bound.
-            decompose_path(seq, ss1, ss2, firsttime = True)
-        elif obar != float('inf') and (obar + 0.01 <= maxbar and fpw > ofpw):
-            decompose_path(seq, ss1, ss2, firsttime = True)
-        assert obar >= FPATH_CACHE[(seq, ss1, ss2)][0]
-        assert ogain == FPATH_CACHE[(seq, ss1, ss2)][1]
-    return FPATH_CACHE[(seq, ss1, ss2)]
+        b_en = e1 + barrier
+        yield s1, e1, None, b_en, s2, e2
 
-def show_flooded_prime_path(seq, ss1, ss2):
-    """ Returns ONE prime path, but there may be many.
-    The cache must be filled before!
+def neighborhood_flooding(seq, md, edges, edata, ndata, minh = None, eupdate = False):
+    """ Calculate flooded paths for all edges.
+
+    Args:
+        eupdate (bool, optional): Edge weights can be updated or not. An
+            edge-weight returned by a single call of neighborhood flooding is
+            not guaranteed to be optimal, as there is some randomness involved
+            in which findpath path is returned. For example, if a findpath
+            result is split into multiple flooded regions, then the lower
+            regions are not optimized to find the lowest energy barrier. Only
+            another iteration of this routine can be used to update all edges.
     """
-    ppmlist = []
-    def my_ppm(seq, ss1, ss2, startseq, start, stop):
-        lmp = get_fpath_flooding_cache(seq, ss1, ss2, None, None)
-        if lmp[0] is None:
-            if isinstance(lmp[1], set):
-                backup = start
-                for perm in permutations(lmp[1]):
-                    start = backup
-                    for (lsq, pm1, pm2) in perm: 
-                        my_ppm(lsq, pm1, pm2, startseq, start, stop)
-                        start = apply_bp_change(startseq, start, stop, lsq, pm1, pm2)
-            else:
-                for (pm1, pm2) in lmp[1]: 
-                    my_ppm(seq, pm1, pm2, startseq, start, None)
-                    start = apply_bp_change(startseq, start, None, seq, pm1, pm2)
-        else:
-            stop = apply_bp_change(startseq, start, stop, seq, ss1, ss2)
-            revp = get_fpath_flooding_cache(seq, ss2, ss1, None, None)
-            ppmlist.append([start, stop, lmp[0], revp[0]])
-            return start, stop, lmp[0], revp[0]
-    my_ppm(seq, ss1, ss2, seq, ss1, ss2)
-    return ppmlist
+    seen = set()
+    new_edges = set()
+    new_edata = dict()
+    for (s1, s2) in edges:
+        if (s2, s1) in seen:
+            continue
+        if not eupdate and edata[(s1, s2)].get('saddle') is not None:
+            # No need to overwrite known results!
+            new_edges.add((s1, s2))
+            new_edges.add((s2, s1))
+            new_edata[(s1, s2)] = edata[(s1, s2)] # Deepcopy?
+            new_edata[(s2, s1)] = edata[(s2, s1)] # Deepcopy?
+            continue
+        e1 = ndata[s1]['energy']
+        e2 = ndata[s2]['energy']
+        for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(seq, md, s1, s2, e1, e2, minh):
+            new_edges.add((ss1, ss2))
+            new_edges.add((ss2, ss1))
+            if (ss1, ss2) in edata and edata[(ss1, ss2)].get('saddle') is not None:
+                if edata[(ss1, ss2)]['saddle'] < enB: # The result got worse :-(
+                    rlog.warning(f"The results got worse? {edata[(ss1, ss2)]['saddle']=} vs {enB=}")
+                    enB = edata[(ss1, ss2)]['saddle'] 
+            new_edata[(ss1, ss2)] = {'saddle': enB}
+            new_edata[(ss2, ss1)] = {'saddle': enB}
+            if ss1 not in ndata:
+                ndata[ss1] = {'energy': en1}
+            if ss2 not in ndata:
+                ndata[ss2] = {'energy': en2}
+    return new_edges, new_edata, ndata
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Neighborhood processing                                                      #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-
 def local_flooding(fc, lmin, basinh = 2, rates = True, RT = None, k0 = None):
     """ Enumerate microstates within basin and the first steps out of the basin.
 
     Args:
         fc: The fold compound object.
         lmin: The local minimum representative secondary structure.
-        basinh: a local elevation higher than minh is considered a first step.
+        basinh (kcal/mol): a local elevation higher than minh is considered a first step.
         rates (bool, optional): Get exit rates for all microtransitions.
     """
     macro = dict() # macro[ss] = [dG, P_ss] elevation and probability
     fstep = dict() # fstep[ss] = [(m1,k_ms), (m2,k_ms), ...] neighbors in macrostate and microrate
 
+    dcbasinh = int(round(basinh*100))
     def local_nbrs(ss, refen):
         assert ss in macro # obvious, this was just assigned!
-        for [nb, dG] in get_neighbors(fc, ss):
-            dG = dG/100
-            if dG + refen >= basinh + 0.00001:
+        for [nb, dcal] in get_neighbors(fc, ss):
+            if dcal + refen >= dcbasinh:
                 if nb in fstep:
-                    fstep[nb].append((ss, dG))
+                    fstep[nb].append((ss, dcal))
                 else:
-                    fstep[nb] = [(ss, dG)]
+                    fstep[nb] = [(ss, dcal)]
                 continue
             if nb in macro:
                 continue
-            yield [nb, dG]
+            yield [nb, dcal]
 
     news = [(lmin, 0)]
     while news:
         newnews = set()
         for (newss, newen) in news:
             assert newen >= 0 # elevation cannot be < 0
-            macro[newss] = [newen, None] # elevation, probability
-            if newss in fstep:
-                print(newss, newen)
             assert newss not in fstep # this is going to be in macrostate!
-            for [nbr, dG] in local_nbrs(newss, newen):
-                newnews.add((nbr, newen+dG))
+            macro[newss] = [round(newen/100, 2), None] # elevation, probability
+            for [nbr, dcal] in local_nbrs(newss, newen):
+                newnews.add((nbr, newen+dcal))
         news = list(newnews)
 
     if rates:
@@ -606,10 +433,9 @@ def local_flooding(fc, lmin, basinh = 2, rates = True, RT = None, k0 = None):
 def get_neighbors(fc, db = None, pt = None):
     """
     """
+    assert (pt is None) or (db is None)
     if pt is None:
         pt = RNA.ptable(db)
-    else:
-        assert db == None
     nbrs = []
     for move in fc.neighbors(pt):
         npt = list(pt)
@@ -636,7 +462,6 @@ def get_neighbors(fc, db = None, pt = None):
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Findpath                                                                     #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-
 def costruct(seq, cut = None):
     """ Translate between 'input' and 'internal' RNAcofold sequences """
     delim = '&'
@@ -677,7 +502,6 @@ def findpath_wrap(fc, s1, s2, maxE, fpath, cut = None, verbose = False):
             sE = float(dcal_sE)/100
     return sE
 
-
 def parse_model_details(parser):
     """ ViennaRNA Model Details Argument Parser.  """
     model = parser.add_argument_group('ViennaRNA model details')
@@ -707,12 +531,12 @@ def main():
             help = "Verbose output, e.g. the folding pathway. (-vv increases verbosity.)")
     parser.add_argument("-w","--search-width", type = int, default = None, 
             help = "Adjust upper bound for findpath search.")
-    parser.add_argument("--minh", type = float, default = None,
-            help = "Set a minimum barrier height for path flooding.")
     parser.add_argument("-m","--max-energy", type = float, default = None,
             help = "Specify upper bound for barrier energy (kcal/mol).")
-    parser.add_argument("--primepaths", action = "store_true",
-            help = "Decompose findpath into primepaths.")
+    parser.add_argument("--split", action = "store_true",
+            help = "Split findpath into subproblems, if possible.")
+    parser.add_argument("--minh", type = float, default = None,
+            help = "Set a minimum barrier height for path flooding.")
     parse_model_details(parser)
     args = parser.parse_args()
 
@@ -730,7 +554,7 @@ def main():
             ss2, cut_ = costruct(line.strip())
 
     if cut != cut_:
-        raise PathfinderError('Inconsistent cut-points.')
+        raise SystemExit('Inconsistent cut-points.')
 
     # Set model details.
     md = RNA.md()
@@ -763,20 +587,22 @@ def main():
     else:
         print("No valid saddle found below energy: {:6.2f} kcal/mol | Search width parameter: {}".format(args.max_energy, args.search_width))
 
-    if args.primepaths:
+    if args.split:
+        assert cut is None
         print('Findpath decomposition:')
-        features = get_bp_change(seq, ss1, ss2)
-        for (cseq, cs1, cs2) in features:
-            print(cseq, cs1, cs2, get_fpath_cache(cseq, cs1, cs2, md))
-        clear_fpath_cache()
+        path, barrier = findpath_split(seq, ss1, ss2, md, th = 5, w = None)
+        for x in path:
+            print(x)
 
     if args.minh is not None:
-        rlog.info(f'Cache -- minh = {args.minh}:')
-        get_fpath_flooding_cache(seq, ss1, ss2, md, args.minh, maxbar = None, fpwf = 2)
-        pp = show_flooded_prime_path(seq, ss1, ss2)
-        for [a, b, fw, rv] in pp:
-            print(f"{a} -> {b} [fw = {fw}, rv = {rv}]")
-
+        assert args.split 
+        assert cut is None
+        lmins, ssmap = path_flooding(path, minh = 300)
+        for k,v in lmins.items():
+            print(k, v)
+        for k,v in sorted(ssmap.items()):
+            print(k, v)
+ 
 if __name__ == '__main__':
     main()
 

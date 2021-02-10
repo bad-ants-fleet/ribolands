@@ -1,46 +1,47 @@
 # ribolands - kinetic analysis of nucleic acids
 
-**ribolands** is a package to analyze nucleic acid folding kinetics. It
-provides wrapper functions for the programs `RNAsubopt`, `barriers` and
-`treekin`, which have to installed separately. See below for an example
-workflow.
+**ribolands** is a Python wrapper for multiple nucleic acid kinetic analysis
+programs, currently `Kinfold`, `RNAsubopt`, `barriers` and `treekin`. Those 
+programs have to installed separately. See below for an example workflow.
 
-Two scripts for cotranscriptional folding are part of `ribolands`: 
+Two scripts for cotranscriptional folding analysis are installed by `ribolands`: 
 
-  * **DrTransformer**: Short for "DNA-to-RNA Transformer", the program
-    computes cotranscriptional folding of larger RNAs by generating a
-    heuristic energy landscape at every transcription step.  `DrTransformer`
-    uses the `ViennaRNA package` to calculate transition rates and `treekin` to
-    simulate folding kinetics.
-    ```sh
-    echo "CUGCGGCUUUGGCUCUAGCC" | DrTransformer.py --visualize pdf
-    ```
-
-  * **BarMap**: Folding kinetics on dynamic energy landscapes. For each
-    sequence length, the coarse-grained barriers landscape is computed. During
-    kinetic simulations, a mapping between subsequent landscapes is used to
-    transfer occupancy from one landscape to the next. This is mostly a
-    reimplementation of `BarMap` by [Hofacker et al. (2010)], but it makes use
-    of more recent functionality of `barriers` and `treekin`.
+  * **BarMap**: Folding kinetics on dynamic `barriers`-type energy landscapes.
+    For each sequence length, suboptimal structures are enumerated, and the
+    landscape is coarse-grained into basins of a minimal height (using the
+    program barriers). For kinetic simulations, a mapping between subsequent
+    landscapes is generated to transfer occupancy from one landscape to the
+    next.  This is mostly a reimplementation of `BarMap` by [Hofacker et al.
+    (2010)], but it makes use of more recent functionality of `barriers` and
+    `treekin`.
     ```sh
     echo "CUGCGGCUUUGGCUCUAGCC" | BarMap.py --pyplot
+    ```
+
+  * **DrTransformer**: Short for "DNA-to-RNA Transformer". A program for
+    cotranscriptional folding simulations of larger RNAs, using a heuristic to
+    approximate the relevant structures at every transcription step.  
+    `DrTransformer` uses the `ViennaRNA package` to calculate transition rates
+    between relevant structures and `treekin` to simulate folding kinetics.
+    ```sh
+    echo "CUGCGGCUUUGGCUCUAGCC" | DrTransformer.py --visualize pdf
     ```
 
 ## Installation
 ```sh
   ~$ python setup.py install
-  ~$ pytest tests/
+  ~$ python -m pytest tests/ -v -s
 ```
 
 ## ViennaRNA dependencies
 ribolands uses [RNAsubopt] from the [ViennaRNA package], as well as [barriers]
 and [treekin] for landscape computations. Make sure that you have recent
 versions installed: 
- - `ViennaRNA-v2.4.13`
- - `treekin-v0.4.2`
- - `barriers-v1.7` 
+ - `ViennaRNA>=v2.4.13`
+ - `treekin>=v0.5.1`
+ - `barriers>=v1.8.1` 
 
-### Examples
+### Examples (TODO, outdated)
 ```
 >>> from ribolands import sys_subopt_range, sys_suboptimals, sys_barriers, sys_treekin
 
@@ -58,10 +59,7 @@ If you are using `BarMap` or `DrTransformer` please cite:
   - BarMap: RNA folding on dynamic energy landscapes [Hofacker et al. (2010)] 
  
 ## Version
-0.8.1
-
-## Build the documentation
-  sphinx-build -b html docs ~/your/html/sourcedir/
+0.9
 
 ## License
 MIT
