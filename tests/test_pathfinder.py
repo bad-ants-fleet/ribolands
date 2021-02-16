@@ -14,7 +14,8 @@ from ribolands.pathfinder import (findpath_split,
                                   guiding_neighborhood,
                                   path_flooding, 
                                   edge_flooding,
-                                  neighborhood_flooding)
+                                  neighborhood_flooding,
+                                  neighborhood_coarse_graining)
 
 from ribolands.parser import parse_barriers
 
@@ -409,12 +410,60 @@ class NeighborhoodTests(unittest.TestCase):
         edata = {e: dict() for e in edges}
         ndata = {x.structure: {'energy': int(round(x.energy*100)), 'identity': x.id} for x in lmins[1:]}
 
-        edges, edata, ndata = neighborhood_flooding(seq, md, edges, edata, ndata, minh = 200)
+        edges, edata, ndata = neighborhood_flooding(seq, md, edges, ndata, minh = 200, edata = edata)
         assert len(edges) == 44
-        edges, edata, ndata = neighborhood_flooding(seq, md, edges, edata, ndata, minh = 200)
+        edges, edata, ndata = neighborhood_flooding(seq, md, edges, ndata, minh = 200, edata = edata)
         assert len(edges) == 44
-        edges, edata, ndata = neighborhood_flooding(seq, md, edges, edata, ndata, minh = 200, eupdate = True)
+        edges, edata, ndata = neighborhood_flooding(seq, md, edges, ndata, minh = 200)
         assert len(edges) == 50
+
+    def test_neighborhood_flooding_maxh(self):
+        btree = """
+              AGACGACAAGGUUGAAUCGCACCCACAGUCUAUGAGUCGGUGACAACAUU
+            1 ..........((((.((((.((.((.......)).))))))..))))...  -6.70    0  13.00
+            2 ..........((((.((((.((...((.....)).))))))..))))...  -6.10    1   2.10
+            3 ..........((((.....((((.((.........)).)))).))))...  -5.90    1   6.30
+            4 ((((.....(((........)))....))))....(((...)))......  -5.70    1   8.50
+            5 ...((((...)))).....((((.((.........)).))))........  -5.60    3   4.80
+            6 .(((......)))......((((.((.........)).))))........  -5.50    5   4.30
+            7 ..........((((..((((.....((.....)).....))))))))...  -5.50    3   5.30
+            8 ((((.....(((........)))....))))...................  -5.00    4   3.40
+            9 ((((.....((.((.....))))....))))....(((...)))......  -5.00    4   2.80
+           10 ((((.....((.((.....)).))...))))....(((...)))......  -4.90    4   3.50
+        """
+        lmins = parse_barriers(btree, is_file = False, return_tuple = True)
+        seq, md = lmins[0], RNA.md()
+        sss = [x.structure for x in lmins[1:]]
+
+        edges = guiding_neighborhood(sss)
+        assert len(edges) == 22
+        edata = {e: dict() for e in edges}
+        ndata = {x.structure: {'energy': int(round(x.energy*100)), 'identity': x.id} for x in lmins[1:]}
+
+        edges, edata, ndata = neighborhood_flooding(seq, md, edges, ndata, minh = 200, maxh = 1000, edata = edata)
+        assert len(edges) == 40
+        edges, edata, ndata = neighborhood_flooding(seq, md, edges, ndata, minh = 200, maxh = 1000, edata = edata)
+        assert len(edges) == 40
+        edges, edata, ndata = neighborhood_flooding(seq, md, edges, ndata, minh = 200, maxh = 1000)
+        assert len(ndata) == 17
+        assert len(edges) == 46
+        assert len(edata) == 46
+
+        for k in list(ndata): ndata[k]['hiddennodes'] = set()
+        cg_ndata, cg_edata = neighborhood_coarse_graining(ndata, edata, minh = 300)
+        #print()
+        #for n in sorted(ndata, key = lambda x: ndata[x]['energy']):
+        #    print(n, ndata[n]['energy'])
+        #print()
+        #for n in sorted(cg_ndata, key = lambda x: cg_ndata[x]['energy']):
+        #    print(n, cg_ndata[n]['energy'], len(cg_ndata[n]['hiddennodes']))
+        hiddennodes = set()
+        for n in cg_ndata:
+            if cg_ndata[n]['hiddennodes']:
+                hiddennodes |= cg_ndata[n]['hiddennodes']
+        assert len(cg_ndata) == 9
+        assert len(cg_edata) == 20
+        assert len(cg_ndata) + len(hiddennodes) == 17
 
     def test_minitrafo_randseq(self):
         # A random set of sequences returned by randseq -l 100 | RNAsubopt --stochBT_en=50 | sort -u
@@ -465,26 +514,46 @@ class NeighborhoodTests(unittest.TestCase):
 
         #print()
         edges = set()
-        edata = dict()
+        edata = dict() # Store info about findpath edges which should not be updated.
         ndata = {x.structure: {'energy': int(round(x.energy*100)), 'identity': x.id} for x in lmins[1:]}
 
         while 1 < 2:
-            edgenum = len(edges)
-            #print(f'Finding neighborhood for {len(ndata)=} given {edgenum=}')
-            edges = guiding_neighborhood(list(ndata.keys()), k = None, edges = edges)
-            if edgenum == len(edges):
+            #print(f'Finding guide neighborhood for {len(ndata)=}.')
+            gedges = guiding_neighborhood(list(ndata.keys()), k = None)
+            #print(f' - Found {len(gedges)} guide edges, {len(edata)} of which are known.')
+            edges, new_edata, ndata = neighborhood_flooding(seq, md, gedges, ndata, minh = 200, edata = edata)
+            # Select the next generation of edata: Edges which are not *new*.
+            tmp_edata = dict()
+            for (x, y) in gedges:
+                # For all edges that survived the flooding...
+                if (x, y) in new_edata:
+                    #... keep them as known edges.
+                    tmp_edata[(x, y)] = {'saddle_energy': new_edata[(x, y)]['saddle_energy']}
+            edata = tmp_edata
+            if gedges == edges:
                 break
-            #print(f'Updating to {len(edges)=} edges.')
-            for e in edges:
-                if e not in edata:
-                    edata[e] = dict()
-            edges, edata, ndata = neighborhood_flooding(seq, md, edges, edata, ndata, minh = 200)
 
-        #print(f'Last run: edgeupdate with {len(edges)=} edges.')
-        edges, edata, ndata = neighborhood_flooding(seq, md, edges, edata, ndata, minh = 200, eupdate = True)
-        assert len(edges) == 312
+        #print(f'Last run: flooding of {len(edges)=} edges.')
+        edges, new_edata, ndata = neighborhood_flooding(seq, md, edges, ndata, minh = 200, edata = edata)
+        assert len(ndata) == 91
+        assert edata == new_edata
+        assert len(edges) == 246
 
-
+        for k in list(ndata): ndata[k]['hiddennodes'] = set()
+        cg_ndata, cg_edata = neighborhood_coarse_graining(ndata, edata, minh = 200)
+        #print()
+        #for n in sorted(ndata, key = lambda x: ndata[x]['energy']):
+        #    print(n, ndata[n]['energy'])
+        #print()
+        #for n in sorted(cg_ndata, key = lambda x: cg_ndata[x]['energy']):
+        #    print(n, cg_ndata[n]['energy'], len(cg_ndata[n]['hiddennodes']))
+        hiddennodes = set()
+        for n in cg_ndata:
+            if cg_ndata[n]['hiddennodes']:
+                hiddennodes |= cg_ndata[n]['hiddennodes']
+        assert len(cg_ndata) == 32
+        assert len(cg_edata) == 96
+        assert len(cg_ndata) + len(hiddennodes) == len(ndata)
 
 if __name__ == '__main__':
     unittest.main()

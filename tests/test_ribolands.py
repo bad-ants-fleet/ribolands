@@ -130,7 +130,7 @@ class TestRiboLandscape(unittest.TestCase):
         en = -10.94
         RL.addnode('bar', structure = ss)
         assert RL.nodes['bar']['structure'] == ss
-        assert RL.nodes['bar']['energy'] == en
+        assert RL.nodes['bar']['energy'] == int(round(en*100))
         assert RL.nodes['bar']['identity'] == 'n1'
         assert RL.nodes['bar']['occupancy'] == 0
 
@@ -139,9 +139,11 @@ class TestRiboLandscape(unittest.TestCase):
         with self.assertRaises(AssertionError) as e:
             RL.addnode('foo', structure = ss, energy = -9)
 
-        RL.addnode(ss, structure = ss, energy = str(en), mynewatt = 15)
+        with self.assertRaises(AssertionError) as e:
+            RL.addnode(ss, structure = ss, energy = str(en), mynewatt = 15)
+        RL.addnode(ss, structure = ss, energy = int(round(en*100)), mynewatt = 15)
         assert RL.nodes[ss]['structure'] == ss
-        assert RL.nodes[ss]['energy'] == en
+        assert RL.nodes[ss]['energy'] == int(round(en*100))
         assert RL.nodes[ss]['identity'] == 'n2'
         assert RL.nodes[ss]['occupancy'] == 0
         assert RL.nodes[ss]['mynewatt'] == 15
@@ -183,7 +185,7 @@ class TestRiboLandscape(unittest.TestCase):
 
         # Import structures
         for lm in lmins[1:]: 
-            RL.addnode(lm.id, structure = lm.structure, energy = lm.energy, identity = f'n{lm.id}')
+            RL.addnode(lm.id, structure = lm.structure, energy = int(round(lm.energy*100)), identity = f'n{lm.id}')
 
         # Import rates
         for i1, row in enumerate(RM, 1):

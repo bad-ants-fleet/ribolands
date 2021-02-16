@@ -13,7 +13,8 @@ import RNA
 import math
 import argparse
 import numpy as np
-from itertools import chain, combinations
+from itertools import chain, combinations, product
+from copy import deepcopy
 
 from ribolands.utils import make_loop_index, make_pair_table
 
@@ -279,13 +280,16 @@ def guiding_neighborhood(nodes, k = None, edges = None):
             edges.add((q, p))
     return edges
 
-def edge_flooding(seq, md, s1, s2, e1, e2, minh = None):
+def edge_flooding(seq, md, s1, s2, e1, e2, minh = None, maxh = None):
     """ Connect two arbitrary secondary structures.
 
     Args:
         minh (int): Minimal height of an energy barrier separatig two basins in dcal/mol.
     """
     path, barrier = findpath_split(seq, s1, s2, md)
+    if maxh and barrier > maxh and barrier - e1 + e2 > maxh:
+        # Both directions have high energy barriers, do not even try to include that edge!
+        return None
 
     assert path[0][1] == e1 or path[0][1] == 0
     def scaled_energy(energy):
@@ -312,12 +316,12 @@ def edge_flooding(seq, md, s1, s2, e1, e2, minh = None):
                 en2 = scaled_energy(en2)
                 yield ss1, en1, ssB, enB, ss2, en2
             elif e == 0 and si != lm:
-                rlog.warning(f'Starting structure {s1} is not a mimimum!')
+                #rlog.warning(f'Starting structure {s1} is not a mimimum!')
                 (ss2, en2) = path[lm]
                 en2 = scaled_energy(en2)
                 yield s1, e1, s1, e1, ss2, en2
             elif e == len(ssmap) - 1 and si != lm:
-                rlog.warning(f'Final structure {s2} is not a mimimum!')
+                #rlog.warning(f'Final structure {s2} is not a mimimum!')
                 (ss1, en1) = path[lm]
                 en1 = scaled_energy(en1)
                 yield ss1, en1, s2, e2, s2, e2
@@ -325,7 +329,7 @@ def edge_flooding(seq, md, s1, s2, e1, e2, minh = None):
         b_en = e1 + barrier
         yield s1, e1, None, b_en, s2, e2
 
-def neighborhood_flooding(seq, md, edges, edata, ndata, minh = None, eupdate = False):
+def neighborhood_flooding(seq, md, edges, ndata, minh = None, maxh = None, edata = None):
     """ Calculate flooded paths for all edges.
 
     Args:
@@ -337,35 +341,134 @@ def neighborhood_flooding(seq, md, edges, edata, ndata, minh = None, eupdate = F
             regions are not optimized to find the lowest energy barrier. Only
             another iteration of this routine can be used to update all edges.
     """
+    if edata is None:
+        edata = dict()
     seen = set()
     new_edges = set()
     new_edata = dict()
+    new_ndata = dict()
     for (s1, s2) in edges:
         if (s2, s1) in seen:
             continue
-        if not eupdate and edata[(s1, s2)].get('saddle') is not None:
-            # No need to overwrite known results!
+        if (s1, s2) in edata and edata[(s1, s2)].get('saddle_energy') is not None:
+            # Do not to overwrite known results!
             new_edges.add((s1, s2))
             new_edges.add((s2, s1))
-            new_edata[(s1, s2)] = edata[(s1, s2)] # Deepcopy?
-            new_edata[(s2, s1)] = edata[(s2, s1)] # Deepcopy?
+            new_edata[(s1, s2)] = deepcopy(edata[(s1, s2)]) # Deepcopy?
+            new_edata[(s2, s1)] = deepcopy(edata[(s2, s1)]) # Deepcopy?
+            new_ndata[s1] = deepcopy(ndata[s1])
+            new_ndata[s2] = deepcopy(ndata[s2])
             continue
         e1 = ndata[s1]['energy']
         e2 = ndata[s2]['energy']
-        for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(seq, md, s1, s2, e1, e2, minh):
+        for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(seq, md, s1, s2, e1, e2, minh, maxh):
             new_edges.add((ss1, ss2))
             new_edges.add((ss2, ss1))
-            if (ss1, ss2) in edata and edata[(ss1, ss2)].get('saddle') is not None:
-                if edata[(ss1, ss2)]['saddle'] < enB: # The result got worse :-(
-                    rlog.warning(f"The results got worse? {edata[(ss1, ss2)]['saddle']=} vs {enB=}")
-                    enB = edata[(ss1, ss2)]['saddle'] 
-            new_edata[(ss1, ss2)] = {'saddle': enB}
-            new_edata[(ss2, ss1)] = {'saddle': enB}
-            if ss1 not in ndata:
-                ndata[ss1] = {'energy': en1}
-            if ss2 not in ndata:
-                ndata[ss2] = {'energy': en2}
-    return new_edges, new_edata, ndata
+            if (ss1, ss2) in edata and edata[(ss1, ss2)].get('saddle_energy') is not None:
+                if edata[(ss1, ss2)]['saddle_energy'] < enB: # The result got worse :-(
+                    rlog.warning(f"The results got worse!? {edata[(ss1, ss2)]['saddle_energy']=} vs {enB=}")
+                    enB = edata[(ss1, ss2)]['saddle_energy'] 
+            new_edata[(ss1, ss2)] = {'saddle_energy': enB}
+            new_edata[(ss2, ss1)] = {'saddle_energy': enB}
+            assert ss1 not in new_ndata or new_ndata[ss1]['energy'] == en1
+            new_ndata[ss1] = {'energy': en1}
+            assert ss2 not in new_ndata or new_ndata[ss2]['energy'] == en2
+            new_ndata[ss2] = {'energy': en2}
+    return new_edges, new_edata, new_ndata
+
+def neighborhood_coarse_graining(ndata, edata, minh = 0):
+    """ Coarse grain neighborhood into local minima and edges connecting them.
+
+    Iterate over all nodes:
+        If it is a hidden node: 
+            remove it and all its edges and connect all neighbors.
+    
+        # lminreps = set() => what we care about ... where did a node end up?
+        # hiddennodes = set() => bookkeeping, what nodes are part of this lmin?
+    Returns:
+        - lminreps {lm: [hidden nodes]}: The set of structures representative of each local minimum.
+        - edges
+    """
+    rlog.info(f'Coarse graining landscape with {minh=}.')
+
+    cg_ndata = {k: v for (k, v) in ndata.items()}
+    cg_edata = {k: v for (k, v) in edata.items()}
+    successors = {k: set() for k in ndata}
+    for (x, y) in edata:
+        successors[x].add(y)
+
+    def find_representatives(node, mode = 'flooding'):
+        """ Identify (all) local minimum representatives of node.
+
+        If a hidden equal energy state is found, then that state is ignored.
+        Otherwise, if a neighbor with equal energy is found (e.g.  a known lmin
+        representative or unassigned), then the current node becomes hidden and
+        may (?) be assigned to this lmin.
+        """
+        en = cg_ndata[node]['energy']
+
+        # Sort neighbors from lowest to highest energy. 
+        nbrs = sorted(successors[node], key = lambda x: (ndata[x]['energy'], x), reverse = False)
+        nbrs = [n for n in nbrs if n in cg_ndata]
+
+        # starting maximum barrier is just a tick lower than minh
+        reps, min_se = set(), en + minh - 1
+        for nbr in nbrs:
+            if ndata[nbr]['energy'] > en:
+                # No more lower/equal energy nodes ...
+                break
+            se = cg_edata[(node, nbr)]['saddle_energy']
+            if mode == 'flooding':
+                if se < min_se: 
+                    # a neighbor with so far lowest saddle energy.
+                    reps, min_se = set([nbr]), se
+                elif se == min_se: 
+                    # a neighbor with equally best saddle energy.
+                    reps.add(nbr)
+            elif mode == 'absolute':
+                if se <= min_se:
+                    reps.add(nbr)
+            else:
+                raise NotImplementedError(f'Unkown neighbor merging mode: {mode}')
+        return reps, nbrs
+
+    for node in sorted(ndata, key = lambda x: ndata[x]['energy'], reverse = True):
+        reps, nbrs = find_representatives(node)
+
+        rlog.debug(f'Node: {node}, Reps: {reps}')
+        if len(reps) == 0: continue
+
+        # 1) Connect the representatives with all other neighbors.
+        for lm, nbr in product(reps, nbrs):
+            if lm == nbr: 
+                continue
+            se1 = cg_edata[(lm, node)]['saddle_energy']
+            se2 = cg_edata[(node, nbr)]['saddle_energy']
+            se = max(se1, se2)
+            if (lm, nbr) in cg_edata:
+                se = min(se, cg_edata[(lm, nbr)]['saddle_energy'])
+            cg_edata[(lm, nbr)] = {'saddle_energy': se}
+            cg_edata[(nbr, lm)] = {'saddle_energy': se}
+            successors[lm].add(nbr)
+            successors[nbr].add(lm)
+
+        # 2) Remove all edges involving the hidden node.
+        for dele in nbrs:
+            del cg_edata[(node, dele)]
+            del cg_edata[(dele, node)]
+
+        # 3) Update all hiddennodes dictionaries of current representatives.
+        basin = cg_ndata[node]['hiddennodes'] 
+        for rep in reps: # Assume reps are lmins (for now).
+            if cg_ndata[rep]['hiddennodes'] is None:
+                cg_ndata[rep]['hiddennodes'] = set([node])
+            else:
+                cg_ndata[rep]['hiddennodes'].add(node)
+            cg_ndata[rep]['hiddennodes'] |= basin
+
+        # 4) Remove the hidden node from coarse graining.
+        del cg_ndata[node]
+    return cg_ndata, cg_edata
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Neighborhood processing                                                      #

@@ -1,16 +1,17 @@
 #!/usr/bin/env python
-import os
 import math
 import shutil
 import tempfile
 import unittest
-import networkx as nx
 
 import RNA
-from ribolands.syswraps import sys_treekin_051
 from ribolands.parser import parse_barriers
+from ribolands.utils import parse_ratefile
+
 import ribolands.trafo as trafo
-import ribolands.utils as ru
+from ribolands.trafo import (TrafoLandscape,
+                             fold_exterior_loop, 
+                             open_fraying_helices)
 
 skip = False
 
@@ -22,26 +23,24 @@ def write_log(TL, nlist):
 
 @unittest.skipIf(skip, "slow tests are disabled by default")
 class Test_TrafoLand(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp(prefix='DrTest_')
-        print("\nWriting temporary files to: {}".format(self.tmpdir))
+    #def setUp(self):
+    #    self.tmpdir = tempfile.mkdtemp(prefix='DrTest_')
+    #    print("\nWriting temporary files to: {}".format(self.tmpdir))
 
-    def tearDown(self):
-        print("Removing temporary file directory: {}".format(self.tmpdir))
-        #shutil.rmtree(self.tmpdir)
+    #def tearDown(self):
+    #    print("Removing temporary file directory: {}".format(self.tmpdir))
+    #    shutil.rmtree(self.tmpdir)
 
-    def _init_TL(self, seq, sss, add_edges = True):
+    def _init_TL(self, seq, sss):
         fullseq = seq
         vrna_md = RNA.md()
 
-        TL = trafo.TrafoLandscape(fullseq, vrna_md)
+        TL = TrafoLandscape(fullseq, vrna_md)
         TL._transcript_length = len(seq)
 
         for ss in sss:
             if not TL.has_node(ss):
-                TL.addnode(ss, structure = ss)
-                TL.nodes[ss]['occupancy'] = 1.0 / len(sss),
-
+                TL.addnode(ss, structure = ss, occupancy = 1/len(sss))
         return TL
 
     def test_edge_attributes(self):
@@ -51,23 +50,22 @@ class Test_TrafoLand(unittest.TestCase):
         TrafoLandscape.get_saddle()
         """
         fullseq = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCA"
-        TL = trafo.TrafoLandscape(fullseq, RNA.md())
+        TL = TrafoLandscape(fullseq, RNA.md())
         s1 = ".....(((((......)).)))((((((((....)))))....)))..."
         s2 = "..................((((.(((((((....)))))....))))))"
-
-        TL.add_weighted_edges_from([(s1, s2, 0)])
-        TL[s1][s2]['saddleE'] = float('inf')
+        
+        TL.addnode(s1, structure = s1)
+        TL.addnode(s2, structure = s2)
+        TL.addedge(s1, s2, weight = 0)
+        TL.edges[(s1, s2)]['weight'] == 0
 
         self.assertTrue(TL.has_edge(s1, s2))
-        self.assertEqual(TL.get_saddle(s1, s2), float('inf'))
         self.assertEqual(TL.get_rate(s1, s2), 0)
 
-        TL[s1][s2]['saddleE'] = 9999
-        TL[s1][s2]['weight'] = 0.9999
-        self.assertEqual(TL.get_saddle(s1, s2), 9999)
+        TL.edges[(s1, s2)]['weight'] = 0.9999
         self.assertEqual(TL.get_rate(s1, s2), 0.9999)
 
-    def test_TL_fraying_helices(self):
+    def test_TL_expansion_random(self):
         seq = "CCCCGGAAGGAAUGGGUAGUGACAGCAGCUUAGGUCGCUGCAUCAUCCCC"
         sss = """
         .............(((...((...(((((.......)))))..))..)))
@@ -87,31 +85,22 @@ class Test_TrafoLand(unittest.TestCase):
         """.split()
 
         TL = self._init_TL(seq, sss)
-        TL.minh = 3
-        snodes = TL.sorted_nodes(attribute = 'energy', rev = True)
-        enth = TL.nodes[snodes[0]]['energy']
-
-        nn = TL.connect_nodes_n2()
-        TL.coarse_grain()
-        print(len(TL.active_nodes))
-
+        TL.minh = 300
         mss, mfe = TL.fc.backtrack(len(seq))
-        if TL.has_node(mss):
-            assert TL.nodes[mss]['active']
 
-        nn = TL.connect_nodes_n2(nodes = TL.active_nodes)
-        print(nn)
+        #print()
+        #for sn in TL.sorted_nodes(attribute = 'energy'):
+        #    print(sn, TL.nodes[sn]['energy'])
 
-        TL.coarse_grain()
-        print(len(TL.active_nodes), len(TL.nodes))
+        nn = TL.expand()
+        assert nn + len(sss) == len(TL.nodes)
+        assert mss in TL.nodes
 
-        nbrs = TL.find_fraying_neighbors(TL.active_nodes, mfree = 6)
-        for par, new in sorted(nbrs.items(), key = lambda x: x[0]):
-            TL.connect_nodes_n2(nodes = new)
-        TL.coarse_grain()
-        print(len(TL.active_nodes), len(TL.nodes))
-
-    def test_TL_connect_mfe(self):
+        #print()
+        #for sn in TL.sorted_nodes(attribute = 'energy'):
+        #    print(sn, TL.nodes[sn]['energy'])
+        
+    def test_TL_expansion_btree(self):
         rbar = """# A random barriers example:
              CCCCGGAAGGAAUGGGUAGUGACAGCAGCUUAGGUCGCUGCAUCAUCCCC
            1 ........((.((((((((((((..........)))))))).)))).)). -15.10    0  15.00
@@ -129,7 +118,6 @@ class Test_TrafoLand(unittest.TestCase):
           13 ..((....))...(((..((((((((.((....)).))))..)))).))) -13.00    2   5.60
           14 .((.....))...(((..(((.((((.((....)).)))))))...))). -12.90    6   3.30
         """
-
         lmins = parse_barriers(rbar, is_file = False, return_tuple = True)
 
         seq = lmins[0]
@@ -141,23 +129,113 @@ class Test_TrafoLand(unittest.TestCase):
             sss.append(l.structure)
 
         TL = self._init_TL(seq, sss)
-        TL.minh = 3.30
-        for n in TL.nodes():
-            TL.nodes[n]['active'] = True
-
-        assert mss not in sss
+        TL.minh = 330
+        TL.maxh = 1180 # lower leads to disconnected components
         assert not TL.has_node(mss)
 
-        nn = TL.connect_to_active(nodes = [mss])
-        for node in nn:
-            assert TL.nodes[node]['active'] is None
+        #print()
+        #for sn in TL.sorted_nodes(attribute = 'energy'):
+        #    print(sn, TL.nodes[sn]['energy'])
+        assert len(list(TL.sccs())) == 13
 
-        assert TL.nodes[mss]['active'] is None
-        assert nx.is_strongly_connected(TL)
+        nn = TL.expand()
+        assert nn + len(sss) == len(TL.nodes)
+        assert mss in TL.nodes
 
-    def test_minitrafo(self, verbose = False):
+        #print()
+        #for sn in TL.sorted_nodes(attribute = 'energy'):
+        #    print(sn, TL.nodes[sn]['energy'])
+        #
+        #for ed in sorted(TL.edges):
+        #    print(ed, TL.edges[ed]['saddle_energy'])
+        assert len(list(TL.sccs())) == 1
+        assert len(list(TL.sccs(minh =  330))) == 17
+        assert len(list(TL.sccs(minh =  500))) == 10
+        assert len(list(TL.sccs(minh =  800))) ==  4
+        assert len(list(TL.sccs(minh = 1000))) ==  3
+        assert len(list(TL.sccs(minh = 1150))) ==  2
+
+    def test_expand_and_coarse_grain(self, verbose = True):
+        seq = "AUAUAGCUUGUUUACUUUGGAUGAACUGGGGAGAAAAUCCUGGUAAAACU"
+        sss =["..........((((((..((((...((....))...)))).))))))...",
+              ".......(((((((...)))))))((((((........))))))......",
+              ".......(((((((...)))))))((((((.......))).)))......",
+              ".(((......(((.((((((.....))))))..)))......)))....."]
+
+        TL = self._init_TL(seq, sss)
+
+        ess = [
+            ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
+            [".......(((((((...)))))))((((((........))))))......", 0.25, True],
+            [".......(((((((...)))))))((((((.......))).)))......", 0.25, True],
+            [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
+        for (ss, occ, active) in ess:
+            self.assertTrue(TL.has_node(ss))
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
+
+        #TL.expand(extend=0, exp_mode='fullconnect')
+        #ess = [
+        #    ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
+        #    ["........................((((((........))))))......", 0.00, True],
+        #    [".......(((((((...)))))))((((((........))))))......", 0.25, True],
+        #    [".........((((((....).))))).(((.......)))..........", 0.00, True],
+        #    ["........................((((((.......))).)))......", 0.00, True],
+        #    [".......(((((((...)))))))((((((.......))).)))......", 0.25, True],
+        #    [".....(((..(((.((((((.....))))))..))).....)))......", 0.00, True],
+        #    [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
+        #for (ss, occ, active) in ess:
+        #    self.assertTrue(TL.has_node(ss))
+        #    self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+        #    self.assertEqual(TL.nodes[ss]['active'], active)
+
+        #if verbose:
+        #    TL.get_simulation_files_tkn(self.tmpdir+'/ecp1')
+
+        #TL.coarse_grain(dG_min=4.3)
+        #ess = [
+        #    ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
+        #    ["........................((((((........))))))......", 0.125, True],
+        #    [".......(((((((...)))))))((((((........))))))......", 0.375, True],
+        #    [".........((((((....).))))).(((.......)))..........", 0.00, True],
+        #    ["........................((((((.......))).)))......", 0.00, False],
+        #    [".......(((((((...)))))))((((((.......))).)))......", 0.00, False],
+        #    [".....(((..(((.((((((.....))))))..))).....)))......", 0.25, True],
+        #    [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
+        #for (ss, occ, active) in ess:
+        #    print(ss, occ, active)
+        #    print(TL.nodes[ss])
+        #    self.assertTrue(TL.has_node(ss))
+        #    self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+        #    self.assertEqual(TL.nodes[ss]['active'], active)
+        #
+        #if verbose:
+        #    TL.get_simulation_files_tkn(self.tmpdir+'/ecp2')
+
+        #TL.prune(0.01)
+        #ess = [
+        #    ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
+        #    ["........................((((((........))))))......", 0.125, True],
+        #    [".......(((((((...)))))))((((((........))))))......", 0.375, True],
+        #    [".........((((((....).))))).(((.......)))..........", 0.00, False],
+        #    ["........................((((((.......))).)))......", 0.00, False],
+        #    [".......(((((((...)))))))((((((.......))).)))......", 0.00, False],
+        #    [".....(((..(((.((((((.....))))))..))).....)))......", 0.25, True],
+        #    [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
+        #for (ss, occ, active) in ess:
+        #    print(ss, occ, active)
+        #    self.assertTrue(TL.has_node(ss))
+        #    self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+        #    self.assertEqual(TL.nodes[ss]['active'], active)
+
+        #if verbose:
+        #    TL.get_simulation_files_tkn(self.tmpdir+'/ecp3')
+
+
+
+    def dtest_minitrafo(self, verbose = False):
         fullseq = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCA"
-        TL = trafo.TrafoLandscape(fullseq, RNA.md())
+        TL = TrafoLandscape(fullseq, RNA.md())
         fname = self.tmpdir + '/' + 'minitrafo'
 
         self.assertEqual(list(TL.nodes), [])
@@ -202,84 +280,6 @@ class Test_TrafoLand(unittest.TestCase):
 
             dn, sr = TL.prune(0.01)
 
-    def dont_test_expand_and_coarse_grain(self, verbose = True):
-        seq = "AUAUAGCUUGUUUACUUUGGAUGAACUGGGGAGAAAAUCCUGGUAAAACU"
-        sss = [
-            "..........((((((..((((...((....))...)))).))))))...",
-            ".......(((((((...)))))))((((((........))))))......",
-            ".......(((((((...)))))))((((((.......))).)))......",
-            ".(((......(((.((((((.....))))))..)))......)))....."
-        ]
-
-        TL = self._init_TL(seq, sss)
-
-        ess = [
-            ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
-            [".......(((((((...)))))))((((((........))))))......", 0.25, True],
-            [".......(((((((...)))))))((((((.......))).)))......", 0.25, True],
-            [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
-        for (ss, occ, active) in ess:
-            self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
-            self.assertEqual(TL.nodes[ss]['active'], active)
-
-        TL.expand(extend=0, exp_mode='fullconnect')
-        ess = [
-            ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
-            ["........................((((((........))))))......", 0.00, True],
-            [".......(((((((...)))))))((((((........))))))......", 0.25, True],
-            [".........((((((....).))))).(((.......)))..........", 0.00, True],
-            ["........................((((((.......))).)))......", 0.00, True],
-            [".......(((((((...)))))))((((((.......))).)))......", 0.25, True],
-            [".....(((..(((.((((((.....))))))..))).....)))......", 0.00, True],
-            [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
-        for (ss, occ, active) in ess:
-            self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
-            self.assertEqual(TL.nodes[ss]['active'], active)
-
-        if verbose:
-            TL.get_simulation_files_tkn(self.tmpdir+'/ecp1')
-
-        TL.coarse_grain(dG_min=4.3)
-        ess = [
-            ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
-            ["........................((((((........))))))......", 0.125, True],
-            [".......(((((((...)))))))((((((........))))))......", 0.375, True],
-            [".........((((((....).))))).(((.......)))..........", 0.00, True],
-            ["........................((((((.......))).)))......", 0.00, False],
-            [".......(((((((...)))))))((((((.......))).)))......", 0.00, False],
-            [".....(((..(((.((((((.....))))))..))).....)))......", 0.25, True],
-            [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
-        for (ss, occ, active) in ess:
-            print(ss, occ, active)
-            print(TL.nodes[ss])
-            self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
-            self.assertEqual(TL.nodes[ss]['active'], active)
-        
-        if verbose:
-            TL.get_simulation_files_tkn(self.tmpdir+'/ecp2')
-
-        TL.prune(0.01)
-        ess = [
-            ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
-            ["........................((((((........))))))......", 0.125, True],
-            [".......(((((((...)))))))((((((........))))))......", 0.375, True],
-            [".........((((((....).))))).(((.......)))..........", 0.00, False],
-            ["........................((((((.......))).)))......", 0.00, False],
-            [".......(((((((...)))))))((((((.......))).)))......", 0.00, False],
-            [".....(((..(((.((((((.....))))))..))).....)))......", 0.25, True],
-            [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
-        for (ss, occ, active) in ess:
-            print(ss, occ, active)
-            self.assertTrue(TL.has_node(ss))
-            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
-            self.assertEqual(TL.nodes[ss]['active'], active)
-
-        if verbose:
-            TL.get_simulation_files_tkn(self.tmpdir+'/ecp3')
-
     def dont_test_coarse_graining_dG(self, verbose = False):
         """
         A coarse graining test based on this example...
@@ -314,7 +314,7 @@ class Test_TrafoLand(unittest.TestCase):
         fullseq = "UGAAUGUGCCGCUAGACGACAUCCCGCCGGAUGGCGGGGC"
         vrna_md = RNA.md()
 
-        CG = trafo.TrafoLandscape(fullseq, vrna_md)
+        CG = TrafoLandscape(fullseq, vrna_md)
         CG._transcript_length = len(fullseq)
 
         min_dG = 3.0
@@ -429,12 +429,12 @@ class Test_TrafoLand(unittest.TestCase):
         bfile = 'tests/files/ex1.bar'
         rfile = 'tests/files/ex1.rts'
         bar = parse_barriers(bfile, return_tuple = True)
-        rts = ru.parse_ratefile(rfile)
+        rts = parse_ratefile(rfile)
 
         fullseq = "UGAAUGUGCCGCUAGACGACAUCCCGCCGGAUGGCGGGGC"
         vrna_md = RNA.md()
 
-        CG = trafo.TrafoLandscape(fullseq, vrna_md)
+        CG = TrafoLandscape(fullseq, vrna_md)
         CG._transcript_length = len(fullseq)
 
         if verbose:
@@ -521,7 +521,7 @@ class Test_HelperFunctions(unittest.TestCase):
         ext_moves = dict()
         md = RNA.md()
 
-        nbr, ext = trafo.fold_exterior_loop(se, ss, md, ext_moves)
+        nbr, ext = fold_exterior_loop(se, ss, md, ext_moves)
 
         self.assertEqual(nbr, '.....(((((......)).)))((((((((....))))....))))..')
         self.assertEqual(ext, 'CUCGUCGNNNCGGGNNNCCGC')
@@ -532,7 +532,7 @@ class Test_HelperFunctions(unittest.TestCase):
         ss = ".....(((((......)).)))((((((((....))))....)))).."
 
         md = RNA.md()
-        nbr, ext = trafo.fold_exterior_loop(se, ss, md)
+        nbr, ext = fold_exterior_loop(se, ss, md)
 
         self.assertEqual(nbr, '.....(((((......)).)))((((((((....))))....))))..')
         self.assertEqual(ext, 'CUCGUCGNNNCGGGNNNCCGC')
@@ -542,7 +542,7 @@ class Test_HelperFunctions(unittest.TestCase):
         se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"
         ss = ".....(((((......)).)))((((((((....))))....)))).."
 
-        out = trafo.open_fraying_helices(se, ss, free=6)
+        out = open_fraying_helices(se, ss, free=6)
 
         res = [
             "........((......))....((((((((....))))....))))..",
@@ -551,7 +551,7 @@ class Test_HelperFunctions(unittest.TestCase):
 
         self.assertEqual(sorted(out), sorted(res))
 
-        out = trafo.open_fraying_helices(se, ss, free=8)
+        out = open_fraying_helices(se, ss, free=8)
 
         res = [
             "......................((((((((....))))....))))..",
@@ -564,11 +564,11 @@ class Test_HelperFunctions(unittest.TestCase):
         se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCG"
         ss = "..((.(((((......)).)))((((((((....))))....)))).))"
 
-        out = trafo.open_fraying_helices(se, ss, free=6)
+        out = open_fraying_helices(se, ss, free=6)
         res = [".....(((((......)).)))((((((((....))))....))))..."]
         self.assertEqual(sorted(out), sorted(res))
 
-        out = trafo.open_fraying_helices(se, ss, free=7)
+        out = open_fraying_helices(se, ss, free=7)
         res = [
             "........((......))....((((((((....))))....))))...",
             ".....(((((......)).)))....((((....))))...........",

@@ -263,6 +263,50 @@ def parse_ratefile(rfile, binary = False):
                 RM.append((list(map(float, line.strip().split()))))
     return RM
 
+class Species:
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return f'Species({self.name})'
+
+def tarjans(complexes, products):
+    """ Tarjans algorithm to find strongly connected components. 
+    Dirctly from the peppercornenumerator project.
+    """
+    stack, SCCs = [], []
+    def strongconnect(at, index):
+        stack.append(at)
+        at.index = index
+        at.llink = index
+        index += 1
+        for to in products[at]:
+            if to.index is None:
+                # Product hasn't been traversed; recurse
+                strongconnect(to, index)
+            if to in stack:
+                # Product is in the current neighborhood
+                at.llink = min(at.llink, to.llink)
+
+        if at.index == at.llink:
+            # Back to the start, get the SCC.
+            scc = [] 
+            while True:
+                nc = stack.pop()
+                nc.llink == at.index
+                scc.append(nc)
+                if nc == at:
+                    break
+            SCCs.append(scc)
+
+    for cplx in complexes: 
+        cplx.index = None
+
+    for i, cplx in enumerate(complexes):
+        if cplx.index is None:
+            strongconnect(cplx, i)
+    return SCCs
+
 def networkx_graph(RL):
     try:
         import networkx as nx

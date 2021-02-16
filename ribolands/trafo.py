@@ -7,18 +7,18 @@
 import logging
 rlog = logging.getLogger(__name__)
 
-import re
+import os
 import math
-import networkx as nx
-import subprocess as sub
 from struct import pack
 from itertools import combinations, product, islice
 
 import RNA
-from ribolands import PrimePathLandscape
+from ribolands import RiboLandscape
 from ribolands.utils import make_pair_table
-from ribolands.pathfinder import (show_flooded_prime_path, 
-                                  BPD_CACHE, get_bpd_cache)
+from ribolands.pathfinder import (BPD_CACHE, get_bpd_cache, 
+                                  guiding_neighborhood, 
+                                  neighborhood_flooding,
+                                  neighborhood_coarse_graining)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Tracks findpath calls for profiling output.                                  #
@@ -70,7 +70,6 @@ def fold_exterior_loop(seq, con, md, cache = None, spacer = 'NNN'):
     else:
         EFOLD_CACHE = cache
 
-
     pt = make_pair_table(con, base = 0)
     ext_seq = ''
     ext_con = ''
@@ -117,400 +116,6 @@ def fold_exterior_loop(seq, con, md, cache = None, spacer = 'NNN'):
             skip = j + 1
 
     return con, ext_seq
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-# Custom error definitions                                                     #
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-class TrafoUsageError(Exception):
-    pass
-
-class TrafoAlgoError(Exception):
-    pass
-
-class DebuggingAlert(Exception):
-    pass
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-# Transformer Landscape Object                                                 #
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
-class TrafoLandscape(PrimePathLandscape):
-    def __init__(self, *kargs, **kwargs):
-        super(TrafoLandscape, self).__init__(*kargs, **kwargs)
-
-        # Calculate full backtracking matrix for all subsequent MFE runs.
-        if self.fc:
-            _ = self.fc.mfe()
-
-        # Private instance variables:
-        self._transcript_length = 0
-        self.total_time = 0
-
-        # Default parameters:
-        self.k0 = 2e5 # set directly
-        self.minh = 0 # set using t_fast
-
-    @property
-    def transcript(self):
-        return self.sequence[0:self._transcript_length]
-
-    @property
-    def t_fast(self):
-        """Time-scale separation parameter for coarse-graining.
-
-        Expected folding times faster than t-fast are considered instantaneous,
-        and used to assign a conformation to a macrostate. (A folding time equal
-        t-fast is not instantaneous, it corresponds to the minimum height of an
-        energy barrier minh.) This parameter retruns a time scale based on the
-        internal minh parameter, which quantifies the minimal energy barrier
-        height to separate two macrostates.
-
-        t_fast = 1/(self.k0 * exp(-self.minh/self.RT))
-        """
-        return 1/(self.k0 * math.exp(-self.minh/self.RT))
-
-    @t_fast.setter
-    def t_fast(self, value):
-        self.minh = max(0, -self.RT * math.log(1 / value / self.k0))
-
-    def print_structures(self):
-        for ss in self.sorted_nodes():
-            print(ss, self.nodes[ss]['energy'], 
-                    self.nodes[ss]['identity'], 
-                    self.nodes[ss]['active'], 
-                    '{:.4f}'.format(self.nodes[ss]['occupancy']))
-                    #self.nodes[ss]['hiddennodes'],
-                    #self.nodes[ss]['lminreps'])
-
-    def print_transitions(self, nodes = None):
-        if nodes is None:
-            nodes = self.nodes
-        tl = len(self.transcript)
-
-        for ss1, ss2 in combinations(nodes, 2):
-            for [start, stop, fwb, rvb] in show_flooded_prime_path(self.sequence, ss1, ss2):
-                print(start[:tl], stop[:tl], fwb, rvb)
-            print()
-
-    @property
-    def active_subgraph(self):
-        """ Return a new object with only active nodes (and edges) """
-        other = super(TrafoLandscape, self).active_subgraph
-        # Private instance variables:
-        other._transcript_length = self._transcript_length
-        other.total_time = self.total_time
-        return other
- 
-    def expand(self, extend = 1, mfree = 6):
-        """ Find new secondary structures and add them to :obj:`TrafoLandscape()`
-
-        The function adds to types of new structures: 
-            1) The mfe structure for the current sequence length.
-            2) The helix-fraying of all currently active structures.
-
-        Args:
-            extend (int, optional): number of nucleotide extensions before graph
-                expansion (updates the global variable transcript length). Defaults to 1.
-            mfree (int, optional): minimum number of freed bases during a
-                helix-opening step. Defaults to 6.
-
-        Returns:
-            int: Number of new nodes
-        """
-        rlog.info(f'Expand: {len(self.active_nodes)} extend = {extend} mfree = {mfree}')
-        fseq = self.sequence
-        self._transcript_length += extend
-        if self._transcript_length > len(fseq):
-            self._transcript_length = len(fseq)
-        seq = self.transcript
-
-        cnid = self.nodeID
-        fc = self.fc
-
-        # Calculate MFE of current transcript
-        mfess, mfe = fc.backtrack(len(seq))
-        future = '.' * (len(fseq) - len(seq))
-        mfess = mfess + future
-
-        # If there is no node because we are in the beginning, add the node.
-        if len(self) == 0: 
-            self.addnode(mfess, structure = mfess, active = True)
-            self.nodes[mfess]['occupancy'] = 1
-            nn = set([mfess])
-        else: 
-            # Save the set of active parent nodes for later.
-            parents = self.active_nodes
-            #nn = self.connect_nodes_n2(parents) 
-            #rlog.info(f'Connected parents, new structs: {len(nn)}')
-            #[rlog.debug(f' {new}') for new in nn]
-            nn = self.connect_nodes_nm(nodesA = parents, 
-                                       nodesB = [mfess], direct = False)
-            rlog.info(f'Connected MFE: {mfess[:len(seq)]}, new structs: {len(nn)}')
-            [rlog.info(f' {new}') for new in nn]
-
-            # They can also be previously inactive nodes or other parents ...
-            fraying_nodes = self.find_fraying_neighbors(parents, mfree = 6)
-            for p, fn in fraying_nodes.items():
-                # Connects fraying neighbors to other active nodes
-                nn |= self.connect_nodes_nm(nodesA = self.active_nodes, nodesB = list(fn))
-                # Connect fraying neighbors with each other
-                nn |= self.connect_nodes_n2(nodes = list(fn), direct = True)
-            rlog.info(f'Connected fraying neighbors, new structs: {len(nn)}')
-            [rlog.info(f' {new}') for new in nn]
-        return nn
-
-    def find_fraying_neighbors(self, parents, mfree = 6):
-        """ Test me!
-        Returns:
-            dict: new_nodes[parent]=set(neigbors)
-        """
-        seq = self.transcript
-        future = '.' * (len(self.sequence) - len(seq))
-        md = self.md
-        # Keep track of all nodes and how they are related to parents.
-        new_nodes = dict() 
-        for ni in parents:
-            # short secondary structure (without its future)
-            sss = ni[0:len(seq)]
-            # compute a set of all helix fraying open steps
-            opened = open_fraying_helices(seq, sss, mfree)
-            # Do a constrained exterior loop folding for all fraying structures
-            connected = set([ni]) # add the parent
-            for onbr in opened:
-                nbr, _ = fold_exterior_loop(seq, onbr, md)
-                nbr += future
-                connected.add(nbr)
-            new_nodes[ni] = connected
-        return new_nodes
-
-    def get_simulation_files_tkn(self, basename, snodes = None):
-        """ Print a rate matrix and the initial occupancy vector.
-
-        Overwrites: Ribolands.get_simulation_files_tkn()
-
-        This function prints files and parameters to simulate dynamics using the
-        commandline tool treekin. A *.bar file contains a sorted list of present
-        structures, their energy and their neighborhood and the corresponding
-        energy barriers. A *.rts or *.rts.bin file contains the matrix of
-        transition rates either in text or binary format. Additionaly, it returns
-        a vector "p0", which contains the present occupancy of structures. The
-        order or elements in p0 contains
-
-        Note:
-          A *.bar file contains the energy barriers to all other nodes in the
-          graph. So it is not the same as a "classic" barfile produce by
-          barriers.
-
-        Args:
-          basename (str): Basename of output files.
-
-        Returns:
-
-        """
-        seq = self.transcript
-        if snodes is None:
-            snodes = self.sorted_nodes(attribute = 'energy') 
-
-        num = len(snodes)+1
-
-        bofile = basename + '_lands.bar'
-        brfile = basename + '_rates.txt'
-        bbfile = basename + '_rates.bin'
-        p0 = []
-
-        with open(bofile, 'w') as bar, open(brfile, 'w') as rts, open(bbfile, 'wb') as brts:
-            bar.write("  ID {}  Energy  {}\n".format(seq, 
-                ' '.join(map("{:7d}".format, range(1, num)))))
-            brts.write(pack("i", len(snodes)))
-            for ni, node in enumerate(snodes, 1):
-                ne = self.nodes[node]['energy']
-                no = self.nodes[node]['occupancy']
-
-                # Calculate barrier heights to all other basins.
-                barstr = ''
-                for other in snodes:
-                    oe = self.nodes[other]['energy']
-                    sE = self.get_saddle(node, other)
-                    if sE is not None:
-                        barstr += ' {:7.2f}'.format(sE - ne)
-                    else:
-                        barstr += ' {:7.2f}'.format(float('nan'))
-
-                # Print structures and neighbors to bfile:
-                bar.write("{:4d} {} {:7.2f} {}\n".format(ni, node[:len(seq)], ne, barstr))
-
-                # Add ni occupancy to p0
-                if no > 0:
-                    p0.append("{}={}".format(ni, no))
-
-                # Print rate matrix to rfile and brfile
-                trates = []
-                rates = []
-                for other in snodes:
-                    if self.has_edge(node, other):
-                        rates.append(self[node][other]['weight'])
-                        trates.append(self[other][node]['weight'])
-                    else:
-                        rates.append(0)
-                        trates.append(0)
-
-                line = "".join(map("{:10.4g}".format, rates))
-                rts.write("{}\n".format(line))
-                for r in trates:
-                    brts.write(pack("d", r))
-
-        return bbfile, brfile, bofile, p0
-
-    def update_occupancies_tkn(self, tfile, snodes):
-        """
-          Update the occupancy in the Graph and the total simulation time
-        """
-        # http://www.regular-expressions.info/floatingpoint.html
-        reg_flt = re.compile(b'[-+]?[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?.')
-        lastlines = sub.check_output(['tail', '-2', tfile]).strip().split(b'\n')
-        if not reg_flt.match(lastlines[0]):
-            raise TrafoAlgoError('Cannot parse simulation output', tfile)
-        else:
-            if reg_flt.match(lastlines[1]):
-                time = float(lastlines[1].split()[0])
-                iterations = None
-                tot_occ = sum(map(float, lastlines[1].split()[1:]))
-                for e, occu in enumerate(lastlines[1].split()[1:]):
-                    ss = snodes[e]
-                    self.nodes[ss]['occupancy'] = float(occu)/tot_occ
-            else :
-                time = float(lastlines[0].split()[0])
-                iterations = int(lastlines[-1].split()[-1])
-                tot_occ = sum(map(float, lastlines[0].split()[1:]))
-                for e, occu in enumerate(lastlines[0].split()[1:]):
-                    ss = snodes[e]
-                    assert self.nodes[ss]['active']
-                    sso = self.nodes[ss]['occupancy']
-                    self.nodes[ss]['occupancy'] = float(occu)/tot_occ
-        return time, iterations
-
-    def prune(self, pmin, keepers = None):
-        """ 
-        We prune by base-pair distance to active nodes... 
-
-        Identify the nodes we have to keep, either because they are
-        occupied local minima, or because they are basins connecting
-        occupied local minima.
-
-        """
-        rlog.info(f'Pruning: pmin = {pmin} keepers = {len(keepers) if keepers else 0}')
-        if keepers is None:
-            keepers = set()
-            for n in self.active_nodes:
-                no = self.nodes[n]['occupancy']
-                if no >= pmin:
-                    keepers.add(n)
-                    rlog.debug(f'Keeper: {n}')
-
-        if len(keepers) == 1:
-            rlog.info('Only one active node with occupancy!')
-            for node in list(self.nodes):
-                self.nodes[node]['pruned'] = self.nodes.get('pruned', 0)
-                if node in keepers:
-                    assert self.nodes[node]['lminreps'] is None
-                    self.nodes[node]['active'] = True
-                    self.nodes[node]['pruned'] = 0
-                else:
-                    self.nodes[node]['active'] = False
-                    self.nodes[node]['pruned'] += 1
-        else:
-            # Inactivate old nodes and increment "pruned"
-            for x, y in combinations(keepers, 2):
-                if self.has_edge(x, y):
-                    continue
-                for [start, stop, fwb, fwg, rvb] in self.get_prime_path_minima(x, y):
-                    if stop not in self.nodes:
-                        rlog.debug(f'Minimal prime path basins are not directly connected!\n' + \
-                                f'{x}\n{y}')
-                        break
-                    d1 = self.nodes[start]
-                    d2 = self.nodes[stop]
-                    basin1 = set([start]) if d1['lminreps'] is None else d1['lminreps']
-                    basin2 = set([stop]) if d2['lminreps'] is None else d2['lminreps']
-                    if not any(s1 == s2 or self.get_barrier(s1, s2) is not None \
-                            for (s1, s2) in product(basin1, basin2)):
-                        rlog.debug(f'Minimal prime path basins are not directly connected!\n' + \
-                                f'{x}\n{y}')
-                    keepers |= basin1 | basin2
-            for node in list(self.nodes):
-                self.nodes[node]['pruned'] = self.nodes.get('pruned', 0)
-                if node in keepers:
-                    assert self.nodes[node]['lminreps'] is None
-                    self.nodes[node]['active'] = True
-                    self.nodes[node]['pruned'] = 0
-                else:
-                    self.nodes[node]['active'] = False
-                    self.nodes[node]['pruned'] += 1
-
-        parents = self.active_nodes
-        for node in self.sorted_nodes(attribute = 'energy', rev = True):
-            self.nodes[node]['lminreps'] = None
-            self.nodes[node]['hiddennodes'] = None
-            if not self.nodes[node]['active'] and self.nodes[node]['occupancy'] > 0:
-                assert self.nodes[node]['pruned'] == 1
-                # We prune by base-pair distance to active nodes... 
-                move = sorted(parents, key = lambda x: get_bpd_cache(node, x))
-                self.nodes[move[0]]['occupancy'] += self.nodes[node]['occupancy']
-                self.nodes[node]['occupancy'] = 0
-            if self.nodes[node]['pruned'] > 0:
-                rlog.debug(f'Removing node: {node}')
-                self.remove_node(node)
-        return
-
-    def sorted_trajectories_iter(self, snodes, tfile, softmap = None):
-        """ Yields the time course information using a treekin output file.
-
-        Args:
-          snodes (list): a list of nodes sorted by their energy
-          tfile (str): treekin-output file name.
-          softmap (dict, optional): A mapping to transfer occupancy between
-            states. Likely not the most efficient implementation.
-
-        Yields:
-          list: ID, time, occupancy, structure, energy
-        """
-        # http://www.regular-expressions.info/floatingpoint.html
-        reg_flt = re.compile('[-+]?[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?.')
-        ttime = self.total_time
-        with open(tfile) as tkn:
-            # this is ugly, but used to check if we're at the last line
-            prevcourse = []
-            tknlines = tkn.readlines()
-            for line in tknlines:
-                if reg_flt.match(line):
-                    course = list(map(float, line.strip().split()))
-                    time = course[0]
-                    # softmap hack:
-                    # preprocess the timeline by merging all states
-                    if softmap:
-                        macrostates = [0] * len(course)
-                        macromap = dict()
-                        for e, occu in enumerate(course[1:]):
-                            ss = snodes[e][0]
-                            # map occupancy to (energetically better)
-                            if ss in softmap:
-                                mapss = softmap[ss]     # set of mapss
-                                mapids = [macromap[ma] for ma in mapss]
-                            else:
-                                # we *must* have seen this state before, given
-                                # there are no degenerate sorting errors...
-                                mapids = [e + 1]
-                                macromap[ss] = mapids[0]
-                            for mapid in mapids:
-                                macrostates[mapid] += occu/len(mapids)
-                        course[1:] = macrostates[1:]
-                    for e, occu in enumerate(course[1:]):
-                        # is it above visibility threshold?
-                        ss = snodes[e][0]
-                        sss = ss[0:self._transcript_length]
-                        yield self.nodes[ss]['identity'], ttime + time, occu, \
-                            sss, self.nodes[ss]['energy']
-                    prevcourse = course
-        return
 
 def open_fraying_helices(seq, ss, free = 6):
     """ Generate structures with opened fraying helices. 
@@ -594,5 +199,523 @@ def open_fraying_helices(seq, ss, free = 6):
     rec_fill_nbrs(ss, nbr, pt, (0, len(ss)), free)
     nbrs.add(''.join(nbr))
     return nbrs
+
+def find_fraying_neighbors(seq, md, parents, mfree = 6):
+    """ 
+    Returns:
+        dict: new_nodes[parent]=set(neigbors)
+    """
+    future = '.' * (len(parents[0]) - len(seq))
+    # Keep track of all nodes and how they are related to parents.
+    new_nodes = dict() 
+    for ni in parents:
+        # short secondary structure (without its future)
+        sss = ni[0:len(seq)]
+        assert len(sss + future) == len(parents[0])
+        # compute a set of all helix fraying open steps
+        opened = open_fraying_helices(seq, sss, mfree)
+        # Do a constrained exterior loop folding for all fraying structures
+        connected = set() 
+        for onbr in opened:
+            nbr, _ = fold_exterior_loop(seq, onbr, md)
+            nbr += future
+            connected.add(nbr)
+        connected.discard(ni) # remove the parent
+        new_nodes[ni] = connected
+    return new_nodes
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+# Custom error definitions                                                     #
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+class TrafoUsageError(Exception):
+    pass
+
+class TrafoAlgoError(Exception):
+    pass
+
+class DebuggingAlert(Exception):
+    pass
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+# Transformer Landscape Object                                                 #
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+class TrafoLandscape(RiboLandscape):
+    def __init__(self, *kargs, **kwargs):
+        super(TrafoLandscape, self).__init__(*kargs, **kwargs)
+
+        # Calculate full backtracking matrix for all subsequent MFE runs.
+        _ = self.fc.mfe()
+
+        # Private instance variables:
+        self._transcript_length = 0
+        self._cg_edges = dict()
+
+        # TODO
+        self.total_time = 0
+
+        # Default parameters:
+        self.k0 = 2e5 # set directly
+        self.minh = 0 # [dcal/mol] set using t_fast
+        self.maxh = 0 # [dcal/mol] set using t_slow
+        self.fpath = 0
+
+    @property
+    def transcript(self):
+        return self.sequence[0:self._transcript_length]
+
+    def addnode(self, *kargs, **kwargs):
+        """ Add a node with specific tags:
+
+        - Active (bool) is to filter a subset of interesting nodes.
+        - Lminreps (set) is to return a set of nodes that are the local minimum
+            reperesentatives of this node.
+        - Hiddennodes (set) is to return a set of nodes that are associated with
+            this local minimum.
+        After coarse graining, a node should have either lminreps or
+        hiddennodes set, but not both. 
+        """
+        if 'active' not in kwargs:
+            kwargs['active'] = True
+        if 'pruned' not in kwargs:
+            kwargs['pruned'] = 0
+        if 'lminreps' not in kwargs:
+            kwargs['lminreps'] = None
+        if 'hiddennodes' not in kwargs:
+            kwargs['hiddennodes'] = None
+        if 'occtransfer' not in kwargs:
+            kwargs['occtransfer'] = None
+        super(TrafoLandscape, self).addnode(*kargs, **kwargs)
+
+    @property
+    def cg_edges(self):
+        return self._cg_edges
+
+    def has_edge(self, s1, s2, cg = False):
+        # Function overload to allow a set of coarse grained edges.
+        return ((s1, s2) in self.cg_edges) if cg else ((s1, s2) in self.edges)
+
+    def get_saddle(self, s1, s2):
+        """ Returns the saddle energy of a transition edge.  """
+        return self.edges[(s1, s2)]['saddle_energy'] if self.has_edge(s1, s2, cg = False) else None
+
+    def get_cg_saddle(self, s1, s2):
+        """ Returns the saddle energy of a coarse grained transition edge.  """
+        return self.cg_edges[(s1, s2)]['saddle_energy'] if self.has_edge(s1, s2, cg = True) else None
+
+    @property
+    def local_mins(self):
+        for n in self.nodes:
+            if not self.nodes[n]['lminreps']:
+                yield n
+
+    @property
+    def active_local_mins(self):
+        for n in self.nodes:
+            if self.nodes[n]['active'] and not self.nodes[n]['lminreps']:
+                yield n
+    @property
+    def hidden_nodes(self):
+        for n in self.nodes:
+            if self.nodes[n]['lminreps']:
+                yield n
+
+    @property
+    def active_nodes(self):
+        for n in self.nodes:
+            if self.nodes[n]['active']:
+                yield n
+
+    @property
+    def inactive_nodes(self):
+        for n in self.nodes:
+            if not self.nodes[n]['active']:
+                assert self.nodes[n]['active'] is False
+                yield n
+
+    def expand(self, extend = 1, mfree = 6):
+        """ Find new secondary structures and determine their neighborhood in the landscape.
+
+        The function adds to types of new structures: 
+            1) The mfe structure for the current sequence length.
+            2) The helix-fraying of all currently active structures.
+
+        Args:
+            extend (int, optional): number of nucleotide extensions before graph
+                expansion (updates the global variable transcript length). Defaults to 1.
+            mfree (int, optional): minimum number of freed bases during a
+                helix-opening step. Defaults to 6.
+
+        Returns:
+            int: Number of new nodes
+        """
+        rlog.info(f'Expand: {len(self.nodes)} extend = {extend} mfree = {mfree}')
+        fseq = self.sequence
+        self._transcript_length += extend
+        if self._transcript_length > len(fseq):
+            self._transcript_length = len(fseq)
+        seq = self.transcript
+
+        fc = self.fc
+
+        # Calculate MFE of current transcript.
+        mfess, _ = fc.backtrack(len(seq))
+        future = '.' * (len(fseq) - len(seq))
+        mfess = mfess + future
+
+        # If there is no node because we are in the beginning, add the node.
+        if len(self.nodes) == 0: 
+            self.addnode(mfess, structure = mfess, occupancy = 1)
+            nn = set([mfess])
+        else: 
+            md = self.md
+            parents = list(self.active_nodes)
+            fraying_nodes = find_fraying_neighbors(seq, md, parents, mfree = 6)
+
+            # 1) Add all new structures to the set of nodes.
+            nn = 0
+            if mfess not in self.nodes:
+                self.addnode(mfess, structure = mfess)
+                nn += 1
+            self.nodes[mfess]['active'] = True
+            for fns in fraying_nodes.values():
+                for fn in fns:
+                    if fn not in self.nodes:
+                        self.addnode(fn, structure = fn)
+                        nn += 1
+                    self.nodes[fn]['active'] = True
+
+            ndata = {n: d for n, d in self.nodes.items() if d['active']} # active and inactive?
+            edges = set()
+            # 2) Include edge-data from previous network.
+            edata = {k: v for k, v in self.edges.items()}
+            while 1 < 2:
+                rlog.debug(f'Finding guide neighborhood for {len(ndata)=}.')
+                gedges = guiding_neighborhood(list(ndata.keys()), k = None)
+                rlog.debug(f' - Found {len(gedges)} guide edges, {len(edata)} edges are known from previous runs.')
+                edges, new_edata, ndata = neighborhood_flooding(fseq, md, gedges, ndata, 
+                                                                minh = self.minh, 
+                                                                maxh = self.maxh, 
+                                                                edata = edata)
+                # Select the next generation of edata: Known edges and edges which are not *new*.
+                for (x, y) in gedges:
+                    # For all edges that survived the flooding...
+                    if (x, y) in new_edata:
+                        # ... keep (only) them as known edges.
+                        edata[(x, y)] = {'saddle_energy': new_edata[(x, y)]['saddle_energy']}
+                if all(e in gedges for e in edges):
+                    # No new edges, no new nodes ...
+                    break
+
+            rlog.debug(f'Last run: flooding of {len(edges)=} edges.')
+            edges, edata, ndata = neighborhood_flooding(fseq, md, edges, ndata, 
+                                                        minh = self.minh, 
+                                                        maxh = self.maxh, 
+                                                        edata = edata)
+            # 3) Extract new node data.
+            for node in ndata:
+                if node not in self.nodes:
+                    self.addnode(node, structure = node, energy = ndata[node]['energy'])
+                    nn += 1
+                self.nodes[node]['active'] = True
+                assert self.nodes[node]['energy'] == ndata[node]['energy']
+
+            # 4) Update to new edges.
+            old_edges = self.edges
+            self._edges = dict()
+            for (x, y) in edata:
+                if (x, y) in old_edges:
+                    assert old_edges[(x, y)]['saddle_energy'] == edata[(x, y)]['saddle_energy']
+                    self._edges[(x, y)] = old_edges[(x, y)]
+                else:
+                    se = edata[(x, y)]['saddle_energy']
+                    self.addedge(x, y, saddle_energy = se)
+        return nn
+
+    def get_coarse_network(self, minh = None):
+        """ Produce a smaller graph of local minima and best connections.
+
+        active vs inactive: is useful because we might have to assign IDs for simulation.
+        Structures disappear and reappear, so we keep a history of inactive nodes before
+        finally deleting them.
+        """
+        if minh is None:
+            minh = self.minh
+
+        ndata = dict()
+        for n in self.nodes: 
+            self.nodes[n]['lminreps'] = set()
+            self.nodes[n]['hiddennodes'] = set()
+            # Because this node remained inactive during graph expansion, we
+            # can now safely transfer its occupancy.
+            if not self.nodes[n]['active'] and self.nodes[n]['occupancy'] != 0:
+                for tn in self.nodes[n]['occtransfer']:
+                    assert self.nodes[tn]['active']
+                    self.nodes[tn]['occupancy'] += self.nodes[n]['occupancy']/len(self.nodes[n]['occtransfer'])
+                self.nodes[n]['occupancy'] = 0
+        ndata = {n: d for n, d in self.nodes.items() if d['active']} # only active.
+        cg_ndata, cg_edata = neighborhood_coarse_graining(ndata, self.edges, minh)
+        assert all((n in ndata) for n in cg_ndata)
+
+        # Translate coarse grain results to TL.
+        self._cg_edges = dict()
+        for (x, y) in cg_edata:
+            se = cg_edata[(x, y)]['saddle_energy']
+            ex = cg_ndata[x]['energy']
+            bar = (se-ex) / 100
+            self._cg_edges[(x, y)] = {'saddle_energy': se,
+                                      'weight': self.k0 * math.e**(-bar/self.RT)}
+
+        for lmin, data in cg_ndata.items():
+            assert self.nodes[lmin]['active']
+            for hn in data['hiddennodes']:
+                assert self.nodes[hn]['active']
+                self.nodes[hn]['lminreps'].add(lmin)
+            self.nodes[lmin]['hiddennodes'] = data['hiddennodes']
+
+        # Move occupancy to lmins.
+        for hn in self.hidden_nodes:
+            if not self.nodes[n]['active']:
+                assert self.nodes[n]['occupancy'] == 0
+            if self.nodes[hn]['occupancy']:
+                for lrep in self.nodes[hn]['lminreps']:
+                    self.nodes[lrep]['occupancy'] += self.nodes[hn]['occupancy']/len(self.nodes[hn]['lminreps'])
+            self.nodes[hn]['occupancy'] = 0
+        return len(cg_ndata), len(cg_edata)
+
+    def get_simulation_files_tkn(self, basename):
+        """ Print a rate matrix and the initial occupancy vector.
+
+        Overwrites: Ribolands.get_simulation_files_tkn()
+
+        This function prints files and parameters to simulate dynamics using the
+        commandline tool treekin. A *.bar file contains a sorted list of present
+        structures, their energy and their neighborhood and the corresponding
+        energy barriers. A *.rts or *.rts.bin file contains the matrix of
+        transition rates either in text or binary format. Additionaly, it returns
+        a vector "p0", which contains the present occupancy of structures. The
+        order or elements in p0 contains
+
+        Note:
+          A *.bar file contains the energy barriers to all other nodes in the
+          graph. So it is not the same as a "classic" barfile produce by
+          barriers.
+
+        Args:
+          basename (str): Basename of output files.
+
+        Returns:
+
+        """
+        seq = self.transcript
+        snodes = sorted(self.active_local_mins, key = lambda x: self.nodes[x]['energy'])
+        num = len(snodes) + 1
+
+        bofile = basename + '_lands.bar'
+        brfile = basename + '_rates.txt'
+        bbfile = basename + '_rates.bin'
+        p0 = []
+
+        with open(bofile, 'w') as bar, open(brfile, 'w') as rts, open(bbfile, 'wb') as brts:
+            bar.write("  ID {}  Energy  {}\n".format(seq, 
+                ' '.join(map("{:7d}".format, range(1, num)))))
+            brts.write(pack("i", len(snodes)))
+            for ni, node in enumerate(snodes, 1):
+                ne = self.nodes[node]['energy']
+                no = self.nodes[node]['occupancy']
+
+                # Calculate barrier heights to all other basins.
+                barstr = ''
+                for other in snodes:
+                    oe = self.nodes[other]['energy']
+                    sE = self.get_cg_saddle(node, other)
+                    if sE is not None:
+                        barstr += ' {:7.2f}'.format((sE - ne)/100)
+                    else:
+                        barstr += ' {:7.2f}'.format(float('nan'))
+
+                # Print structures and neighbors to bfile:
+                bar.write("{:4d} {} {:7.2f} {}\n".format(ni, node[:len(seq)], ne/100, barstr))
+
+                # Add ni occupancy to p0
+                if no > 0:
+                    p0.append("{}={}".format(ni, no))
+
+                # Print rate matrix to rfile and brfile
+                trates = []
+                rates = []
+                for other in snodes:
+                    if self.has_edge(node, other, cg = True):
+                        rates.append(self.cg_edges[(node, other)]['weight'])
+                        trates.append(self.cg_edges[(other, node)]['weight'])
+                    else:
+                        rates.append(0)
+                        trates.append(0)
+                line = "".join(map("{:10.4g}".format, rates))
+                rts.write("{}\n".format(line))
+                for r in trates:
+                    brts.write(pack("d", r))
+        return snodes, bbfile, brfile, bofile, p0
+
+    def update_occupancies_tkn(self, tfile, snodes):
+        """
+          Update the occupancy in the Graph and the total simulation time
+        """
+        with open(tfile, 'rb') as f:
+            f.seek(-2, os.SEEK_END)
+            skipchar = False
+            while True:
+                if not skipchar and f.read(1) == b'\n':
+                    fchar = f.read(1)
+                    if fchar == b'#':
+                        skipchar = True
+                    else:
+                        break
+                else:
+                    skipchar = False
+                f.seek(-2, os.SEEK_CUR)
+            last_line = fchar.decode() + f.readline().decode()
+
+        ll = list(map(float, last_line.split()))
+        time, occus = ll[0], ll[1:]
+        tot_occ = sum(occus)
+        for e, occu in enumerate(occus):
+            ss = snodes[e]
+            self.nodes[ss]['occupancy'] = occu/tot_occ
+        return time
+
+    def prune(self, pmin):
+        """ 
+        We prune by base-pair distance to active nodes... 
+
+        Identify the nodes we have to keep, either because they are
+        occupied local minima, or because they are basins connecting
+        occupied local minima.
+
+        """
+        rlog.info(f'Pruning: pmin = {pmin}')
+        new_inactive_lms = []
+        for lm in self.active_local_mins:
+            if self.nodes[lm]['occupancy'] >= pmin:
+                rlog.debug(f'Keep: {lm}')
+                continue
+            for hn in self.nodes[lm]['hiddennodes']:
+                assert self.nodes[hn]['occupancy'] == 0
+                self.nodes[hn]['active'] = False
+            self.nodes[lm]['active'] = False
+            new_inactive_lms.append(lm)
+
+        def get_active_nbrs(lm, forbidden = None):
+            if forbidden is None:
+                forbidden = set()
+            forbidden.add(lm)
+            found = False
+            remaining = []
+            for (x, y) in self.cg_edges:
+                assert x != y
+                if x == lm and y not in forbidden:
+                    if self.nodes[y]['active']:
+                        found = True
+                        yield y
+                    else:
+                        remaining.append(y)
+            if not found:
+                for r in remaining:
+                    assert self.nodes[r]['active'] is False
+                    for a in get_active_nbrs(r, forbidden):
+                        yield a
+            return
+
+        #for (x, y) in self.cg_edges:
+        #    print(self.nodes[x]['identity'], '->', self.nodes[y]['identity'])
+
+        for lm in new_inactive_lms:
+            if not self.nodes[lm]['active']:
+                # TODO: should it really be all of them?
+                self.nodes[lm]['occtransfer'] = set(get_active_nbrs(lm))
+                #print('occu', lm, '->',  self.nodes[lm]['occtransfer'])
+                assert self.nodes[lm]['occtransfer'] 
+
+
+        for node in list(self.nodes):
+            if self.nodes[node]['active']:
+                self.nodes[node]['pruned'] = 0
+            else:
+                self.nodes[node]['pruned'] += 1
+            rlog.debug(f'After pruning: {node} {self.nodes[node]}')
+            if self.nodes[node]['pruned'] > 3:
+               del self._nodes[node]
+        return
+
+    #def sorted_trajectories_iter(self, snodes, tfile, softmap = None):
+    #    """ Yields the time course information using a treekin output file.
+
+    #    Args:
+    #      snodes (list): a list of nodes sorted by their energy
+    #      tfile (str): treekin-output file name.
+    #      softmap (dict, optional): A mapping to transfer occupancy between
+    #        states. Likely not the most efficient implementation.
+
+    #    Yields:
+    #      list: ID, time, occupancy, structure, energy
+    #    """
+    #    # http://www.regular-expressions.info/floatingpoint.html
+    #    reg_flt = re.compile('[-+]?[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?.')
+    #    ttime = self.total_time
+    #    with open(tfile) as tkn:
+    #        # this is ugly, but used to check if we're at the last line
+    #        prevcourse = []
+    #        tknlines = tkn.readlines()
+    #        for line in tknlines:
+    #            if reg_flt.match(line):
+    #                course = list(map(float, line.strip().split()))
+    #                time = course[0]
+    #                # softmap hack:
+    #                # preprocess the timeline by merging all states
+    #                if softmap:
+    #                    macrostates = [0] * len(course)
+    #                    macromap = dict()
+    #                    for e, occu in enumerate(course[1:]):
+    #                        ss = snodes[e][0]
+    #                        # map occupancy to (energetically better)
+    #                        if ss in softmap:
+    #                            mapss = softmap[ss]     # set of mapss
+    #                            mapids = [macromap[ma] for ma in mapss]
+    #                        else:
+    #                            # we *must* have seen this state before, given
+    #                            # there are no degenerate sorting errors...
+    #                            mapids = [e + 1]
+    #                            macromap[ss] = mapids[0]
+    #                        for mapid in mapids:
+    #                            macrostates[mapid] += occu/len(mapids)
+    #                    course[1:] = macrostates[1:]
+    #                for e, occu in enumerate(course[1:]):
+    #                    # is it above visibility threshold?
+    #                    ss = snodes[e][0]
+    #                    sss = ss[0:self._transcript_length]
+    #                    yield self.nodes[ss]['identity'], ttime + time, occu, \
+    #                        sss, self.nodes[ss]['energy']
+    #                prevcourse = course
+    #    return
+
+    def print_structures(self):
+        for ss in self.sorted_nodes():
+            print(ss, self.nodes[ss]['energy'], 
+                    self.nodes[ss]['identity'], 
+                    self.nodes[ss]['active'], 
+                    '{:.4f}'.format(self.nodes[ss]['occupancy']))
+                    #self.nodes[ss]['hiddennodes'],
+                    #self.nodes[ss]['lminreps'])
+
+    def print_transitions(self, nodes = None):
+        if nodes is None:
+            nodes = self.nodes
+        tl = len(self.transcript)
+
+        for ss1, ss2 in combinations(nodes, 2):
+            for [start, stop, fwb, rvb] in show_flooded_prime_path(self.sequence, ss1, ss2):
+                print(start[:tl], stop[:tl], fwb, rvb)
+            print()
+
 
 

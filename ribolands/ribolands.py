@@ -15,6 +15,7 @@ from crnsimulator import ReactionGraph
 from crnsimulator.crn_parser import parse_crn_string
 
 from ribolands.syswraps import sys_treekin
+from ribolands.utils import Species, tarjans
 
 class RiboLandscapeError(Exception):
     pass
@@ -59,14 +60,19 @@ class RiboLandscape:
     def edges(self):
         return self._edges
 
+    def has_node(self, n):
+        return n in self._nodes
+
     def has_edge(self, s1, s2):
         return (s1, s2) in self._edges
 
     def predecessors(self, node):
-        return self._in_edges[node]
+        for n in self._in_edges[node]:
+            yield n
 
     def successors(self, node):
-        return self._out_edges[node]
+        for n in self._out_edges[node]:
+            yield n
 
     def addnode(self, key, 
                 structure = None, 
@@ -82,9 +88,10 @@ class RiboLandscape:
         """
         assert key not in self._nodes
         if energy is not None:
-            energy = round(float(energy), 2)
+            assert isinstance(energy, int)
+            energy = energy
         elif structure is not None:
-            energy = round(self.fc.eval_structure(structure), 2)
+            energy = int(round(self.fc.eval_structure(structure)*100))
         if identity is None:
             identity = f'{self.prefix}{self.nodeID}'
             self.nodeID += 1
@@ -102,7 +109,6 @@ class RiboLandscape:
         assert n1 in self._nodes
         assert n2 in self._nodes
         if (n1, n2) not in self._edges:
-            assert weight is not None
             self._edges[(n1, n2)] = {'weight': weight}
             self._out_edges[n1].add(n2)
             self._in_edges[n2].add(n1)
@@ -114,6 +120,20 @@ class RiboLandscape:
         if nodes is None:
             nodes = self.nodes
         return sorted(nodes, key = lambda x: self.nodes[x][attribute], reverse = rev)
+
+    def sccs(self, minh = None):
+        def neighbors(node):
+            for nbr in self.successors(node):
+                if minh is not None:
+                    se = self.edges[(node, nbr)]['saddle_energy']
+                    e1 = self.nodes[node]['energy']
+                    if se - e1 > minh:
+                        continue
+                yield nbr
+        species = {n: Species(n) for n in self.nodes}
+        products = {v: list(species[vv] for vv in neighbors(k)) for k, v in species.items()}
+        for scc in tarjans(list(species.values()), products):
+            yield [n.name for n in scc]
 
     def get_rate(self, s1, s2):
         """ Returns the direct transition rate of two secondary structures. """
@@ -213,7 +233,7 @@ class RiboLandscape:
             brts.write(pack("i", len(snodes)))
             for ni, node in enumerate(snodes, 1):
                 ns = self.nodes[node]['structure']
-                ne = self.nodes[node]['energy']
+                ne = self.nodes[node]['energy']/100
                 no = self.nodes[node]['occupancy']
                 
                 # Calculate barrier heights to all other basins.
@@ -221,7 +241,7 @@ class RiboLandscape:
                 if hasattr(self, 'get_saddle'): 
                     for other in snodes:
                         os = self.nodes[other]['structure']
-                        oe = self.nodes[other]['energy']
+                        oe = self.nodes[other]['energy']/100
                         se = self.get_saddle(node, other)
                         if se is not None:
                             barstr += ' {:7.2f}'.format(se - ne)
