@@ -1,135 +1,53 @@
 #!/usr/bin/env python
-
 #
 # DrTransformer.py -- cotranscriptional folding.
 #
-#
 import logging
-
 import os
 import sys
 import math
 import shutil
 import tempfile
 import argparse
-from datetime import datetime
 from packaging import version
-
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-import seaborn
 
 import RNA
 import ribolands as ril
 from ribolands.utils import parse_vienna_stdin
 from ribolands.syswraps import sys_treekin
 from ribolands.syswraps import SubprocessError, ExecError, check_version, VersionError
-from ribolands.crnwrapper import DiGraphSimulator
-from ribolands.trafo import TrafoLandscape, PROFILE
+from ribolands.trafo import TrafoLandscape
 
 def restricted_float(x):
-    x = float(x)
-    if x < 0.0 or x > 1.0:
-        raise argparse.ArgumentTypeError("%r not in range [0.0, 1.0]"%(x,))
-    return x
+    y = float(x)
+    if y < 0.0 or y > 1.0:
+        raise argparse.ArgumentTypeError(f"{x} not in range (0.0, 1.0)")
+    return y
 
-def plot_xmgrace(trajectories, filename):
-    head = """
-@with line
-@line on
-@line loctype world
-@line g0
-@line linewidth .2
-@line linestyle 1
-@line color 7
-@line arrow 0
-@line arrow type 0
-@line arrow length 1.000000
-@line arrow layout 1.000000, 1.000000
-@line def
-"""
-    with open(filename, 'w') as gfh:
-        gfh.write(head)
-        for e, course in enumerate(trajectories):
-            t, o = list(zip(*course))
-            for i in range(len(t)):
-                gfh.write("{:f} {:f}\n".format(t[i], o[i]))
-            gfh.write("&\n")
-    return
+def sorted_trajectories(nlist, tfile, softmap = None):
+    """ Yields the time course information using a treekin output file.
 
+    Args:
+      nlist (list): a list of nodes sorted by their energy
+      tfile (str): treekin-output file name.
+      softmap (dict, optional): A mapping to transfer occupancy between
+        states. Likely not the most efficient implementation.
 
-def plot_simulation(trajectories, 
-        tprofile,
-        fpath,
-        formats = ['pdf'],
-        title = ''):
+    Yields:
+      list: ID, time, occupancy, structure, energy
     """
-    """
-    seaborn.set_style("darkgrid")
-
-    t_end = tprofile[-1]
-
-    # Get the relevant arguments from args
-    lin_time = sum(tprofile[:-1])
-    log_time = lin_time + t_end if (lin_time + t_end) >= lin_time * 10 else lin_time * 10
-
-    # Do the plotting
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    ax.spines['right'].set_visible(False)
-    ax.set_ylim([-0.05, 1.05])
-    ax.set_xscale('linear')
-
-    # Make the second part of the plot logarithmic
-    offset = 0.00001
-    ax.set_xlim((0, lin_time + offset))
-    divider = make_axes_locatable(ax)
-    axLog = divider.append_axes("right", size=2.5, pad=0, sharey=ax)
-    axLog.set_xscale('log')
-    axLog.set_xlim((lin_time + offset, log_time))
-    axLog.set_ylim([-0.05, 1.05])
-    axLog.yaxis.set_visible(False)
-    axLog.spines['left'].set_visible(False)
-
-    for e, course in enumerate(trajectories):
-        if course == []:
-            continue
-        t, o = list(zip(*course))
-        # Determine which lines are part of the legend:
-        # like this, it is only those that are populated
-        # at the end of transcription and if they reach
-        # an occupancy of 10% or higher
-        if t[-1] > lin_time:
-            p, = ax.plot(t, o, '-', lw=1.5)
-            L, = axLog.plot(t, o, '-', lw=1.5)
-            if max(o) >= 0.1:
-                L.set_label("ID {:d}".format(e))
-        else:
-            p, = ax.plot(t, o, '-', lw=0.5)
-            L, = axLog.plot(t, o, '-', lw=0.5)
-
-    fig.set_size_inches(7, 3)
-    fig.text(0.5, 0.95, title, ha='center', va='center')
-
-    #for tlen in range(len(tprofile)-1):
-    #    ax.axvline(x = sum(tprofile[:tlen]), linewidth = 0.01, color = 'black', linestyle = '--')
-
-    # Add ticks for 1 minute, 1 hour, 1 day, 1 year
-    axLog.axvline(x = lin_time, linewidth = 3, color = 'black', linestyle = '-') 
-    axLog.axvline(x = 60, linewidth = 1, color = 'black', linestyle = '--') # 1 minute
-    axLog.axvline(x = 3600, linewidth = 1, color = 'black', linestyle = '--') # 1 hour
-    axLog.axvline(x = 86400, linewidth = 1, color = 'black', linestyle = '--') # 1 day
-    axLog.axvline(x = 31536000, linewidth = 1, color = 'black', linestyle = '--') # 1 year
-    plt.legend()
-
-    ax.set_ylabel('occupancy', fontsize = 11)
-    ax.set_xlabel('time [s]', ha = 'center', va = 'center', fontsize = 11)
-    ax.xaxis.set_label_coords(.9, -0.15)
-
-    for ending in formats:
-        pfile = fpath + '.' + ending
-        plt.savefig(pfile, bbox_inches = 'tight')
-
+    with open(tfile) as tkn:
+        for line in tkn:
+            if line[0] == '#':
+                continue
+            course = list(map(float, line.strip().split()))
+            time = course[0]
+            if softmap:
+                # Combine all results that belong together.
+                raise NotImplementedError('No support for softmap atm.')
+            for e, occu in enumerate(course[1:]):
+                # is it above visibility threshold?
+                yield time, nlist[e], occu 
     return
 
 def parse_model_details(parser):
@@ -154,7 +72,7 @@ def parse_model_details(parser):
     model.add_argument("-P", "--paramFile", action = "store", default = None, metavar = '<str>',
         help = 'Read energy parameters from paramfile, instead of using the default parameter set.')
 
-def add_drtrafo_args(parser):
+def parse_drtrafo_args(parser):
     """ A collection of arguments that are used by DrTransformer """
 
     environ = parser.add_argument_group('DrTransformer dependencies')
@@ -187,6 +105,10 @@ def add_drtrafo_args(parser):
     ########################
     # DrTransformer output #
     ########################
+    output.add_argument("--name", default = '', metavar = '<str>',
+            help = """Name your output files, name the header of your plots, etc.
+            this option overwrites the fasta-header.""")
+
     output.add_argument("--stdout", default = None, action = 'store',
             choices = ('log', 'drf', 'OFF'),
             help = """Choose STDOUT formats to follow the cotranscriptional
@@ -194,6 +116,10 @@ def add_drtrafo_args(parser):
             format.  *drf*: DrForna visalization input format. *OFF*: actively
             suppress output. The default (None) switches between *OFF*, if --logfile is
             specified, or *log* otherwise.""")
+
+    output.add_argument("--logfile", action = "store_true",
+            help = """Write verbose information to a file:
+            {--outdir}/{--name}.log""")
 
     output.add_argument("--tmpdir", default = '', action = 'store', metavar = '<str>',
             help = """Specify path for storing temporary output files. These
@@ -204,36 +130,12 @@ def add_drtrafo_args(parser):
             help = """Place regular output files, into this directory. Creates
             the directory if it does not exist. """)
 
-    output.add_argument("--name", default = '', metavar = '<str>',
-            help = """Name your output files, name the header of your plots, etc.
-            this option overwrites the fasta-header.""")
-
-    output.add_argument("--logfile", action = "store_true",
-            help = """Write verbose information to a file:
-            {--outdir}/{--name}.log""")
-
-    output.add_argument("--visualize", nargs = '+', default = '', action = 'store',
-            choices = ('pdf', 'svg', 'png', 'gr', 'drf'),
-            help = """Plot the simulation using matplotlib (pdf, svg, png) and/or
-            write an input file for xmgrace (gr) and/or write an input file for
-            DrForna (drf). Interpret the legend using STDOUT or --logfile.
-            Files: {--outdir}/{--name}.{--visualize}""")
+    output.add_argument("--no-timecourse", action = "store_true",
+            help = """Do not produce the time-course file (outdir/name.drf).""")
 
     output.add_argument("--t-inc", type = float, default = 1.2, metavar = '<flt>',
             help = """Adjust the plotting time resolution via the time-increment of
             the solver (t1 * t-inc = t2).""")
-
-    output.add_argument("--plot-minh", type = float, default = 0, metavar = '<flt>',
-            help = """Reduce the resolution of visualized structures. This
-            parameter merges structures which are separated by a barrier
-            smaller than --plot-minh *for visualzation only*. The dynamics will
-            still be caculated based on the more detailed network. This
-            parameter can only be effectve if it leads to a stronger
-            coarse-graining than the simulation paramter --t-fast.  
-            
-            This parameter corresponds to folding time as: 
-            t = 1/(k0*exp(-dG/RT)), where dG is the parameter --plot-minh.
-            E.g.  --plot-minh: 5.1 kcal/mol ~=  0.02 s [default t-ext]. """)
 
     output.add_argument("--draw-graphs", action = "store_true",
             #help = """Export every landscape as json file. Uses --tempdir. """)
@@ -269,10 +171,6 @@ def add_drtrafo_args(parser):
     ###########################
     # DrTransformer algorithm #
     ###########################
-    algo.add_argument("--track-basins", type = float, default = None, metavar = '<flt>',
-            # Specify a number of basins to follow, and adjust coares-graining accordingly.
-            help = argparse.SUPPRESS)
-
     algo.add_argument("--o-min", type = restricted_float, default = 0.1, metavar = '<flt>',
             help = """Occupancy threshold to determine which structures are
             relevant when transcribing a new nucleotide. A structure with
@@ -291,6 +189,12 @@ def add_drtrafo_args(parser):
             # An alternative to specify --t-fast in terms of a barrier height.
             help = argparse.SUPPRESS)
 
+    algo.add_argument("--t-slow", type = float, default = None, metavar = '<flt>',
+            help = """Only accept new structures as neighboring conformations if
+            the transition is faster than --t-slow. This parameter may be
+            useful to prevent numeric instabilities, otherwise, better avoid
+            it.""")
+
     algo.add_argument("--maxh", type = float, default = None, metavar = '<flt>',
             # An alternative to specify --t-fast in terms of a barrier height.
             help = argparse.SUPPRESS)
@@ -299,25 +203,21 @@ def add_drtrafo_args(parser):
             # Enforce a setting against all warnings.
             help = argparse.SUPPRESS)
 
-    algo.add_argument("--t-slow", type = float, default = None, metavar = '<flt>',
-            help = """Only accept new structures as neighboring conformations if
-            the transition is faster than --t-slow. This parameter may be
-            useful to prevent numeric instabilities, otherwise, better avoid
-            it.""")
+    # NOTE: findpath width is flexible by default, easy to implement though.
+    #algo.add_argument("--findpath-search-width", type = int, default = 0, metavar = '<int>',
+    #        help = """Search width for the *findpath* heuristic. Higher values
+    #        increase the chances to find energetically better transition state
+    #        energies.""")
 
-    algo.add_argument("--findpath-search-width", type = int, default = 0, metavar = '<int>',
-            help = """Search width for the *findpath* heuristic. Higher values
-            increase the chances to find energetically better transition state
-            energies.""")
-
-    algo.add_argument('--structure-search-mode', default = 'default',
-            choices = ('default', 'fullconnect'),
-            help = argparse.SUPPRESS)
-            #help = """Specify one of three modes: *default*: find new secondary
-            #structures using both the current MFE structure and fraying
-            #neighbors.  *mfe-only*: only find the current MFE structure at
-            #every transcription step.  *fraying-only*: only find local
-            #fraying neighbors at every transcription step.""")
+    # NOTE: there is only one mode available right now.
+    #algo.add_argument('--structure-search-mode', default = 'default',
+    #        choices = ('default', 'fullconnect'),
+    #        help = argparse.SUPPRESS)
+    #        #help = """Specify one of three modes: *default*: find new secondary
+    #        #structures using both the current MFE structure and fraying
+    #        #neighbors.  *mfe-only*: only find the current MFE structure at
+    #        #every transcription step.  *fraying-only*: only find local
+    #        #fraying neighbors at every transcription step.""")
 
     algo.add_argument("--min-fraying", type = int, default = 6, metavar = '<int>',
             help = """Minimum number of freed bases during helix fraying.
@@ -332,26 +232,7 @@ def add_drtrafo_args(parser):
             help = """Arrhenius rate constant (pre-exponential factor). Adjust
             this constant of the Arrhenius equation to relate free energy
             changes to experimentally determined folding time [seconds].""")
-
-    # DEPRECATED
-    algo.add_argument("--min-occupancy", type = restricted_float, default = None, metavar = '<flt>',
-            help = argparse.SUPPRESS)
-
-    output.add_argument("--soft-minh", type = float, default = 0, metavar = '<flt>',
-            #NOTE: Deprecated: use --plot-minh!
-            help = argparse.SUPPRESS)
-
-    output.add_argument("--tinc", type = float, default = None, metavar = '<flt>',
-            #NOTE: Deprecated: use --t-inc!
-            help = argparse.SUPPRESS)
-
-    # TESTING
-    algo.add_argument("--fake-pruning", type = float, default = None, metavar = '<flt>',
-            # An alternative to specify --t-fast in terms of a barrier height.
-            help = argparse.SUPPRESS)
-
     return
-
 
 def write_output(data, stdout = False, fh = None):
     # Helper function to print data to filehandle, STDOUT, or both.
@@ -377,7 +258,7 @@ def main():
     parser = argparse.ArgumentParser(
         formatter_class = argparse.ArgumentDefaultsHelpFormatter,
         description = 'DrTransformer: RNA folding kinetics during transcription.')
-    add_drtrafo_args(parser)
+    parse_drtrafo_args(parser)
     parse_model_details(parser)
     args = parser.parse_args()
 
@@ -398,19 +279,6 @@ def main():
 
     (name, fullseq) = parse_vienna_stdin(sys.stdin, chars='ACGUNacgun')
 
-    # Argument deprecation warnings
-    if args.tinc:
-        logger.warning('Argument --tinc is deprecated, please use --t-inc.')
-        args.t_inc = args.tinc
-
-    if args.soft_minh:
-        logger.warning('Argument --soft-minh is deprecated, please use --plot-minh.')
-        args.plot_minh = args.soft_minh
-
-    if args.min_occupancy:
-        logger.warning('Argument --min-occupancy is deprecated, please use --o-min.')
-        args.o_min = args.min_occupancy
-
     # Adjust arguments, prepare simulation
     if args.name == '':
         args.name = name
@@ -424,13 +292,11 @@ def main():
         if not os.path.exists(args.outdir):
             os.makedirs(args.outdir)
         filepath = args.outdir + '/' + args.name
-    else :
+    else:
         filepath = args.name
 
-    dfh = open(filepath + '.drf', 'w') if 'drf' in args.visualize else None
+    dfh = open(filepath + '.drf', 'w') if not args.no_timecourse else None
     lfh = open(filepath + '.log', 'w') if args.logfile else None
-
-    args.pyplot = [x for x in args.visualize if x not in ('drf')]
 
     # Adjust filehandle-stuff
     if args.stdout is None and lfh is None:
@@ -487,7 +353,6 @@ def main():
     # t0 = first simulation output time (<< t8)
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
-    # Compare --t-fast, --t-slow, --t-ext and --t-end :
     if args.t_fast:
         assert args.minh is None
         args.minh = max(0, -_RT * math.log(1 / args.t_fast / args.k0))
@@ -509,14 +374,16 @@ def main():
                     f'and {1/args.t_slow} /s rate at k0 = {args.k0}')
 
     if not args.force and args.t_fast and args.t_fast * 10 > args.t_ext:
-        raise SystemExit('ERROR: Conflicting Settings: ' + \
-                'Arguments must be such that "--t-fast" * 10 > "--t-ext"\n' + \
-                'The rate for equilibration must be at least 10x faster than for nucleotide extension. You may use --force to ignore this error.')
+        raise SystemExit('ERROR: Conflicting Settings: ' + 
+                'Arguments must be such that "--t-fast" * 10 > "--t-ext".\n' + 
+                '       => An instant folding time must be at least 10x shorter than ' +
+                'the time of nucleotide extension. You may use --force to ignore this setting.')
 
     if not args.force and args.t_slow and args.t_end * 100 > args.t_slow:
-        raise SystemExit('ERROR: Conflicting Settings: ' + \
-                'Arguments must be such that "--t-slow" < "--t-end" * 100\n' + \
-                'A negligible rate must be at least 100x slower than the final simulation time --t-end. You may use --force to ignore this error.')
+        raise SystemExit('ERROR: Conflicting Settings: ' + 
+                'Arguments must be such that "--t-slow" < 100 * "--t-end".\n' + 
+                '       => A negligibly long folding time must be at least 100x longer than ' +
+                'the final simulation time. You may use --force to ignore this error.')
 
     try:
         check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
@@ -527,7 +394,9 @@ def main():
         raise VersionError('ViennaRNA', RNA.__version__, ril._MIN_VIENNARNA_VERSION)
 
     ############################
+    # ~~~~~~~~~~~~~~~~~~~~~~~~ #
     # Start with DrTransformer #
+    # ~~~~~~~~~~~~~~~~~~~~~~~~ #
     ############################
 
     if args.paramFile:
@@ -536,16 +405,14 @@ def main():
     # Set model details.
     vrna_md = RNA.md()
     vrna_md.noLP = 1
+    vrna_md.logML = 0
     vrna_md.temperature = args.temp
     vrna_md.dangles = args.dangles
-    vrna_md.logML = 0
     vrna_md.special_hp = not args.noTetra
     vrna_md.noGU = args.noGU
     vrna_md.noGUclosure = args.noClosingGU
     #vrna_md.gquad = 0 G-Quads cannot be turned on.
 
-    if args.pyplot:
-        all_courses = []
 
     # Write logging output
     if args.stdout == 'log' or lfh:
@@ -563,7 +430,7 @@ def main():
         fdata += "# --o-min: {}\n".format(args.o_min)
         fdata += "# --t-fast: {} sec\n".format(args.t_fast)
         fdata += "# --t-slow: {} sec\n".format(args.t_slow)
-        fdata += "# --findpath-search-width: {}\n".format(args.findpath_search_width)
+        #fdata += "# --findpath-search-width: {}\n".format(args.findpath_search_width)
         fdata += "# --min-fraying: {} nuc\n".format(args.min_fraying)
         fdata += "# --k0: {}\n".format(args.k0)
         fdata += "#\n"
@@ -577,13 +444,16 @@ def main():
         fdata += "#\n"
         fdata += "#\n"
         fdata += "# Results:\n"
-        fdata += "# Tanscription Step | Energy-sorted structure index | Structure | Energy | Occupancy | Structure ID (-> Plotting ID)\n"
+        fdata += "# Tanscription Step | Energy-sorted structure index | Structure | Energy "
+        fdata += "| [Occupancy-t0 Occupancy-t8] | Structure ID (-> Plotting ID)\n"
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
 
     # Write DrForna output
     if args.stdout == 'drf' or dfh:
+        # Dictionary to store time course data.
+        all_courses = dict()
         fdata = "id time conc struct energy\n"
-        write_output(fdata, stdout=(args.stdout == 'drf'), fh = dfh)
+        write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
 
     # initialize a directed conformation graph
     TL = TrafoLandscape(fullseq, vrna_md)
@@ -592,9 +462,6 @@ def main():
     TL.maxh = int(round(args.maxh*100)) if args.maxh else 0
     TL._transcript_length = args.start - 1
 
-    #import statprof
-    #statprof.start()
-
     tprofile = []
     psites = dict()
     if args.pause_sites:
@@ -602,229 +469,147 @@ def main():
             site, pause = term.split('=')
             psites[int(site)] = float(pause)
 
-    #if args.verbose:
-    #    atime = datetime.now()
-
-    # now lets start...
-    tnorm, tplusI, texpo, tfail, tfake = 0, 0, 0, 0, 0 # treekin stats
+    #############
+    # ~~~~~~~~~ #
+    # Main loop #
+    # ~~~~~~~~~ #
+    #############
     for tlen in range(args.start, args.stop):
+        time = TL.total_time
         # Get new nodes and connect them.
-        nn = TL.expand()
+        logger.info(f'Expanding from {len(list(TL.active_local_mins))} local minima. ' + 
+                    f'{len(list(TL.active_nodes))=} {len(list(TL.inactive_nodes))=}.')
+        nn = TL.expand(mfree = args.min_fraying)
+        logger.info(f'Found {len(nn)} new nodes during expansion.')
         cn, ce = TL.get_coarse_network()
-        logger.info(f'New nodes = {nn}, Simulation nodes = {cn}, Simulation edges = {ce}.')
+        logger.info(f'Simulation network size: nodes = {cn}, edges = {ce}.')
 
-        #if args.pyplot:
-        #    ttt = CG.total_time
-        #    if ttt == 0:
-        #        all_courses.extend([[] for i in range(len(nn))]) # len(nn) is likely to cause a bug, let's use IDs
-        #    else:
-        #        all_courses.extend([[(ttt, 0)] for i in range(len(nn))])
-
-        ############
+        # ~~~~~~~~ #
         # Simulate #
-        ############
+        # ~~~~~~~~ #
         _fname = _tmpdir + '/' + name + '-' + str(tlen)
         _t0 = args.t0
-
         if tlen == args.stop - 1:
             _t8 = args.t_end 
         else: 
             _t8 = psites[tlen] if tlen in psites else args.t_ext
         tprofile.append(_t8)
-
         # Fallback mode: Python solver.
         (t_lin, t_log) = (None, args.t_log) if tlen == args.stop - 1 else (args.t_lin, None)
 
-        # produce input for treekin simulation
+        # Produce input for treekin simulation
         nlist, bbfile, brfile, bofile, p0 = TL.get_simulation_files_tkn(_fname) 
+        # Store the occupancy before the simulation for logfile output.
+        odict = {n: TL.nodes[n]['occupancy'] for n in nlist}
 
-        # TODO: LATER!
-        softmap = dict()
-        #if args.plot_minh and args.plot_minh > CG._dG_min:
-        #    copyCG = CG.graph_copy()
-        #    softmap = copyCG.coarse_grain(dG_min=args.plot_minh)
-        #    del copyCG
-
-        # Print the current state *before* the simulation starts.
-        if args.stdout == 'log' or lfh:
-            for e, node in enumerate(nlist, 1):
-                ne = TL.nodes[node]['energy']/100
-                no = TL.nodes[node]['occupancy']
-                ni = TL.nodes[node]['identity']
-                sm = '-> {}'.format([TL.nodes[tr]['identity'] for tr in softmap[node]]) if node in softmap else ''
-                fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:s} {:s}\n".format(
-                    tlen, e, node[:tlen], ne, no, ni, sm)
+        if len(nlist) == 1: # Fake simulation.
+            node = nlist[0]
+            ne = TL.nodes[node]['energy']/100
+            no = TL.nodes[node]['occupancy']
+            ni = TL.nodes[node]['identity']
+            ss = node[:tlen]
+            if args.stdout == 'log' or lfh:
+                fdata = f"{tlen:4d} {1:4d} {ss} {ne:6.2f} [{no:6.4f} -> {no:6.4f}] ID = {ni}\n"
                 write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
-
-        #if args.verbose:
-        #    itime = datetime.now()
-
-        dn, sr, rj = 0, 0, 0
-        if len(nlist) == 1:
-            # Fake simulation results for DrForna
-            tfake += 1
-            TL.total_time += _t8
             if args.stdout == 'drf' or dfh:
-                ss = nlist[0]
-                fdata = "{:d} {:03.9f} {:03.4f} {:s} {:6.2f}\n".format(TL.nodes[ss]['identity'],
-                        TL.total_time, 1.0, ss[:len(TL.transcript)], TL.nodes[ss]['energy'])
+                #if ni not in all_courses:
+                #    all_courses[ni] = [(time, 0)]
+                #    fdata = f"{ni} {time:03.9f} {0:03.4f} {ss} {ne:6.2f}\n"
+                #    write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
+                all_courses[ni] = [(time + _t8, 1)]
+                fdata = f"{ni} {time+_t8:03.9f} {no:03.4f} {ss} {ne:6.2f}\n"
                 write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
-
-            if args.pyplot:
-                ss = nlist[0]
-                ident = TL.nodes[ss]['identity']
-                all_courses[ident].append((TL.total_time, 1.0))
-
-        else:
-            try:  # - Simulate with treekin
+            TL.total_time += _t8
+            continue
+        try:  # - Simulate with treekin
+            tfile, _ = sys_treekin(_fname, bbfile,
+                    treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
+                    binrates = True, mpack_method = args.mpack_method, quiet = True,
+                    exponent = False, useplusI = False, force = True)
+        except SubprocessError:
+            try:  # - Simulate with treekin and --exponent
                 tfile, _ = sys_treekin(_fname, bbfile,
                         treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
                         binrates = True, mpack_method = args.mpack_method, quiet = True,
-                        exponent = False, useplusI = False, force = True)
-                tnorm += 1
+                        exponent = True, useplusI = False, force = True)
             except SubprocessError:
-                try:  # - Simulate with treekin and --exponent
+                try:  # - Simulate with treekin and --useplusI
                     tfile, _ = sys_treekin(_fname, bbfile,
                             treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
                             binrates = True, mpack_method = args.mpack_method, quiet = True,
-                            exponent = True, useplusI = False, force = True)
-                    texpo += 1
+                            exponent = True, useplusI = True, force = True)
                 except SubprocessError:
-                    try:  # - Simulate with treekin and --useplusI
-                        tfile, _ = sys_treekin(_fname, bbfile,
-                                treekin = args.treekin, p0 = p0, t0 = _t0, ti = args.t_inc, t8 = _t8,
-                                binrates = True, mpack_method = args.mpack_method, quiet = True,
-                                exponent = True, useplusI = True, force = True)
-                        tplusI += 1
-                    except SubprocessError:
-                        raise SystemExit(f"After {tlen} nucleotides: treekin cannot find a solution!")
-                        tfail += 1
+                    raise SystemExit(f"After {tlen} nucleotides: treekin cannot find a solution!")
 
-            ## NOTE: Enable this hack to avoid treekin simulations in the first place
-            #except ExecError as e:
-            #    _odename = name + str(tlen)
-            #    _t0 = args.t0  if args.t0 > 0 and t_log else 1e-6
-            #    tfile = DiGraphSimulator(CG, _fname, nlist, p0, _t0, _t8,
-            #                             t_lin = t_lin,
-            #                             t_log = t_log)
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+        # Process simulation results #
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+        # Update occupancies from treekin results. 
+        time_inc = TL.update_occupancies_tkn(tfile, nlist)
 
-            # Get Results
-            time_inc = TL.update_occupancies_tkn(tfile, nlist)
+        # Print the current state *after* the simulation.
+        if args.stdout == 'log' or lfh:
+            for e, node in enumerate(nlist, 1):
+                ne = TL.nodes[node]['energy']/100
+                po = odict[node]
+                no = TL.nodes[node]['occupancy']
+                ni = TL.nodes[node]['identity']
+                fdata = f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} [{po:6.4f} -> {no:6.4f}] ID = {ni}\n"
+                write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
 
-            #if args.pyplot or dfh or args.stdout == 'drf':
-            #    # Avoid printing the initial time point of sequence elongation,
-            #    # it seems confusing and redundant.
-            #    fdata, itime = None, None
-            #    for rdata in CG.sorted_trajectories_iter(nlist, tfile, softmap):
-            #        [id_, tt_, oc_, ss_, en_] = rdata
-            #        if fdata is None:
-            #            if itime is None or itime == tt_:
-            #                itime = tt_
-            #                continue
-            #        # id time conc struct energy
-            #        fdata = "{:d} {:03.9f} {:03.4f} {:s} {:6.2f}\n".format(*rdata)
-            #        # NOTE: It seems reasonable to activate the following line
-            #        # to reduce the plot size. However, it might introduce a
-            #        # visualization bug for some weird examples:
-            #        if oc_ < 0.001: continue
-            #        if args.pyplot:
-            #            all_courses[id_].append((tt_, oc_))
-            #        write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
+        if args.stdout == 'drf' or dfh:
+            lt = time
+            for (stime, node, occu) in sorted_trajectories(nlist, tfile):
+                tt = time + stime
+                ni = TL.nodes[node]['identity']
+                if occu < 0.001: 
+                    occu = 0
+                if occu == 0 and ni not in all_courses:
+                    continue
+                ne = TL.nodes[node]['energy']/100
+                #if ni not in all_courses:
+                #    if lt < tt:
+                #        all_courses[ni] = [(lt, 0)]
+                #        fdata = f"{ni} {lt:03.9f} {0:03.4f} {node[:tlen]} {ne:6.2f}\n"
+                #        write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
+                #    else:
+                #        all_courses[ni] = []
+                all_courses[ni] = [(tt, occu)]
+                fdata = f"{ni} {tt:03.9f} {occu:03.4f} {node[:tlen]} {ne:6.2f}\n"
+                write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
+                lt = tt
 
-            TL.total_time += time_inc
-
-            # Print the current state *before* the simulation starts.
-            if args.stdout == 'log' or lfh:
-                for e, node in enumerate(nlist, 1):
-                    ne = TL.nodes[node]['energy']/100
-                    no = TL.nodes[node]['occupancy']
-                    ni = TL.nodes[node]['identity']
-                    sm = '-> {}'.format([TL.nodes[tr]['identity'] for tr in softmap[node]]) if node in softmap else ''
-                    fdata = "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:s} {:s}\n".format(
-                        tlen, e, node[:tlen], ne, no, ni, sm)
-                    write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
-
-
-            # Prune
-            if args.o_min > 0:
-                # adjust o-min to size of current structure space:
-                pmin = args.o_min / len(nlist)
-                TL.prune(pmin)
-
-            #if args.draw_graphs:
-            #    CG.graph_to_json(_fname)
-
-        #if args.verbose:
-        #    nZedges = len([a for (a, b, d) in CG.edges(data = True) if d['saddleE'] != float('inf') and CG.nodes[a]['active'] and CG.nodes[b]['active']])
-        #    print("# Transcripton length: {}. Active graph size: {}. Non-zero transition edges: {}.  Hidden graph size: {}. Number of Edges: {}".format(
-        #        tlen, len(nlist), nZedges, len(CG), CG.number_of_edges()))
-        #    stime = datetime.now()
-        #    algotime = (itime - atime).total_seconds()
-        #    simutime = (stime - itime).total_seconds()
-        #    tot_time = (stime - atime).total_seconds()
-        #    print("# Computation time at current nucleotide: algo: {} simu: {} total: {}".format(algotime, simutime, tot_time))
-        #    print("# Deleted {} nodes, {} still reachable.".format(dn, sr))
-        #    print("# Treekin stats: {} default success, {} expo success, {} plusI success, {} fail, {} fake".format(tnorm, texpo, tplusI, tfail, tfake))
-        #    fp_tot = PROFILE['findpath-calls']
-        #    fp_fr1 = PROFILE['fraying1']
-        #    fp_fr2 = PROFILE['fraying2']
-        #    fp_mfe = PROFILE['mfe']
-        #    fp_con = PROFILE['connect']
-        #    fp_cgr = PROFILE['cogr']
-        #    fp_prn = PROFILE['prune']
-        #    print("# Findpath stats: {} fraying, {} mfe connect, {} triangle connect, {} coarse-grain, {} prune, {} total.".format(fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot))
-        #    print("{}  {} {} {} {}  {} {} {}  {} {}  {} {} {} {} {}  {} {} {} {} {} {}".format(tlen, 
-        #        len(nlist), nZedges, len(CG), CG.number_of_edges(),
-        #        algotime, simutime, tot_time,
-        #        dn, sr,
-        #        tnorm, texpo, tplusI, tfail, tfake,
-        #        fp_fr1+fp_fr2, fp_mfe, fp_con, fp_cgr, fp_prn, fp_tot))
-
-        #    atime = stime
-        #    PROFILE['findpath-calls'] = 0
-        #    PROFILE['fraying1'] = 0
-        #    PROFILE['fraying2'] = 0
-        #    PROFILE['mfe'] = 0
-        #    PROFILE['connect'] = 0
-        #    PROFILE['cogr'] = 0
-        #    PROFILE['prune'] = 0
-        #    sys.stdout.flush()
+        # ~~~~~ #
+        # Prune #
+        # ~~~~~ #
+        if args.o_min > 0:
+            # Adjust p-min to size of current structure space.
+            pmin = args.o_min / len(nlist)
+            logger.info(f'Pruning nodes with occupancy below {pmin}.')
+            TL.prune(pmin)
+        if args.draw_graphs:
+            raise NotImplementedError('Cannot draw graphs right now.')
+            TL.graph_to_json(_fname)
+        TL.total_time += time_inc
 
     # Write the last results
     if args.stdout == 'log' or lfh:
         fdata  = "# Distribution of structures at the end:\n"
         fdata += "#         {}\n".format(TL.transcript)
-        for e, node in enumerate(nlist, 1):
+        for e, node in enumerate(sorted(TL.active_local_mins, key = lambda x: TL.nodes[x]['energy']), 1):
             ne = TL.nodes[node]['energy']/100
             no = TL.nodes[node]['occupancy']
             ni = TL.nodes[node]['identity']
-            sm = '-> {}'.format([TL.nodes[tr]['identity'] for tr in softmap[node]]) if node in softmap else ''
-            fdata += "{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:s} {:s}\n".format(
-                tlen, e, node[:tlen], ne, no, ni, sm)
+            fdata += f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} {no:6.4f} ID = {ni}\n"
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
-
-    #statprof.stop()
-    #statprof.display()
+    logger.info(f"Transkription profile: {tprofile}\n")
 
     # CLEANUP file handles
     if lfh: lfh.close()
     if dfh: dfh.close()
-
     # CLEANUP the /tmp/directory
     if not args.tmpdir:
         shutil.rmtree(_tmpdir)
-
-    # Plot results
-    if 'gr' in args.pyplot:
-        plot_xmgrace(all_courses, filepath + '.gr')
-        args.pyplot = list(filter(lambda x: x!='gr', args.pyplot))
-
-    if args.pyplot:
-        plot_simulation(all_courses, 
-                tprofile = tprofile,
-                fpath = filepath,
-                formats = args.pyplot,
-                title = args.name)
     return
 
 if __name__ == '__main__':

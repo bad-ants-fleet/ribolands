@@ -389,8 +389,6 @@ def neighborhood_coarse_graining(ndata, edata, minh = 0):
         - lminreps {lm: [hidden nodes]}: The set of structures representative of each local minimum.
         - edges
     """
-    rlog.info(f'Coarse graining landscape with {minh=}.')
-
     cg_ndata = {k: v for (k, v) in ndata.items()}
     cg_edata = {k: v for (k, v) in edata.items()}
     successors = {k: set() for k in ndata}

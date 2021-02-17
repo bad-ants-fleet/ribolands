@@ -37,6 +37,7 @@ setup(
         'console_scripts': [
             'findpath=ribolands.pathfinder:main',
             'DrTransformer=ribolands.drtransformer:main',
+            'DrPlotter=ribolands.plotting:main',
             'BarMap=ribolands.barmap:main'
             ],
         }
