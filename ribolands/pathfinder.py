@@ -698,11 +698,17 @@ def main():
     if args.minh is not None:
         assert args.split 
         assert cut is None
-        lmins, ssmap = path_flooding(path, minh = 300)
-        for k,v in lmins.items():
-            print(k, v)
-        for k,v in sorted(ssmap.items()):
-            print(k, v)
+        ssmap = path_flooding(path, minh = int(args.minh*100))
+
+        for si in sorted(ssmap):
+            lm = ssmap[si]
+            if isinstance(lm, list):
+                assert len(lm) == 2
+                print(*path[si], 'saddle')
+            elif si == ssmap[si]:
+                print(*path[si], 'lmin')
+            else:
+                print(*path[si])
  
 if __name__ == '__main__':
     main()

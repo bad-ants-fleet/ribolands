@@ -24,7 +24,7 @@ Two scripts for cotranscriptional folding analysis are installed by `ribolands`:
     `DrTransformer` uses the `ViennaRNA package` to calculate transition rates
     between relevant structures and `treekin` to simulate folding kinetics.
     ```sh
-    echo "CUGCGGCUUUGGCUCUAGCC" | DrTransformer.py --visualize pdf
+    echo "CUGCGGCUUUGGCUCUAGCC" | DrTransformer.py
     ```
 
 ## Installation
@@ -55,7 +55,7 @@ versions installed:
 
 ## Cite
 If you are using `BarMap` or `DrTransformer` please cite: 
-  - Stefan Badelt. [Control of RNA function by conformational design.] PhD thesis, University of Vienna, 2016
+  - Stefan Badelt, ... in prepration. 
   - BarMap: RNA folding on dynamic energy landscapes [Hofacker et al. (2010)] 
  
 ## Version
@@ -67,13 +67,9 @@ MIT
 [//]: References
 [Hofacker et al. (2010)]: <http://dx.doi.org/10.1261%2Frna.2093310>
 [Flamm et al. (2001)]: <http://rnajournal.cshlp.org/content/7/2/254.short>
-
 [ViennaRNA package]: <http://www.tbi.univie.ac.at/RNA>
 [RNAsubopt]: <http://www.tbi.univie.ac.at/RNA/RNAsubopt.1.html>
 [barriers]: <http://www.tbi.univie.ac.at/RNA/Barriers>
 [treekin]: <http://www.tbi.univie.ac.at/RNA/Treekin>
-
-[Control of RNA function by conformational design.]: <http://www.tbi.univie.ac.at/newpapers/pdfs/TBI-t-2016-1.pdf>
-
 [ribolands]: <https://www.tbi.univie.ac.at/RNA/ribolands>
 

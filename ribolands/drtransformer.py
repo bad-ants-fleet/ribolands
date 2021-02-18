@@ -178,7 +178,7 @@ def parse_drtrafo_args(parser):
             where n is the number of simulated structures.
             """)
 
-    algo.add_argument("--t-fast", type = float, default = None, metavar = '<flt>',
+    algo.add_argument("--t-fast", type = float, default = 0.001, metavar = '<flt>',
             help = """Folding times faster than --t-fast are considered
             instantaneous.  Structural transitions that are faster than
             --t-fast are considerd part of the same macrostate. Directly
@@ -189,7 +189,7 @@ def parse_drtrafo_args(parser):
             # An alternative to specify --t-fast in terms of a barrier height.
             help = argparse.SUPPRESS)
 
-    algo.add_argument("--t-slow", type = float, default = None, metavar = '<flt>',
+    algo.add_argument("--t-slow", type = float, default = 360000, metavar = '<flt>',
             help = """Only accept new structures as neighboring conformations if
             the transition is faster than --t-slow. This parameter may be
             useful to prevent numeric instabilities, otherwise, better avoid
@@ -353,25 +353,21 @@ def main():
     # t0 = first simulation output time (<< t8)
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
-    if args.t_fast:
-        assert args.minh is None
-        args.minh = max(0, -_RT * math.log(1 / args.t_fast / args.k0))
-    elif args.minh:
-        assert args.t_fast is None
-        args.t_fast = 1/(args.k0 * math.exp(-args.minh/_RT))
     if args.minh:
-        logger.info(f'--t-fast: {args.t_fast} s => {args.minh} kcal/mol barrier height ' + 
-                    f'and {1/args.t_fast} /s rate at k0 = {args.k0}')
+        logger.warning('Overwriting t-fast parameter.')
+        args.t_fast = 1/(args.k0 * math.exp(-args.minh/_RT))
+    else:
+        args.minh = max(0, -_RT * math.log(1 / args.t_fast / args.k0))
+    logger.info(f'--t-fast: {args.t_fast} s => {args.minh} kcal/mol barrier height ' + 
+                f'and {1/args.t_fast} /s rate at k0 = {args.k0}')
 
-    if args.t_slow:
-        assert args.maxh is None
-        args.maxh = -_RT * math.log(1 / args.t_slow / args.k0)
-    elif args.maxh:
-        assert args.t_slow is None
-        args.t_slow = 1/(args.k0 * math.exp(-args.maxh/_RT))
     if args.maxh:
-        logger.info(f'--t-slow {args.t_slow} s => {args.maxh} kcal/mol barrier height ' +
-                    f'and {1/args.t_slow} /s rate at k0 = {args.k0}')
+        logger.warning('Overwriting t-slow parameter.')
+        args.t_slow = 1/(args.k0 * math.exp(-args.maxh/_RT))
+    else:
+        args.maxh = -_RT * math.log(1 / args.t_slow / args.k0)
+    logger.info(f'--t-slow {args.t_slow} s => {args.maxh} kcal/mol barrier height ' +
+                f'and {1/args.t_slow} /s rate at k0 = {args.k0}')
 
     if not args.force and args.t_fast and args.t_fast * 10 > args.t_ext:
         raise SystemExit('ERROR: Conflicting Settings: ' + 
@@ -420,13 +416,13 @@ def main():
         fdata += "#\n"
         fdata += "# >{}\n# {} \n".format(name, fullseq)
         fdata += "#\n"
-        fdata += "# Co-transcriptional folding paramters:\n"
+        fdata += "# Co-transcriptional folding parameters:\n"
         fdata += "# --t-ext: {} sec\n".format(args.t_ext)
         fdata += "# --t-end: {} sec\n".format(args.t_end)
         fdata += "# --start: {}\n".format(args.start)
         fdata += "# --stop: {}\n".format(args.stop)
         fdata += "#\n"
-        fdata += "# Algorithm paramters:\n"
+        fdata += "# Algorithm parameters:\n"
         fdata += "# --o-min: {}\n".format(args.o_min)
         fdata += "# --t-fast: {} sec\n".format(args.t_fast)
         fdata += "# --t-slow: {} sec\n".format(args.t_slow)
