@@ -489,9 +489,9 @@ def local_flooding(fc, lmin, basinh = 2, rates = True, RT = None, k0 = None):
         for [nb, dcal] in get_neighbors(fc, ss):
             if dcal + refen >= dcbasinh:
                 if nb in fstep:
-                    fstep[nb].append((ss, dcal))
+                    fstep[nb].append((ss, round(dcal/100, 2)))
                 else:
-                    fstep[nb] = [(ss, dcal)]
+                    fstep[nb] = [(ss, round(dcal/100, 2))]
                 continue
             if nb in macro:
                 continue
@@ -501,7 +501,9 @@ def local_flooding(fc, lmin, basinh = 2, rates = True, RT = None, k0 = None):
     while news:
         newnews = set()
         for (newss, newen) in news:
-            assert newen >= 0 # elevation cannot be < 0
+            if newen < 0:
+                #rlog.warning('Found a lower energy neighbor!')
+                return None, newss
             assert newss not in fstep # this is going to be in macrostate!
             macro[newss] = [round(newen/100, 2), None] # elevation, probability
             for [nbr, dcal] in local_nbrs(newss, newen):

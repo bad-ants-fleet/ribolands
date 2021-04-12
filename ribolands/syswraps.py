@@ -586,7 +586,7 @@ def sys_barriers_180(basename, sofile,
     """
 
     if zipped and which('zcat') is None:
-        print('Using gzipped subopt files requires the commandline tool zcat.')
+        rlog.error('Using gzipped subopt files requires the commandline tool zcat.')
         raise ExecError('zcat', "zcat")
 
     if which(barriers) is None:
@@ -827,8 +827,8 @@ def sys_kinfold_14(basename, seq,
         if proc.returncode:
             call = "{} 2> {} > {}".format(
                 ' '.join(syscall), kefile, kofile)
-            print(proc.returncode)
-            print(call)
+            rlog.error(proc.returncode)
+            rlog.error(call)
 
     return [klfile, kefile, kofile]
 

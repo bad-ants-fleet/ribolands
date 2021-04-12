@@ -325,7 +325,7 @@ class Test_TrafoLand(unittest.TestCase):
             id = lmin.id
             ss = lmin.structure
             en = lmin.energy
-            fa = lmin.father
+            fa = lmin.ancestor
             ba = lmin.barrier
 
             bmap[ss]=id
@@ -363,7 +363,7 @@ class Test_TrafoLand(unittest.TestCase):
             id = lmin.id
             ss = lmin.structure
             en = lmin.energy
-            fa = lmin.father
+            fa = lmin.ancestor
             ba = lmin.barrier
 
             if verbose:
@@ -384,7 +384,7 @@ class Test_TrafoLand(unittest.TestCase):
             id = lmin.id
             ss = lmin.structure
             en = lmin.energy
-            fa = lmin.father
+            fa = lmin.ancestor
             ba = lmin.barrier
             if verbose:
                 print('c', id, ss, en, fa, ba, CG.nodes[ss]['active'])
@@ -476,7 +476,7 @@ class Test_TrafoLand(unittest.TestCase):
             id = lmin.id
             ss = lmin.structure
             en = lmin.energy
-            fa = lmin.father
+            fa = lmin.ancestor
             ba = lmin.barrier
             #print('b', id, ss, en, fa, ba, CG.nodes[ss]['active'])
             nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 
@@ -492,7 +492,7 @@ class Test_TrafoLand(unittest.TestCase):
             id = lmin.id
             ss = lmin.structure
             en = lmin.energy
-            fa = lmin.father
+            fa = lmin.ancestor
             ba = lmin.barrier
  
             nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 

@@ -62,7 +62,7 @@ def barriers_grammar():
 
     # HACK
     identity = O('i') + number
-    father   = O('f') + number
+    ancestor = O('f') + number
     energy   = O('e') + num_flt
     barrier  = O('b') + num_flt
 
@@ -70,14 +70,14 @@ def barriers_grammar():
     saddle = W("~().&")
     senergy   = O('s') + num_flt
     
-    #       Lmin[i].my_pool, Lmin[i].fathers_pool, mfe - kT * log(lmin[i].Z), Lmin[i].my_GradPool, mfe - kT * log(lmin[i].Zg));
+    #       Lmin[i].my_pool, Lmin[i].ancestors_pool, mfe - kT * log(lmin[i].Z), Lmin[i].my_GradPool, mfe - kT * log(lmin[i].Zg));
     bsize = G(number + number + senergy + number + senergy)
 
     seq_line = G(T(iupack, 'sequence') + LineEnd().suppress())
     str_line = G(G(T(identity, 'identity')) +
                  G(T(struct, 'structure')) + 
                  G(T(energy, 'energy')) + 
-                 G(T(father, 'father')) + 
+                 G(T(ancestor, 'ancestor')) + 
                  G(T(barrier, 'barrier')) + 
                 O(G(T(saddle, 'saddle'))) + 
                 O(G(T(bsize, 'bsize'))) + 
@@ -136,7 +136,7 @@ def barriers_pathfile_grammar():
 def as_tuple(data):
     seq = None
     lms = []
-    LocalMinimum = namedtuple('LocalMinimum', 'id structure energy father barrier saddle pool_size pool_G grad_size grad_G')
+    LocalMinimum = namedtuple('LocalMinimum', 'id structure energy ancestor barrier saddle pool_size pool_G grad_size grad_G')
     for e, line in enumerate(data):
         if e == 0:
             assert line[0] == 'sequence'
@@ -161,7 +161,7 @@ def as_tuple(data):
                     ss = val
                 elif tag == 'energy':
                     en = float(val)
-                elif tag == 'father':
+                elif tag == 'ancestor':
                     fa = int(val)
                 elif tag == 'barrier':
                     dG = float(val)
