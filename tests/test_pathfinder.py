@@ -13,13 +13,72 @@ from ribolands.pathfinder import (findpath_split,
                                   local_flooding,
                                   guiding_neighborhood,
                                   path_flooding, 
+                                  nx_cycle_basis,
+                                  lminsearch,
                                   edge_flooding,
+                                  mfe_intersect,
+                                  get_basepairs,
                                   neighborhood_flooding,
                                   neighborhood_coarse_graining)
 
 from ribolands.parser import parse_barriers
+import ribolands.findpath as maxpath
 
 SKIP = False
+
+@unittest.skipIf(SKIP, "skipping tests")
+class MaxPathTests(unittest.TestCase):
+    def test_cache(self):
+        search_width_multiplier = 4
+        mp = True
+         
+        sequence = 'UCCGACAUUAAGACACACCAGGGUCUCGUAUCCCUAGGGUAAGGUACGCGCGGACCGGCCAAUCGGGUAUUGCUGCAAACUAUGGCAAUAGUGCAUAGGUUCAGACGAAGUACGGGUGGAUAUUUGUAGCCAGUAUGCUGGGUCUCCGGG'
+        fp = maxpath.findpath_class(sequence, mp)
+        
+        s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
+        s2       = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
+        result = fp.init(s1, s2, search_width_multiplier)
+        print(result)
+        
+        s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
+        s2       = '((((....((....((.((((((........)))).))))....))....))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).))))))).)))))).))))....)))).'
+        result = fp.init(s1, s2, search_width_multiplier)
+        print(result)
+
+
+    def test_findpath_split_02(self):
+        seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCG"
+        ss1 = "..((....(((........(((.....)))....)))..(((........)))..))." 
+        ss2 = ".((((....))))..(((.(.((...)).)..)))......(((.......)))...."
+        #print(f'\n{seq}\n{ss1}\n{ss2}')
+        path, barrier = findpath_split(seq, ss1, ss2, RNA.md(), th = 1)
+        assert barrier == 200 # may change with a new findpath version?
+
+    def test_mfe_intersect(self):
+        seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCG"
+        ss1 = "..((....(((........(((.....)))....)))..(((........)))..))." 
+        ss2 = ".((((....))))..(((.(.((...)).)..)))......(((.......)))...."
+        bps = get_basepairs([ss1, ss2])
+        mss, mfe = mfe_intersect(seq, RNA.md(), bps)
+        assert mss != ss1
+        assert mss != ss2
+
+    def test_mfe_intersect(self):
+        seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCG"
+        ss1 = "..((....(((........(((.....)))....)))..(((........)))..))." 
+        ss2 = ".((((....))))..(((.((((...))))..)))....(((........)))....."
+        bps = get_basepairs([ss1, ss2])
+        mss, mfe = mfe_intersect(seq, RNA.md(), bps)
+        assert mss == ss2
+ 
+    def test_mfe_intersect(self):
+        seq = 'UCCGACAUUAAGACACACCAGGGUCUCGUAUCCCUAGGGUAAGGUACGCGCGGACCGGCCAAUCGGGUAUUGCUGCAAACUAUGGCAAUAGUGCAUAGGUUCAGACGAAGUACGGGUGGAUAUUUGUAGCCAGUAUGCUGGGUCUCCGGG'
+        ss1 = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
+        ss2 = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
+        ss3 = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((.((....)))))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
+        bps = get_basepairs([ss1, ss2, ss3])
+        mss, mfe = mfe_intersect(seq, RNA.md(), bps)
+        assert mss == ss3
 
 @unittest.skipIf(SKIP, "skipping tests")
 class FindpathTests(unittest.TestCase):
@@ -302,16 +361,16 @@ class NeighborhoodTests(unittest.TestCase):
         #        print(sti[x], sti[y])
 
         assert int(len(edges)/2) == 11
-        edges = guiding_neighborhood(sss, k = 0)
-        assert int(len(edges)/2) == 29
-        edges = guiding_neighborhood(sss, k = 1)
-        assert int(len(edges)/2) == 29
-        edges = guiding_neighborhood(sss, k = 2)
-        assert int(len(edges)/2) == 23
-        edges = guiding_neighborhood(sss, k = 3)
-        assert int(len(edges)/2) == 23
-        edges = guiding_neighborhood(sss, k = 5)
-        assert int(len(edges)/2) == 23
+        #edges = guiding_neighborhood(sss, k = 0)
+        #assert int(len(edges)/2) == 29
+        #edges = guiding_neighborhood(sss, k = 1)
+        #assert int(len(edges)/2) == 29
+        #edges = guiding_neighborhood(sss, k = 2)
+        #assert int(len(edges)/2) == 23
+        #edges = guiding_neighborhood(sss, k = 3)
+        #assert int(len(edges)/2) == 23
+        #edges = guiding_neighborhood(sss, k = 5)
+        #assert int(len(edges)/2) == 23
 
     def test_guiding_neighborhood_randseq(self):
         seq = "AGACGACAAGGUUGAAUCGCA"
@@ -338,18 +397,18 @@ class NeighborhoodTests(unittest.TestCase):
         #        print(sti[x], sti[y])
 
         assert int(len(edges)/2) == 18
-        edges = guiding_neighborhood(sss, k = 0)
-        assert int(len(edges)/2) == 18
-        edges = guiding_neighborhood(sss, k = 1)
-        assert int(len(edges)/2) == 18
-        edges = guiding_neighborhood(sss, k = 2)
-        assert int(len(edges)/2) == 18
-        edges = guiding_neighborhood(sss, k = 3)
-        assert int(len(edges)/2) == 18
-        edges = guiding_neighborhood(sss, k = 4)
-        assert int(len(edges)/2) == 18
-        edges = guiding_neighborhood(sss, k = 5)
-        assert int(len(edges)/2) == 18
+        #edges = guiding_neighborhood(sss, k = 0)
+        #assert int(len(edges)/2) == 18
+        #edges = guiding_neighborhood(sss, k = 1)
+        #assert int(len(edges)/2) == 18
+        #edges = guiding_neighborhood(sss, k = 2)
+        #assert int(len(edges)/2) == 18
+        #edges = guiding_neighborhood(sss, k = 3)
+        #assert int(len(edges)/2) == 18
+        #edges = guiding_neighborhood(sss, k = 4)
+        #assert int(len(edges)/2) == 18
+        #edges = guiding_neighborhood(sss, k = 5)
+        #assert int(len(edges)/2) == 18
 
     def test_edge_flooding(self):
         btree = """
@@ -416,6 +475,35 @@ class NeighborhoodTests(unittest.TestCase):
         assert len(edges) == 44
         edges, edata, ndata = neighborhood_flooding(seq, md, edges, ndata, minh = 200)
         assert len(edges) == 50
+
+    def test_neighborhood_cycling(self):
+        btree = """
+              AGACGACAAGGUUGAAUCGCACCCACAGUCUAUGAGUCGGUGACAACAUU
+            1 ..........((((.((((.((.((.......)).))))))..))))...  -6.70    0  13.00
+            2 ..........((((.((((.((...((.....)).))))))..))))...  -6.10    1   2.10
+            3 ..........((((.....((((.((.........)).)))).))))...  -5.90    1   6.30
+            4 ((((.....(((........)))....))))....(((...)))......  -5.70    1   8.50
+            5 ...((((...)))).....((((.((.........)).))))........  -5.60    3   4.80
+            6 .(((......)))......((((.((.........)).))))........  -5.50    5   4.30
+            7 ..........((((..((((.....((.....)).....))))))))...  -5.50    3   5.30
+            8 ((((.....(((........)))....))))...................  -5.00    4   3.40
+            9 ((((.....((.((.....))))....))))....(((...)))......  -5.00    4   2.80
+           10 ((((.....((.((.....)).))...))))....(((...)))......  -4.90    4   3.50
+        """
+        lmins = parse_barriers(btree, is_file = False, return_tuple = True)
+        seq, md = lmins[0], RNA.md()
+        sss = [x.structure for x in lmins[1:]]
+
+        edges = guiding_neighborhood(sss)
+        assert len(edges) == 22
+        edata = {e: dict() for e in edges}
+        ndata = {x.structure: {'energy': int(round(x.energy*100)), 'identity': x.id} for x in lmins[1:]}
+
+        c = nx_cycle_basis(ndata, edata)
+        for cy in c:
+            print(cy)
+        lmins = lminsearch(seq, md, edges, ndata, minh = 200, edata = edata)
+        print(lmins)
 
     def test_neighborhood_flooding_maxh(self):
         btree = """
@@ -519,7 +607,7 @@ class NeighborhoodTests(unittest.TestCase):
 
         while 1 < 2:
             #print(f'Finding guide neighborhood for {len(ndata)=}.')
-            gedges = guiding_neighborhood(list(ndata.keys()), k = None)
+            gedges = guiding_neighborhood(list(ndata.keys()))
             #print(f' - Found {len(gedges)} guide edges, {len(edata)} of which are known.')
             edges, new_edata, ndata = neighborhood_flooding(seq, md, gedges, ndata, minh = 200, edata = edata)
             # Select the next generation of edata: Edges which are not *new*.

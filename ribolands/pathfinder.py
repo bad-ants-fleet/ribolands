@@ -228,7 +228,6 @@ def path_flooding(path, minh):
                 [lower, higher] = [left, right] if lmel < lmer else [right, left]
                 [lowlm, highlm] = [lmsl, lmsr] if lmel < lmer else [lmsr, lmsl]
                 [lowen, highen] = [lmel, lmer] if lmel < lmer else [lmer, lmel]
-                # TODO: highen - en?
                 if en - highen < minh: # merge higher minimum into lower one.
                     lmins[lowlm][1] |= lmins[highlm][1] | set([step]) 
                     for hlm in lmins[highlm][1]:
@@ -252,7 +251,7 @@ def path_flooding(path, minh):
                 ssmap[step] = step
     return ssmap
 
-def guiding_neighborhood(nodes, k = None, edges = None):
+def guiding_neighborhood(nodes, edges = None):
     """ Find all edges of the guiding neighborhood.
 
     Args:
@@ -270,16 +269,41 @@ def guiding_neighborhood(nodes, k = None, edges = None):
             dpq = get_bpd_cache(p, q)
             dpi = get_bpd_cache(p, i)
             diq = get_bpd_cache(i, q)
-            md = min([dpi, diq]) 
-            tk = md - 1 if k is None or k >= md else k
-            if dpq + tk >= dpi + diq:
-                #print(f'Cannot add {p}, {q} at {dpq=} due to {i=} {dpi+diq=} at width {k=}.')
+            if max([dpi, diq]) < dpq:
+                #print(f'Cannot add {p}, {q} at {dpq=} due to {i=} {dpi+diq=}.')
                 break
         else:
             edges.add((p, q))
             edges.add((q, p))
     return edges
 
+def get_basepairs(dotbrackets):
+    bps = set()
+    for db in dotbrackets:
+        pt = RNA.ptable(db)
+        bps |= set((i, j) for i, j in enumerate(pt[1:], 1) if j > i)
+    return bps
+
+def mfe_constrained(seq, md, dbcon):
+    fc = RNA.fold_compound(seq, md)
+    fc.constraints_add(dbcon, RNA.CONSTRAINT_DB_DEFAULT | RNA.CONSTRAINT_DB_ENFORCE_BP)
+    mss, mfe = fc.mfe()
+    return mss, int(round(mfe * 100))
+
+def mfe_intersect(seq, md, bps):
+    """ Return the MFE structure given base pairs in 
+    """
+    fc = RNA.fold_compound(seq, md)
+    # forbid all base pairs
+    for i in range(1, len(seq) + 1):
+        for j in range(i + 4, len(seq) + 1):
+            fc.hc_add_bp(i, j, RNA.CONSTRAINT_CONTEXT_NONE | RNA.CONSTRAINT_CONTEXT_NO_REMOVE)
+    # enable base pairs
+    for bp in bps:
+        fc.hc_add_bp(bp[0], bp[1], RNA.CONSTRAINT_CONTEXT_ALL_LOOPS | RNA.CONSTRAINT_CONTEXT_NO_REMOVE)
+    mss, mfe = fc.mfe()
+    return mss, int(round(mfe * 100))
+ 
 def edge_flooding(seq, md, s1, s2, e1, e2, minh = None, maxh = None):
     """ Connect two arbitrary secondary structures.
 
@@ -328,6 +352,79 @@ def edge_flooding(seq, md, s1, s2, e1, e2, minh = None, maxh = None):
     else:
         b_en = e1 + barrier
         yield s1, e1, None, b_en, s2, e2
+
+def nx_cycle_basis(nodes, edges, root=None):
+    """ Code taken from networkx :-/.
+    TODO: check runtime and copyright, rewrite if needed.
+    """
+    gnodes = set(nodes)
+    nbrs = {n: set() for n in nodes}
+    [nbrs[x].add(y) for x, y in edges]
+
+    cycles = []
+    while gnodes:  # loop over connected components
+        if root is None:
+            root = gnodes.pop()
+        stack = [root]
+        pred = {root: root}
+        used = {root: set()}
+        while stack:  # walk the spanning tree finding cycles
+            z = stack.pop()  # use last-in so cycles easier to find
+            zused = used[z]
+            for nbr in nbrs[z]:
+                if nbr not in used:  # new node
+                    pred[nbr] = z
+                    stack.append(nbr)
+                    used[nbr] = {z}
+                elif nbr == z:  # self loops
+                    rlog.warning('wtf')
+                elif nbr not in zused:  # found a cycle
+                    pn = used[nbr]
+                    cycle = [nbr, z]
+                    p = pred[z]
+                    while p not in pn:
+                        cycle.append(p)
+                        p = pred[p]
+                    cycle.append(p)
+                    cycles.append(cycle)
+                    used[nbr].add(z)
+        gnodes -= set(pred)
+        root = None
+    return cycles
+
+def lminsearch(seq, md, edges, ndata):
+    """ Calculate flooded paths for all edges.
+
+    Args:
+    """
+    #print('cyclonum:', len(edges)/2 - len(ndata) + 1)
+    seen = set()
+    lmins = set()
+
+    for cyc in nx_cycle_basis(ndata, edges):
+        bps = get_basepairs(cyc)
+        mss, mfe = mfe_intersect(seq, md, bps)
+        #print('c', mss, mfe)
+        if mss not in cyc:
+            mss, mfe = mfe_constrained(seq, md, mss)
+            lmins.add((mss, mfe))
+        assert mss, mfe == mfe_constrained(seq, md, mss)
+        for (x, y) in combinations(cyc, 2):
+            seen.add((x, y))
+
+    for (s1, s2) in edges:
+        if (s2, s1) in seen:
+            continue
+        bps = get_basepairs([s1, s2])
+        mss, mfe = mfe_intersect(seq, md, bps)
+        #print('p', mss, mfe)
+        if mss not in [s1, s2]:
+            mss, mfe = mfe_constrained(seq, md, mss)
+            lmins.add((mss, mfe))
+        assert mss, mfe == mfe_constrained(seq, md, mss)
+        seen.add((s1, s2))
+
+    return lmins
 
 def neighborhood_flooding(seq, md, edges, ndata, minh = None, maxh = None, edata = None):
     """ Calculate flooded paths for all edges.
@@ -714,4 +811,4 @@ def main():
  
 if __name__ == '__main__':
     main()
-
+    
