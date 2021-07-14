@@ -120,6 +120,9 @@ def findpath_split(seq, ss1, ss2, md, th = 5, w = None):
             WARNING: If path splitting actually took place, then energy values
             given in the path data are only relative to the starting structure.
     """
+    #print(seq)
+    #print(ss1)
+    #print(ss2)
     pt1 = make_pair_table(ss1, base = 0, chars = list('.x'))
     pt2 = make_pair_table(ss2, base = 0, chars = list('.x'))
     mindiff = None
@@ -180,7 +183,7 @@ def call_findpath(seq, ss1, ss2, md, w, maxbar = float('inf')):
         return mypath, barrier
     return None, None
 
-def path_flooding(path, minh):
+def path_flooding(path, minh, maxlm = None):
     """ Use flooding algorithm to determine local minima on a folding path.
     
     Identifies the lowest energy of the local minimum, one representative
@@ -193,6 +196,7 @@ def path_flooding(path, minh):
             The energy must be an integer with unit dcal/mol.
         minh (int): Minimal height of an energy barrier separatig two
             basins [dcal/mol].
+        maxlm (optional, int): The highest possible energy of a local minimum.
 
     Returns:
         [dict, dict]: properties of the local minima.
@@ -228,7 +232,7 @@ def path_flooding(path, minh):
                 [lower, higher] = [left, right] if lmel < lmer else [right, left]
                 [lowlm, highlm] = [lmsl, lmsr] if lmel < lmer else [lmsr, lmsl]
                 [lowen, highen] = [lmel, lmer] if lmel < lmer else [lmer, lmel]
-                if en - highen < minh: # merge higher minimum into lower one.
+                if en - highen < minh or (maxlm and highen > maxlm): # merge higher minimum into lower one.
                     lmins[lowlm][1] |= lmins[highlm][1] | set([step]) 
                     for hlm in lmins[highlm][1]:
                         ssmap[hlm] = lower
@@ -251,59 +255,6 @@ def path_flooding(path, minh):
                 ssmap[step] = step
     return ssmap
 
-def guiding_neighborhood(nodes, edges = None):
-    """ Find all edges of the guiding neighborhood.
-
-    Args:
-        edges (set, optional): Provide a set of edges. They will not be deleted!
-    """
-    if edges is None:
-        edges = set()
-    for p, q in combinations(nodes, 2):
-        if (p, q) in edges:
-            assert (q, p) in edges
-            continue
-        for i in nodes:
-            if i == p or i == q:
-                continue
-            dpq = get_bpd_cache(p, q)
-            dpi = get_bpd_cache(p, i)
-            diq = get_bpd_cache(i, q)
-            if max([dpi, diq]) < dpq:
-                #print(f'Cannot add {p}, {q} at {dpq=} due to {i=} {dpi+diq=}.')
-                break
-        else:
-            edges.add((p, q))
-            edges.add((q, p))
-    return edges
-
-def get_basepairs(dotbrackets):
-    bps = set()
-    for db in dotbrackets:
-        pt = RNA.ptable(db)
-        bps |= set((i, j) for i, j in enumerate(pt[1:], 1) if j > i)
-    return bps
-
-def mfe_constrained(seq, md, dbcon):
-    fc = RNA.fold_compound(seq, md)
-    fc.constraints_add(dbcon, RNA.CONSTRAINT_DB_DEFAULT | RNA.CONSTRAINT_DB_ENFORCE_BP)
-    mss, mfe = fc.mfe()
-    return mss, int(round(mfe * 100))
-
-def mfe_intersect(seq, md, bps):
-    """ Return the MFE structure given base pairs in 
-    """
-    fc = RNA.fold_compound(seq, md)
-    # forbid all base pairs
-    for i in range(1, len(seq) + 1):
-        for j in range(i + 4, len(seq) + 1):
-            fc.hc_add_bp(i, j, RNA.CONSTRAINT_CONTEXT_NONE | RNA.CONSTRAINT_CONTEXT_NO_REMOVE)
-    # enable base pairs
-    for bp in bps:
-        fc.hc_add_bp(bp[0], bp[1], RNA.CONSTRAINT_CONTEXT_ALL_LOOPS | RNA.CONSTRAINT_CONTEXT_NO_REMOVE)
-    mss, mfe = fc.mfe()
-    return mss, int(round(mfe * 100))
- 
 def edge_flooding(seq, md, s1, s2, e1, e2, minh = None, maxh = None):
     """ Connect two arbitrary secondary structures.
 
@@ -328,7 +279,9 @@ def edge_flooding(seq, md, s1, s2, e1, e2, minh = None, maxh = None):
         raise AssertionError(f'Mismatch between {e1=} and {path[0][1]=}.')
 
     if minh is not None:
-        ssmap = path_flooding(path, minh)
+        # NOTE: We only allow to add minima with energy between start/stop structure.
+        maxlme = max(path[0][1], path[-1][1])
+        ssmap = path_flooding(path, minh, maxlm = maxlme)
         for e, si in enumerate(sorted(ssmap)):
             lm = ssmap[si]
             if isinstance(lm, list):
@@ -353,81 +306,17 @@ def edge_flooding(seq, md, s1, s2, e1, e2, minh = None, maxh = None):
         b_en = e1 + barrier
         yield s1, e1, None, b_en, s2, e2
 
-def nx_cycle_basis(nodes, edges, root=None):
-    """ Code taken from networkx :-/.
-    TODO: check runtime and copyright, rewrite if needed.
-    """
-    gnodes = set(nodes)
-    nbrs = {n: set() for n in nodes}
-    [nbrs[x].add(y) for x, y in edges]
+def get_simulation_graph(seq, md, ndata, tedges, gedges, minh = None, maxh = None):
 
-    cycles = []
-    while gnodes:  # loop over connected components
-        if root is None:
-            root = gnodes.pop()
-        stack = [root]
-        pred = {root: root}
-        used = {root: set()}
-        while stack:  # walk the spanning tree finding cycles
-            z = stack.pop()  # use last-in so cycles easier to find
-            zused = used[z]
-            for nbr in nbrs[z]:
-                if nbr not in used:  # new node
-                    pred[nbr] = z
-                    stack.append(nbr)
-                    used[nbr] = {z}
-                elif nbr == z:  # self loops
-                    rlog.warning('wtf')
-                elif nbr not in zused:  # found a cycle
-                    pn = used[nbr]
-                    cycle = [nbr, z]
-                    p = pred[z]
-                    while p not in pn:
-                        cycle.append(p)
-                        p = pred[p]
-                    cycle.append(p)
-                    cycles.append(cycle)
-                    used[nbr].add(z)
-        gnodes -= set(pred)
-        root = None
-    return cycles
+    tedges = None
+    while gedges:
+        ndata, tedges, gedges = neighborhood_flooding(seq, md, ndata, tedges, gedges, minh = None, maxh = None)
 
-def lminsearch(seq, md, edges, ndata):
+
+def neighborhood_flooding(seq, md, ndata, gedges, tedges = None, minh = None, maxh = None):
     """ Calculate flooded paths for all edges.
 
-    Args:
-    """
-    #print('cyclonum:', len(edges)/2 - len(ndata) + 1)
-    seen = set()
-    lmins = set()
-
-    for cyc in nx_cycle_basis(ndata, edges):
-        bps = get_basepairs(cyc)
-        mss, mfe = mfe_intersect(seq, md, bps)
-        #print('c', mss, mfe)
-        if mss not in cyc:
-            mss, mfe = mfe_constrained(seq, md, mss)
-            lmins.add((mss, mfe))
-        assert mss, mfe == mfe_constrained(seq, md, mss)
-        for (x, y) in combinations(cyc, 2):
-            seen.add((x, y))
-
-    for (s1, s2) in edges:
-        if (s2, s1) in seen:
-            continue
-        bps = get_basepairs([s1, s2])
-        mss, mfe = mfe_intersect(seq, md, bps)
-        #print('p', mss, mfe)
-        if mss not in [s1, s2]:
-            mss, mfe = mfe_constrained(seq, md, mss)
-            lmins.add((mss, mfe))
-        assert mss, mfe == mfe_constrained(seq, md, mss)
-        seen.add((s1, s2))
-
-    return lmins
-
-def neighborhood_flooding(seq, md, edges, ndata, minh = None, maxh = None, edata = None):
-    """ Calculate flooded paths for all edges.
+    Starting with ndata and tedges (which may be None), we add all the guide-edges to the graph.
 
     Args:
         eupdate (bool, optional): Edge weights can be updated or not. An
@@ -438,40 +327,73 @@ def neighborhood_flooding(seq, md, edges, ndata, minh = None, maxh = None, edata
             regions are not optimized to find the lowest energy barrier. Only
             another iteration of this routine can be used to update all edges.
     """
-    if edata is None:
-        edata = dict()
+    if tedges is None:
+        tedges = dict()
+
+    guide_nbrs = {k: set() for k in ndata}
+    for (p, q) in gedges: 
+        if (p, q) not in tedges:
+            guide_nbrs[p].add(q)
+
+    tstep_nbrs = {k: set() for k in ndata}
+    for (p, q) in tedges: 
+        if tedges[(p, q)].get('saddle_energy') is not None:
+            tstep_nbrs[p].add(q)
+
     seen = set()
-    new_edges = set()
-    new_edata = dict()
-    new_ndata = dict()
-    for (s1, s2) in edges:
-        if (s2, s1) in seen:
-            continue
-        if (s1, s2) in edata and edata[(s1, s2)].get('saddle_energy') is not None:
-            # Do not to overwrite known results!
-            new_edges.add((s1, s2))
-            new_edges.add((s2, s1))
-            new_edata[(s1, s2)] = deepcopy(edata[(s1, s2)]) # Deepcopy?
-            new_edata[(s2, s1)] = deepcopy(edata[(s2, s1)]) # Deepcopy?
-            new_ndata[s1] = deepcopy(ndata[s1])
-            new_ndata[s2] = deepcopy(ndata[s2])
-            continue
-        e1 = ndata[s1]['energy']
-        e2 = ndata[s2]['energy']
-        for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(seq, md, s1, s2, e1, e2, minh, maxh):
-            new_edges.add((ss1, ss2))
-            new_edges.add((ss2, ss1))
-            if (ss1, ss2) in edata and edata[(ss1, ss2)].get('saddle_energy') is not None:
-                if edata[(ss1, ss2)]['saddle_energy'] < enB: # The result got worse :-(
-                    rlog.warning(f"The results got worse!? {edata[(ss1, ss2)]['saddle_energy']=} vs {enB=}")
-                    enB = edata[(ss1, ss2)]['saddle_energy'] 
-            new_edata[(ss1, ss2)] = {'saddle_energy': enB}
-            new_edata[(ss2, ss1)] = {'saddle_energy': enB}
-            assert ss1 not in new_ndata or new_ndata[ss1]['energy'] == en1
-            new_ndata[ss1] = {'energy': en1}
-            assert ss2 not in new_ndata or new_ndata[ss2]['energy'] == en2
-            new_ndata[ss2] = {'energy': en2}
-    return new_edges, new_edata, new_ndata
+    new_gedges = set()
+    for s2 in sorted(ndata, key = lambda x: (ndata[x]['energy'], x), reverse = True):
+        #print('s2', s2, ndata[s2]['energy'])
+        gnbrs = sorted(guide_nbrs[s2], key = lambda x: (ndata[x]['energy'], x), reverse = True)
+        for s1 in gnbrs:
+            #print('s1', s1, ndata[s1]['energy'])
+            assert ndata[s1]['energy'] <= ndata[s2]['energy'] or (s1, s2) in seen
+            e2 = ndata[s2]['energy']
+            e1 = ndata[s1]['energy']
+            for (ss2, en2, ssB, enB, ss1, en1) in edge_flooding(seq, md, s2, s1, e2, e1, minh, maxh):
+                if ss2 == s2 and ss1 == s1: 
+                    # adding the direct connection.
+                    tedges[(ss2, ss1)] = {'saddle_energy': enB}
+                    tedges[(ss1, ss2)] = {'saddle_energy': enB}
+                    assert ndata[ss2]['energy'] == en2
+                    assert ndata[ss1]['energy'] == en1
+                    tstep_nbrs[s2].add(s1)
+                    tstep_nbrs[s1].add(s2)
+                elif (ss2, ss1) in gedges:
+                    # we'll be processing this later since it is lower energy.
+                    pass 
+                elif (ss2, ss1) in tedges: 
+                    # we might have found a better transition energy.
+                    if tedges[(ss2, ss1)]['saddle_energy'] is not None:
+                        enB = min(enB, tedges[(ss2, ss1)]['saddle_energy'])
+                    tedges[(ss2, ss1)] = {'saddle_energy': enB}
+                    tedges[(ss1, ss2)] = {'saddle_energy': enB}
+                    assert ndata[ss2]['energy'] == en2
+                    assert ndata[ss1]['energy'] == en1
+                else: 
+                    # postpone evaluation for next time.
+                    new_gedges.add((ss2, ss1))
+                    new_gedges.add((ss1, ss2))
+                    assert ss2 not in ndata or ndata[ss2]['energy'] == en2
+                    ndata[ss2] = {'energy': en2}
+                    assert ss1 not in ndata or ndata[ss1]['energy'] == en1
+                    ndata[ss1] = {'energy': en1}
+
+            if (s2, s1) not in tedges: 
+                # Unable to connect via direct path!
+                tedges[(ss1, ss2)] = {'saddle_energy': None}
+                tedges[(ss2, ss1)] = {'saddle_energy': None}
+            seen.add((s2, s1))
+
+        for (p, q) in combinations(tstep_nbrs, 2):
+            if (p, q) in gedges:
+                continue
+            if (p, q) in tedges:
+                continue
+            new_gedges.add((p, q))
+            new_gedges.add((q, p))
+
+    return ndata, tedges, new_gedges
 
 def neighborhood_coarse_graining(ndata, edata, minh = 0):
     """ Coarse grain neighborhood into local minima and edges connecting them.
@@ -490,7 +412,8 @@ def neighborhood_coarse_graining(ndata, edata, minh = 0):
     cg_edata = {k: v for (k, v) in edata.items()}
     successors = {k: set() for k in ndata}
     for (x, y) in edata:
-        successors[x].add(y)
+        if edata[(x, y)]['saddle_energy'] is not None:
+            successors[x].add(y)
 
     def find_representatives(node, mode = 'flooding'):
         """ Identify (all) local minimum representatives of node.
@@ -564,6 +487,178 @@ def neighborhood_coarse_graining(ndata, edata, minh = 0):
         # 4) Remove the hidden node from coarse graining.
         del cg_ndata[node]
     return cg_ndata, cg_edata
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+# Guide Landscpe construction                                                  #
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
+
+def get_guide_graph(seq, md, gnodes, gedges = None):
+    """
+    """
+    fc_empty = forbid_all_basepairs(seq, RNA.fold_compound(seq, md))
+    tmp_gnodes = [n for n in gnodes]
+    new_gnodes = []
+    while True:
+        # Find all guide edges in the graph (only force input gedges).
+        new_gedges = guiding_edge_search(tmp_gnodes, gedges)
+        # Find guide nodes that should be added to the graph.
+        add_gnodes = guiding_node_search(seq, md, tmp_gnodes, new_gedges, fc_empty)
+        if not add_gnodes:
+            break
+        tmp_gnodes += [ss for (ss, en) in add_gnodes]
+        new_gnodes += [(ss, en) for (ss, en) in add_gnodes]
+    del fc_empty
+    return new_gnodes, new_gedges
+
+def guiding_edge_search(nodes, edges = None):
+    """ Find all edges of the guiding neighborhood.
+
+    Annoying case, cannot add pq at dpq = 8
+     - p ..........((((.....((((.((.........)).)))).))))... 
+     - q ...((((...)))).....((((.((.........)).))))........
+     - i .(((......)))......((((.((.........)).))))........
+
+    Args:
+        edges (set, optional): Provide a set of edges. They will not be deleted!
+    """
+    if edges is None:
+        edges = set()
+    for p, q in combinations(nodes, 2):
+        if (p, q) in edges:
+            assert (q, p) in edges
+            continue
+        for i in nodes:
+            if i == p or i == q:
+                continue
+            dpq = get_bpd_cache(p, q)
+            dpi = get_bpd_cache(p, i)
+            diq = get_bpd_cache(i, q)
+            if max([dpi, diq]) < dpq:
+                #print(f'Cannot add {p}, {q} at {dpq=} due to {i=} {dpi=} {diq=}.')
+                break
+        else:
+            edges.add((p, q))
+            edges.add((q, p))
+    return edges
+
+def guiding_node_search(seq, md, nodes, edges, fc_empty):
+    """ Find additional local minima in a guide graph.
+
+    For every edge and every cycle in the graph, do a constrained fold to get
+    the MFE given all allowed structures. 
+
+    Args:
+        fc_empty (fold compound): A fold compound where
+        all base-pairs are forbidden.
+
+    """
+    #print('cyclonum:', len(edges)/2 - len(nodes) + 1)
+    seen = set()
+    lmins = set()
+
+    for (s1, s2) in edges:
+        if (s2, s1) in seen:
+            continue
+        bps = get_basepairs([s1, s2])
+        mss, mfe = mfe_intersect(seq, md, bps, fc_empty)
+        if mss not in nodes:
+            lmins.add((mss, mfe))
+            css, cfe = mfe_constrained(seq, md, mss)
+            if css not in nodes:
+                lmins.add((css, cfe))
+        seen.add((s1, s2))
+ 
+    for cyc in nx_cycle_basis(nodes, edges):
+        bps = get_basepairs(cyc)
+        mss, mfe = mfe_intersect(seq, md, bps, fc_empty)
+        if mss not in nodes:
+            lmins.add((mss, mfe))
+            css, cfe = mfe_constrained(seq, md, mss)
+            if css not in nodes:
+                lmins.add((css, cfe))
+    return lmins
+
+def forbid_all_basepairs(seq, fc):
+    for i in range(1, len(seq) + 1):
+        for j in range(i + 4, len(seq) + 1):
+            fc.hc_add_bp(i, j, RNA.CONSTRAINT_CONTEXT_NONE | RNA.CONSTRAINT_CONTEXT_NO_REMOVE)
+    return fc
+
+def get_basepairs(dotbrackets):
+    bps = set()
+    for db in dotbrackets:
+        pt = RNA.ptable(db)
+        bps |= set((i, j) for i, j in enumerate(pt[1:], 1) if j > i)
+    return bps
+
+def mfe_constrained(seq, md, dbcon):
+    # TODO: is there a way to reset the fold compound?
+    fc = RNA.fold_compound(seq, md)
+    fc.constraints_add(dbcon, RNA.CONSTRAINT_DB_DEFAULT | RNA.CONSTRAINT_DB_ENFORCE_BP)
+    mss, mfe = fc.mfe()
+    return mss, int(round(mfe * 100))
+
+def mfe_intersect(seq, md, bps, fc_empty = None):
+    """ Return the MFE structure given allowed base pairs.
+
+    Makes a temporary fold compound where all bases are forbidden and only the
+    specified base-pairs are allowed. If fc is specified (for efficiency
+    reasons only), then it is assumed that all base-pairs are already forbiden!
+    The function will return the fold compund with forbidden base-pairs again.
+    """
+    fc_tmp = fc_empty is None 
+    if fc_empty is None:
+        fc_empty = forbid_all_basepairs(seq, RNA.fold_compound(seq, md))
+
+    for bp in bps: # enable base pairs
+        fc_empty.hc_add_bp(bp[0], bp[1], RNA.CONSTRAINT_CONTEXT_ALL_LOOPS | RNA.CONSTRAINT_CONTEXT_NO_REMOVE)
+    mss, mfe = fc_empty.mfe()
+
+    if fc_tmp:
+        del fc_empty
+    else:
+        for bp in bps:
+            fc_empty.hc_add_bp(bp[0], bp[1], RNA.CONSTRAINT_CONTEXT_NONE | RNA.CONSTRAINT_CONTEXT_NO_REMOVE)
+    return mss, int(round(mfe * 100))
+ 
+def nx_cycle_basis(nodes, edges, root=None):
+    """ Code taken from networkx :-/.
+    TODO: check runtime and copyright, rewrite if needed.
+    """
+    gnodes = set(nodes)
+    nbrs = {n: set() for n in nodes}
+    [nbrs[x].add(y) for x, y in edges]
+
+    cycles = []
+    while gnodes:  # loop over connected components
+        if root is None:
+            root = gnodes.pop()
+        stack = [root]
+        pred = {root: root}
+        used = {root: set()}
+        while stack:  # walk the spanning tree finding cycles
+            z = stack.pop()  # use last-in so cycles easier to find
+            zused = used[z]
+            for nbr in nbrs[z]:
+                if nbr not in used:  # new node
+                    pred[nbr] = z
+                    stack.append(nbr)
+                    used[nbr] = {z}
+                elif nbr == z:  # self loops
+                    rlog.warning('wtf')
+                elif nbr not in zused:  # found a cycle
+                    pn = used[nbr]
+                    cycle = [nbr, z]
+                    p = pred[z]
+                    while p not in pn:
+                        cycle.append(p)
+                        p = pred[p]
+                    cycle.append(p)
+                    cycles.append(cycle)
+                    used[nbr].add(z)
+        gnodes -= set(pred)
+        root = None
+    return cycles
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Neighborhood processing                                                      #

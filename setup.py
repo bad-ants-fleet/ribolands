@@ -29,6 +29,7 @@ setup(
         'matplotlib', 
         'seaborn', 
         'natsort',
+        'packaging',
         'pandas', 
         'crnsimulator>=0.7.1'],
     packages = ['ribolands', 'ribolands.parser'],

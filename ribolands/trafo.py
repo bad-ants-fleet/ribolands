@@ -16,7 +16,7 @@ import RNA
 from ribolands import RiboLandscape
 from ribolands.utils import make_pair_table
 from ribolands.pathfinder import (BPD_CACHE, get_bpd_cache, 
-                                  guiding_neighborhood, 
+                                  get_guide_graph,
                                   neighborhood_flooding,
                                   neighborhood_coarse_graining)
 
@@ -385,32 +385,16 @@ class TrafoLandscape(RiboLandscape):
                     self.nodes[fn]['active'] = True
 
             ndata = {n: d for n, d in self.nodes.items() if d['active']} # active and inactive?
-            edges = set()
             # 2) Include edge-data from previous network.
             edata = {k: v for k, v in self.edges.items()}
-            while 1 < 2:
-                rlog.debug(f'Finding guide neighborhood for {len(ndata)=}.')
-                gedges = guiding_neighborhood(list(ndata.keys()), k = None)
-                rlog.debug(f' - Found {len(gedges)} guide edges, {len(edata)} edges are known from previous runs.')
-                edges, new_edata, ndata = neighborhood_flooding(fseq, md, gedges, ndata, 
-                                                                minh = self.minh, 
-                                                                maxh = self.maxh, 
-                                                                edata = edata)
-                # Select the next generation of edata: Known edges and edges which are not *new*.
-                for (x, y) in gedges:
-                    # For all edges that survived the flooding...
-                    if (x, y) in new_edata:
-                        # ... keep (only) them as known edges.
-                        edata[(x, y)] = {'saddle_energy': new_edata[(x, y)]['saddle_energy']}
-                if all(e in gedges for e in edges):
-                    # No new edges, no new nodes ...
-                    break
 
-            rlog.debug(f'Last run: flooding of {len(edges)=} edges.')
-            edges, edata, ndata = neighborhood_flooding(fseq, md, edges, ndata, 
-                                                        minh = self.minh, 
-                                                        maxh = self.maxh, 
-                                                        edata = edata)
+            gnodes, gedges = get_guide_graph(fseq, md, ndata.keys())
+            for (ss, en) in gnodes:
+                ndata[ss] = {'energy': en}
+
+            for _ in range(2):
+                ndata, edata, gedges = neighborhood_flooding(fseq, md, ndata, gedges, tedges = edata, minh = self.minh, maxh = self.maxh)
+
             # 3) Extract new node data.
             for node in ndata:
                 if node not in self.nodes:

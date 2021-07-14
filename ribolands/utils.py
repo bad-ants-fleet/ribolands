@@ -204,6 +204,10 @@ def make_loop_index(ss):
                 L = 0
     return loop
 
+def parse_vienna(filename, **kwargs):
+    with open(filename, 'r') as fh:
+        return parse_vienna_stdin(fh, **kwargs)
+
 def parse_vienna_stdin(stdin, chars = 'ACUGN&', skip = '-'):
     """Parse name and sequence information from file with fasta format.
 
