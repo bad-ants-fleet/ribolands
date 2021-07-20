@@ -16,7 +16,49 @@ import numpy as np
 from itertools import chain, combinations, product
 from copy import deepcopy
 
-from ribolands.utils import make_loop_index, make_pair_table
+
+from .utils import make_pair_table
+
+MAXPATH = True
+try:
+    import findpath as maxpath
+except ImportError:
+    MAXPATH = False
+
+def init_findpath_max(sequence, md = None, mp = False):
+    global MAXPATH
+    assert MAXPATH
+    assert md is None
+    model_details = {
+        "noLP": 1,
+        "logML": 0,
+        "temperature": 37.0,
+        "dangles": 2,
+        "special_hp": 1,
+        "noGU": 0,
+        "noGUclosure": 0,
+    }
+    return maxpath.findpath_class(sequence, mp=mp, model_details=model_details)
+
+def findpath_max(fp, s1, s2, w = 4):
+    fp.init(s1, s2, w)
+    saddle_energy = fp.get_en()
+    path = fp.get_path()
+    sspath = []
+    ss = s1
+    for (i, j, en) in path:
+        if 0 < i:
+            assert i < j 
+            assert ss[i-1] == '.'
+            assert ss[j-1] == '.'
+            ss = ss[:i-1] + '(' + ss[i:j-1] + ')' + ss[j:]
+        if 0 > i:
+            assert i > j 
+            assert ss[-i-1] == '('
+            assert ss[-j-1] == ')'
+            ss = ss[:-i-1] + '.' + ss[-i:-j-1] + '.' + ss[-j:]
+        sspath.append((ss, en))
+    return saddle_energy, sspath
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Custom error definitions                                                     #
@@ -120,9 +162,6 @@ def findpath_split(seq, ss1, ss2, md, th = 5, w = None):
             WARNING: If path splitting actually took place, then energy values
             given in the path data are only relative to the starting structure.
     """
-    #print(seq)
-    #print(ss1)
-    #print(ss2)
     pt1 = make_pair_table(ss1, base = 0, chars = list('.x'))
     pt2 = make_pair_table(ss2, base = 0, chars = list('.x'))
     mindiff = None
@@ -255,28 +294,24 @@ def path_flooding(path, minh, maxlm = None):
                 ssmap[step] = step
     return ssmap
 
-def edge_flooding(seq, md, s1, s2, e1, e2, minh = None, maxh = None):
+def edge_flooding(fp, s1, s2, e1, e2, minh = None, maxh = None):
     """ Connect two arbitrary secondary structures.
 
     Args:
         minh (int): Minimal height of an energy barrier separatig two basins in dcal/mol.
     """
-    path, barrier = findpath_split(seq, s1, s2, md)
-    if maxh and barrier > maxh and barrier - e1 + e2 > maxh:
-        # Both directions have high energy barriers, do not even try to include that edge!
-        return None
+    if isinstance(fp, tuple):
+        (seq, md) = fp
+        path, barrier = findpath_split(seq, s1, s2, md)
+        if path[0][1] == 0:
+            for i in range(len(path)):
+                path[i] = (path[i][0], path[i][1] + e1)
+        sen = e1 + barrier
+    else:
+        sen, path = findpath_max(fp, s1, s2)
 
-    assert path[0][1] == e1 or path[0][1] == 0
-    def scaled_energy(energy):
-        # The energies returned by findpath_split may be relative to starting
-        # structure, and in that case the starting structure has energy = 0. We
-        # are using the "scaled_energy" function to return the correct path
-        # energies!
-        if path[0][1] == e1:
-            return energy
-        elif path[0][1] == 0:
-            return e1 + energy
-        raise AssertionError(f'Mismatch between {e1=} and {path[0][1]=}.')
+    if path[0][1] != e1:
+        assert path[0][1] == e1
 
     if minh is not None:
         # NOTE: We only allow to add minima with energy between start/stop structure.
@@ -289,34 +324,24 @@ def edge_flooding(seq, md, s1, s2, e1, e2, minh = None, maxh = None):
                 (ssB, enB) = path[si]
                 (ss1, en1) = path[si1]
                 (ss2, en2) = path[si2]
-                en1 = scaled_energy(en1)
-                en2 = scaled_energy(en2)
                 yield ss1, en1, ssB, enB, ss2, en2
             elif e == 0 and si != lm:
                 #rlog.warning(f'Starting structure {s1} is not a mimimum!')
                 (ss2, en2) = path[lm]
-                en2 = scaled_energy(en2)
                 yield s1, e1, s1, e1, ss2, en2
             elif e == len(ssmap) - 1 and si != lm:
                 #rlog.warning(f'Final structure {s2} is not a mimimum!')
                 (ss1, en1) = path[lm]
-                en1 = scaled_energy(en1)
                 yield ss1, en1, s2, e2, s2, e2
     else:
-        b_en = e1 + barrier
-        yield s1, e1, None, b_en, s2, e2
-
-def get_simulation_graph(seq, md, ndata, tedges, gedges, minh = None, maxh = None):
-
-    tedges = None
-    while gedges:
-        ndata, tedges, gedges = neighborhood_flooding(seq, md, ndata, tedges, gedges, minh = None, maxh = None)
+        yield s1, e1, None, sen, s2, e2
 
 
-def neighborhood_flooding(seq, md, ndata, gedges, tedges = None, minh = None, maxh = None):
+def neighborhood_flooding(fp, ndata, gedges, tedges = None, minh = None, maxh = None):
     """ Calculate flooded paths for all edges.
 
-    Starting with ndata and tedges (which may be None), we add all the guide-edges to the graph.
+    Starting with ndata and tedges (which may be None), 
+    we add all the guide-edges to the graph.
 
     Args:
         eupdate (bool, optional): Edge weights can be updated or not. An
@@ -332,7 +357,8 @@ def neighborhood_flooding(seq, md, ndata, gedges, tedges = None, minh = None, ma
 
     guide_nbrs = {k: set() for k in ndata}
     for (p, q) in gedges: 
-        if (p, q) not in tedges:
+        # NOTE: Not happy with recalculating the None edges, but what else could we do?
+        if (p, q) not in tedges or tedges[(p, q)].get('saddle_energy') is None:
             guide_nbrs[p].add(q)
 
     tstep_nbrs = {k: set() for k in ndata}
@@ -344,13 +370,16 @@ def neighborhood_flooding(seq, md, ndata, gedges, tedges = None, minh = None, ma
     new_gedges = set()
     for s2 in sorted(ndata, key = lambda x: (ndata[x]['energy'], x), reverse = True):
         #print('s2', s2, ndata[s2]['energy'])
-        gnbrs = sorted(guide_nbrs[s2], key = lambda x: (ndata[x]['energy'], x), reverse = True)
+        gnbrs = sorted(guide_nbrs[s2], 
+                       key = lambda x: (ndata[x]['energy'], x), reverse = True)
+
         for s1 in gnbrs:
             #print('s1', s1, ndata[s1]['energy'])
             assert ndata[s1]['energy'] <= ndata[s2]['energy'] or (s1, s2) in seen
             e2 = ndata[s2]['energy']
             e1 = ndata[s1]['energy']
-            for (ss2, en2, ssB, enB, ss1, en1) in edge_flooding(seq, md, s2, s1, e2, e1, minh, maxh):
+            for (ss2, en2, ssB, enB, ss1, en1) in edge_flooding(fp, s2, s1, 
+                                                                e2, e1, minh, maxh):
                 if ss2 == s2 and ss1 == s1: 
                     # adding the direct connection.
                     tedges[(ss2, ss1)] = {'saddle_energy': enB}
@@ -381,17 +410,9 @@ def neighborhood_flooding(seq, md, ndata, gedges, tedges = None, minh = None, ma
 
             if (s2, s1) not in tedges: 
                 # Unable to connect via direct path!
-                tedges[(ss1, ss2)] = {'saddle_energy': None}
-                tedges[(ss2, ss1)] = {'saddle_energy': None}
+                tedges[(s1, s2)] = {'saddle_energy': None}
+                tedges[(s2, s1)] = {'saddle_energy': None}
             seen.add((s2, s1))
-
-        for (p, q) in combinations(tstep_nbrs, 2):
-            if (p, q) in gedges:
-                continue
-            if (p, q) in tedges:
-                continue
-            new_gedges.add((p, q))
-            new_gedges.add((q, p))
 
     return ndata, tedges, new_gedges
 
@@ -409,7 +430,7 @@ def neighborhood_coarse_graining(ndata, edata, minh = 0):
         - edges
     """
     cg_ndata = {k: v for (k, v) in ndata.items()}
-    cg_edata = {k: v for (k, v) in edata.items()}
+    cg_edata = {k: v for (k, v) in edata.items() if v['saddle_energy'] is not None}
     successors = {k: set() for k in ndata}
     for (x, y) in edata:
         if edata[(x, y)]['saddle_energy'] is not None:
@@ -450,7 +471,7 @@ def neighborhood_coarse_graining(ndata, edata, minh = 0):
                 raise NotImplementedError(f'Unkown neighbor merging mode: {mode}')
         return reps, nbrs
 
-    for node in sorted(ndata, key = lambda x: ndata[x]['energy'], reverse = True):
+    for node in sorted(ndata, key = lambda x: (ndata[x]['energy'], x), reverse = True):
         reps, nbrs = find_representatives(node)
 
         rlog.debug(f'Node: {node}, Reps: {reps}')
@@ -492,21 +513,67 @@ def neighborhood_coarse_graining(ndata, edata, minh = 0):
 # Guide Landscpe construction                                                  #
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
-def get_guide_graph(seq, md, gnodes, gedges = None):
+def get_guide_graph(seq, md, gnodes, gedges = None, tgn_folded = None):
     """
     """
     fc_empty = forbid_all_basepairs(seq, RNA.fold_compound(seq, md))
-    tmp_gnodes = [n for n in gnodes]
+    tmp_gnodes = set(gnodes)
+    assert len(tmp_gnodes) == len(gnodes)
+    if tgn_folded is None:
+        tgn_folded = {n: False for n in tmp_gnodes}
+    else:
+        assert all((n in tgn_folded) for n in gnodes)
     new_gnodes = []
     while True:
+        # Do the constrained folding for all nodes.
+        for con in gnodes:
+            if not tgn_folded[con]:
+                css, cen = mfe_constrained(seq, md, con)
+                tgn_folded[con] = True
+                tgn_folded[css] = True
+                if css not in tmp_gnodes:
+                    tmp_gnodes.add(css)
+                    new_gnodes.append((css, cen))
+
         # Find all guide edges in the graph (only force input gedges).
         new_gedges = guiding_edge_search(tmp_gnodes, gedges)
+
+        #NOTE: this may become too expensive. Adding all +1 edges?
+        #print(f'{len(new_gedges)=}')
+        guide_nbrs = {n: set() for n in tmp_gnodes}
+        for (p, q) in new_gedges: 
+            assert p != q
+            guide_nbrs[p].add(q)
+
+        for n in tmp_gnodes:
+            for (p, q) in combinations(guide_nbrs[n], 2):
+                assert (p, n) in new_gedges
+                assert (n, q) in new_gedges
+                dpq = get_bpd_cache(p, q)
+                dpn = get_bpd_cache(p, n) 
+                dnq = get_bpd_cache(n, q)
+                if (p, q) in new_gedges:
+                    # put an assert here
+                    continue
+                # NOTE: don't assert the line below,
+                # the reason why two points are not connectec
+                # can be a different node than current n.
+                #assert max(dpn, dnq) <= dpq
+                if dpn + dnq > dpq:
+                    new_gedges.add((p, q))
+                    new_gedges.add((q, p))
+        #print(f'{len(new_gedges)=}')
+
         # Find guide nodes that should be added to the graph.
         add_gnodes = guiding_node_search(seq, md, tmp_gnodes, new_gedges, fc_empty)
         if not add_gnodes:
             break
-        tmp_gnodes += [ss for (ss, en) in add_gnodes]
-        new_gnodes += [(ss, en) for (ss, en) in add_gnodes]
+        for (ss, en) in add_gnodes:
+            assert ss not in tmp_gnodes
+            assert ss not in tgn_folded
+            tmp_gnodes.add(ss) 
+            new_gnodes.append((ss, en))
+            tgn_folded[ss] = False
     del fc_empty
     return new_gnodes, new_gedges
 
@@ -541,7 +608,7 @@ def guiding_edge_search(nodes, edges = None):
             edges.add((q, p))
     return edges
 
-def guiding_node_search(seq, md, nodes, edges, fc_empty):
+def guiding_node_search(seq, md, nodes, edges, fc_empty, mind = 5):
     """ Find additional local minima in a guide graph.
 
     For every edge and every cycle in the graph, do a constrained fold to get
@@ -552,11 +619,12 @@ def guiding_node_search(seq, md, nodes, edges, fc_empty):
         all base-pairs are forbidden.
 
     """
-    #print('cyclonum:', len(edges)/2 - len(nodes) + 1)
     seen = set()
     lmins = set()
 
     for (s1, s2) in edges:
+        if get_bpd_cache(s1, s2) < mind:
+            continue
         if (s2, s1) in seen:
             continue
         bps = get_basepairs([s1, s2])
@@ -568,14 +636,15 @@ def guiding_node_search(seq, md, nodes, edges, fc_empty):
                 lmins.add((css, cfe))
         seen.add((s1, s2))
  
-    for cyc in nx_cycle_basis(nodes, edges):
-        bps = get_basepairs(cyc)
-        mss, mfe = mfe_intersect(seq, md, bps, fc_empty)
-        if mss not in nodes:
-            lmins.add((mss, mfe))
-            css, cfe = mfe_constrained(seq, md, mss)
-            if css not in nodes:
-                lmins.add((css, cfe))
+    #print('cyclonum:', len(edges)/2 - len(nodes) + 1)
+    #for cyc in nx_cycle_basis(nodes, edges):
+    #    bps = get_basepairs(cyc)
+    #    mss, mfe = mfe_intersect(seq, md, bps, fc_empty)
+    #    if mss not in nodes:
+    #        lmins.add((mss, mfe))
+    #        css, cfe = mfe_constrained(seq, md, mss)
+    #        if css not in nodes:
+    #            lmins.add((css, cfe))
     return lmins
 
 def forbid_all_basepairs(seq, fc):
@@ -594,7 +663,7 @@ def get_basepairs(dotbrackets):
 def mfe_constrained(seq, md, dbcon):
     # TODO: is there a way to reset the fold compound?
     fc = RNA.fold_compound(seq, md)
-    fc.constraints_add(dbcon, RNA.CONSTRAINT_DB_DEFAULT | RNA.CONSTRAINT_DB_ENFORCE_BP)
+    fc.constraints_add(dbcon, RNA.CONSTRAINT_DB_DEFAULT)# | RNA.CONSTRAINT_DB_ENFORCE_BP)
     mss, mfe = fc.mfe()
     return mss, int(round(mfe * 100))
 
@@ -840,69 +909,96 @@ def main():
     # Verbose level 2: show rlog.info
     # Verbose level 3: show rlog.debug
 
+    seq = None
+    ndata = {}
     for e, line in enumerate(sys.stdin):
-        if e == 0 :
+        if e == 0:
             seq = line.strip()
-        elif e == 1 :
-            ss1, cut = costruct(line.strip())
-        elif e == 2 :
-            ss2, cut_ = costruct(line.strip())
-
-    if cut != cut_:
-        raise SystemExit('Inconsistent cut-points.')
+            continue
+        l = line.split()
+        if l[0]:
+            ndata[l[0]] = {'energy': int(round(float(l[1])*100))}
+        else:
+            print(f'Troubles with input line {e+1} {line=}')
 
     # Set model details.
     md = RNA.md()
     md.temperature = args.temp
     md.dangles = args.dangles
-    md.logML = 0
     md.special_hp = not args.noTetra
+    md.logML = 0
     md.noGU = args.noGU
     md.noGUclosure = args.noClosingGU
+
     fc = RNA.fold_compound(seq, md)
 
-    bpd = RNA.bp_distance(ss1, ss2)
-    rlog.info("Base-pair distance:", RNA.bp_distance(ss1, ss2))
+    #import statprof
+    #statprof.start()
 
-    if args.search_width is None:
-        args.search_width = 2 * bpd
-    rlog.info(f"Search-width: {args.search_width}")
-    if args.verbose:
-        print(f"   {seq}")
-    saddle = findpath_wrap(fc, ss1, ss2, 
-            args.max_energy, 
-            args.search_width, 
-            cut = cut, 
-            verbose = args.verbose)
+    print()
+    for ss in ndata:
+        print(ss)
 
-    if saddle is not None:
-        e1 = round(fc.eval_structure(ss1), 2)
-        barrier = saddle - e1
-        print("Saddle: {:6.2f} kcal/mol | Barrier: {:6.2f} kcal/mol | Search width parameter: {}".format(saddle, barrier, args.search_width))
-    else:
-        print("No valid saddle found below energy: {:6.2f} kcal/mol | Search width parameter: {}".format(args.max_energy, args.search_width))
+    gnodes, gedges = get_guide_graph(seq, md, ndata)
 
-    if args.split:
-        assert cut is None
-        print('Findpath decomposition:')
-        path, barrier = findpath_split(seq, ss1, ss2, md, th = 5, w = None)
-        for x in path:
-            print(x)
+    print()
+    for gn in gnodes:
+        print(gn[0], gn[1])
+        ndata[gn[0]] = {'energy': gn[1]}
 
-    if args.minh is not None:
-        assert args.split 
-        assert cut is None
-        ssmap = path_flooding(path, minh = int(args.minh*100))
+    print()
+    for ge in gedges:
+        print('', ge[0])
+        print('', ge[1])
+        print()
 
-        for si in sorted(ssmap):
-            lm = ssmap[si]
-            if isinstance(lm, list):
-                assert len(lm) == 2
-                print(*path[si], 'saddle')
-            elif si == ssmap[si]:
-                print(*path[si], 'lmin')
-            else:
-                print(*path[si])
+    x = neighborhood_flooding(seq, ndata, gedges, tedges = None, minh = None, maxh = None)
+
+    #statprof.stop()
+    #statprof.display()
+
+    #bpd = RNA.bp_distance(ss1, ss2)
+    #rlog.info("Base-pair distance:", RNA.bp_distance(ss1, ss2))
+
+    #if args.search_width is None:
+    #    args.search_width = 2 * bpd
+    #rlog.info(f"Search-width: {args.search_width}")
+    #if args.verbose:
+    #    print(f"   {seq}")
+    #saddle = findpath_wrap(fc, ss1, ss2, 
+    #        args.max_energy, 
+    #        args.search_width, 
+    #        cut = cut, 
+    #        verbose = args.verbose)
+
+    #if saddle is not None:
+    #    e1 = round(fc.eval_structure(ss1), 2)
+    #    barrier = saddle - e1
+    #    print("Saddle: {:6.2f} kcal/mol | Barrier: {:6.2f} kcal/mol | Search width parameter: {}".format(saddle, barrier, args.search_width))
+    #else:
+    #    print("No valid saddle found below energy: {:6.2f} kcal/mol | Search width parameter: {}".format(args.max_energy, args.search_width))
+
+    #if args.split:
+    #    assert cut is None
+    #    print('Findpath decomposition:')
+    #    path, barrier = findpath_split(seq, ss1, ss2, md, th = 5, w = None)
+    #    for x in path:
+    #        print(x)
+
+    #if args.minh is not None:
+    #    assert args.split 
+    #    assert cut is None
+    #    ssmap = path_flooding(path, minh = int(args.minh*100))
+
+    #    for si in sorted(ssmap):
+    #        lm = ssmap[si]
+    #        if isinstance(lm, list):
+    #            assert len(lm) == 2
+    #            print(*path[si], 'saddle')
+    #        elif si == ssmap[si]:
+    #            print(*path[si], 'lmin')
+    #        else:
+    #            print(*path[si])
  
 if __name__ == '__main__':
     main()

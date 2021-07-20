@@ -475,6 +475,7 @@ def main():
         # Get new nodes and connect them.
         logger.info(f'Expanding from {len(list(TL.active_local_mins))} local minima. ' + 
                     f'{len(list(TL.active_nodes))=} {len(list(TL.inactive_nodes))=}.')
+
         nn = TL.expand(mfree = args.min_fraying)
         logger.info(f'Found {len(nn)} new nodes during expansion.')
         cn, ce = TL.get_coarse_network()

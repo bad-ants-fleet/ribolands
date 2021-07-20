@@ -13,6 +13,8 @@ from ribolands.pathfinder import (findpath_split,
                                   local_flooding,
                                   path_flooding, 
                                   edge_flooding,
+                                  init_findpath_max,
+                                  findpath_max,
                                   get_guide_graph,
                                   guiding_edge_search,
                                   guiding_node_search,
@@ -27,25 +29,24 @@ from ribolands.parser import parse_barriers
 
 SKIP = False
 
-#import ribolands.findpath as maxpath
 @unittest.skipIf(SKIP, "skipping tests")
 class MaxPathTests(unittest.TestCase):
-    def dont_test_cache(self):
-        search_width_multiplier = 4
-        mp = True
-         
-        sequence = 'UCCGACAUUAAGACACACCAGGGUCUCGUAUCCCUAGGGUAAGGUACGCGCGGACCGGCCAAUCGGGUAUUGCUGCAAACUAUGGCAAUAGUGCAUAGGUUCAGACGAAGUACGGGUGGAUAUUUGUAGCCAGUAUGCUGGGUCUCCGGG'
-        fp = maxpath.findpath_class(sequence, mp)
-        
-        s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
-        s2       = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
-        result = fp.init(s1, s2, search_width_multiplier)
-        print(result)
-        
-        s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
-        s2       = '((((....((....((.((((((........)))).))))....))....))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).))))))).)))))).))))....)))).'
-        result = fp.init(s1, s2, search_width_multiplier)
-        print(result)
+    #def test_cache(self):
+    #    search_width_multiplier = 4
+    #    mp = True
+    #     
+    #    sequence = 'UCCGACAUUAAGACACACCAGGGUCUCGUAUCCCUAGGGUAAGGUACGCGCGGACCGGCCAAUCGGGUAUUGCUGCAAACUAUGGCAAUAGUGCAUAGGUUCAGACGAAGUACGGGUGGAUAUUUGUAGCCAGUAUGCUGGGUCUCCGGG'
+    #    fp = maxpath.findpath_class(sequence, mp)
+    #    
+    #    s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
+    #    s2       = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
+    #    result = fp.init(s1, s2, search_width_multiplier)
+    #    print(result)
+    #    
+    #    s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
+    #    s2       = '((((....((....((.((((((........)))).))))....))....))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).))))))).)))))).))))....)))).'
+    #    result = fp.init(s1, s2, search_width_multiplier)
+    #    print(result)
 
 
     def test_findpath_split_02(self):
@@ -285,7 +286,6 @@ class FloodingTests(unittest.TestCase):
                 seen.add(path[lm][0])
         assert seen == mins
 
- 
     def test_path_flooding_random(self):
         seq = "UCUACUAUUCCGGCUUGACAUAAAUAUCGAGUGCUCGACCGCUAUUAUGGUACUUUCCAGCGUUUUGAUUGGUGGAUAAUAUCCCCCAAAAACGCGAGUC"
         path = [('............(((((..........)))))((((..((........)).........((((((...((((.((((...)))).)))))))))))))).', -1850), # lmin
@@ -349,7 +349,8 @@ class FloodingTests(unittest.TestCase):
         #print() # NOTE: A quick check if edge_flooding works.
         #[s1, e1] = path[0]
         #[s2, e2] = path[-1]
-        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(seq, RNA.md(), s1, s2, e1, e2, minh = 300):
+        #fp = init_findpath_max(seq)
+        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(fp, s1, s2, e1, e2, minh = 300):
         #    print(ss1, en1, ssB, enB, ss2, en2)
 
 @unittest.skipIf(SKIP, "skipping tests")
@@ -429,17 +430,20 @@ class NeighborhoodTests(unittest.TestCase):
         e1 = int(round(lmins[1].energy*100))
         e2 = int(round(lmins[4].energy*100))
 
-        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(seq, md, s1, s2, e1, e2, minh = None):
+        fp = init_findpath_max(seq)
+        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(fp, s1, s2, e1, e2, minh = None):
         #    print(ss1, en1, ssB, enB, ss2, en2)
-        assert len(list(edge_flooding(seq, md, s1, s2, e1, e2, minh = None))) == 1
+        assert len(list(edge_flooding((seq, md), s1, s2, e1, e2, minh = None))) == 1
 
-        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(seq, md, s1, s2, e1, e2, minh = 0):
+        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(fp, s1, s2, e1, e2, minh = 0):
         #    print(ss1, en1, ssB, enB, ss2, en2)
-        assert len(list(edge_flooding(seq, md, s1, s2, e1, e2, minh = 0))) == 1 # Used to be 6
+        #fp = init_findpath_max(seq) # TODO remove
+        assert len(list(edge_flooding(fp, s1, s2, e1, e2, minh = 0))) == 1 # Used to be 6
 
         #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(seq, md, s1, s2, e1, e2, minh = 300):
         #    print(ss1, en1, ssB, enB, ss2, en2)
-        assert len(list(edge_flooding(seq, md, s1, s2, e1, e2, minh = 300))) == 1 # Used to be 3
+        #fp = init_findpath_max(seq) # TODO remove
+        assert len(list(edge_flooding(fp, s1, s2, e1, e2, minh = 300))) == 1 # Used to be 3
 
     def test_neighborhood_flooding(self):
         btree = """
@@ -460,9 +464,10 @@ class NeighborhoodTests(unittest.TestCase):
         ndata = {x.structure: {'energy': int(round(x.energy*100)), 'identity': x.id} for x in lmins[1:]}
         gnodes, gedges = get_guide_graph(seq, md, ndata.keys())
         assert len(gnodes) == 0 # no new guide nodes
-        assert len(gedges) == 22
+        assert len(gedges) == 36
 
-        ndata, tedges, new_gedges = neighborhood_flooding(seq, md, ndata, gedges, minh = 200)
+        fp = init_findpath_max(seq)
+        ndata, tedges, new_gedges = neighborhood_flooding(fp, ndata, gedges, minh = 200)
 
         #print()
         #print('a', len(ndata))
@@ -472,12 +477,12 @@ class NeighborhoodTests(unittest.TestCase):
             assert ge not in gedges
             #print(ge)
 
-        #print()
-        #for te in tedges.items():
-        #    print(te)
+        # #print()
+        # #for te in tedges.items():
+        # #    print(te)
 
         while new_gedges:
-            ndata, tedges, new_gedges = neighborhood_flooding(seq, md, ndata, new_gedges, tedges = tedges, minh = 200)
+            ndata, tedges, new_gedges = neighborhood_flooding(fp, ndata, new_gedges, tedges = tedges, minh = 200)
             #print()
             #print(len(ndata))
             #print(len(tedges))
@@ -568,7 +573,7 @@ class NeighborhoodTests(unittest.TestCase):
         btree = """
               AGACGACAAGGUUGAAUCGCACCCACAGUCUAUGAGUCGGUGACAACAUU
             #1 ..........((((.((((.((.((.......)).))))))..))))...  -6.70    0  13.00
-            #2 ..........((((.((((.((...((.....)).))))))..))))...  -6.10    1   2.10
+            2 ..........((((.((((.((...((.....)).))))))..))))...  -6.10    1   2.10
             3 ..........((((.....((((.((.........)).)))).))))...  -5.90    1   6.30
             #4 ((((.....(((........)))....))))....(((...)))......  -5.70    1   8.50
             5 ...((((...)))).....((((.((.........)).))))........  -5.60    3   4.80
@@ -582,24 +587,20 @@ class NeighborhoodTests(unittest.TestCase):
         seq, md = lmins[0], RNA.md()
         ndata = {x.structure: {'energy': int(round(x.energy*100)), 'identity': x.id} for x in lmins[1:]}
 
-        print()
+        #print()
         nodes, edges = get_guide_graph(seq, md, ndata.keys())
-        for n in nodes:
-            if n in ndata:
-                print(ndata[n]['identity'], n)
-            else:
-                print('new', n)
-        for e, (x, y) in enumerate(sorted(edges), 1):
-            print(e, '',  end='')
-            if x in ndata:
-                print(ndata[x]['identity'], '', end="")
-            else:
-                print(x, '',  end="")
+        assert all(n not in ndata for n in nodes)
 
-            if y in ndata:
-                print(ndata[y]['identity'])
-            else:
-                print(y)
+        #ID = 20
+        #for (ss, en) in nodes:
+        #    ndata[ss] = {'energy': en, 'identity': ID}
+        #    ID += 1
+
+        #for n in ndata.items():
+        #    print(n)
+
+        #for e, (x, y) in enumerate(sorted(edges), 1):
+        #    print(e, ndata[x]['identity'], ndata[y]['identity'])
 
     def test_minitrafo_randseq(self):
         # A random set of sequences returned by randseq -l 100 | RNAsubopt --stochBT_en=50 | sort -u
@@ -648,38 +649,38 @@ class NeighborhoodTests(unittest.TestCase):
         lmins = parse_barriers(btree, is_file = False, return_tuple = True)
         seq, md = lmins[0], RNA.md()
 
-        print()
+        #print()
         ndata = {x.structure: {'energy': int(round(x.energy*100)), 'identity': x.id} for x in lmins[1:]}
 
-        print(f'Finding guide neighborhood for {len(ndata)=}.')
+
+        #print(f'Finding guide neighborhood for {len(ndata)=}.')
         gnodes, gedges = get_guide_graph(seq, md, ndata.keys())
-        print(f' - Found {len(gedges)} guide edges and {len(gnodes)} new guide nodes.')
+        #print(f' - Found {len(gedges)} guide edges and {len(gnodes)} new guide nodes.')
         for (ss, en) in gnodes:
             ndata[ss] = {'energy': en}
 
-        print(f'Total of {len(ndata)} lmins.')
+        #print(f'Total of {len(ndata)} lmins.')
         tedges = dict() 
+        fp = init_findpath_max(seq)
         while gedges:
-            print(len(gedges))
-            ndata, tedges, gedges = neighborhood_flooding(seq, md, ndata, gedges, tedges = tedges, minh = 200)
-            if len(gedges) > 999:
-                break
+            #print(len(gedges))
+            ndata, tedges, gedges = neighborhood_flooding(fp, ndata, gedges, tedges = tedges, minh = 200)
 
         # Those results are not constant ... why?
-        #assert len(gedges) == 2380
-        #assert len(ndata) == 66
-        #assert len(tedges) == 154
+        #assert len(gedges) == 0
+        #assert len(ndata) == 98
+        #assert len(tedges) == 364
 
-        print(len(ndata), len([(x,y) for (x, y) in tedges if tedges[(x,y)]['saddle_energy'] is not None]))
+        #print(len(ndata), len([(x,y) for (x, y) in tedges if tedges[(x,y)]['saddle_energy'] is not None]))
         for k in list(ndata): ndata[k]['hiddennodes'] = set()
         cg_ndata, cg_edata = neighborhood_coarse_graining(ndata, tedges, minh = 200)
 
-        print()
-        for n in sorted(ndata, key = lambda x: ndata[x]['energy']):
-            print(n, ndata[n]['energy'])
-        print()
-        for n in sorted(cg_ndata, key = lambda x: cg_ndata[x]['energy']):
-            print(n, cg_ndata[n]['energy'], len(cg_ndata[n]['hiddennodes']))
+        #print()
+        #for n in sorted(ndata, key = lambda x: ndata[x]['energy']):
+        #    print(n, ndata[n]['energy'])
+        #print()
+        #for n in sorted(cg_ndata, key = lambda x: cg_ndata[x]['energy']):
+        #    print(n, cg_ndata[n]['energy'], len(cg_ndata[n]['hiddennodes']))
 
         hiddennodes = set()
         for n in cg_ndata:

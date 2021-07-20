@@ -17,6 +17,7 @@ from ribolands import RiboLandscape
 from ribolands.utils import make_pair_table
 from ribolands.pathfinder import (BPD_CACHE, get_bpd_cache, 
                                   get_guide_graph,
+                                  init_findpath_max,
                                   neighborhood_flooding,
                                   neighborhood_coarse_graining)
 
@@ -98,7 +99,7 @@ def fold_exterior_loop(seq, con, md, cache = None, spacer = 'NNN'):
     else:
         fc_tmp = RNA.fold_compound(ext_seq, md)
         fc_tmp.constraints_add(ext_con, 
-                RNA.CONSTRAINT_DB_DEFAULT | RNA.CONSTRAINT_DB_ENFORCE_BP)
+                RNA.CONSTRAINT_DB_DEFAULT)# | RNA.CONSTRAINT_DB_ENFORCE_BP)
         css, cfe = fc_tmp.mfe()
         EFOLD_CACHE[ext_seq] = css
         del fc_tmp
@@ -246,6 +247,7 @@ class TrafoLandscape(RiboLandscape):
 
         # Calculate full backtracking matrix for all subsequent MFE runs.
         _ = self.fc.mfe()
+        #self.fp = init_findpath_max(self.sequence)
 
         # Private instance variables:
         self._transcript_length = 0
@@ -362,6 +364,7 @@ class TrafoLandscape(RiboLandscape):
         future = '.' * (len(fseq) - len(seq))
         mfess = mfess + future
 
+
         # If there is no node because we are in the beginning, add the node.
         if len(self.nodes) == 0: 
             self.addnode(mfess, structure = mfess, occupancy = 1)
@@ -384,16 +387,29 @@ class TrafoLandscape(RiboLandscape):
                         nn.add(fn)
                     self.nodes[fn]['active'] = True
 
-            ndata = {n: d for n, d in self.nodes.items() if d['active']} # active and inactive?
-            # 2) Include edge-data from previous network.
-            edata = {k: v for k, v in self.edges.items()}
+            ndata = {n[0:len(seq)]: d for n, d in self.nodes.items() if d['active']} 
+            gnodes, gedges = get_guide_graph(seq, md, ndata.keys())
+            assert all(ss != '' for (ss, en) in gnodes)
 
-            gnodes, gedges = get_guide_graph(fseq, md, ndata.keys())
             for (ss, en) in gnodes:
-                ndata[ss] = {'energy': en}
+                if ss+future not in self.nodes:
+                    self.addnode(ss+future, structure = ss+future)
+                    nn.add(ss+future)
+                self.nodes[ss+future]['active'] = True
+            ndata = {n: d for n, d in self.nodes.items() if d['active']} 
 
-            for _ in range(2):
-                ndata, edata, gedges = neighborhood_flooding(fseq, md, ndata, gedges, tedges = edata, minh = self.minh, maxh = self.maxh)
+            lgedges = set()
+            for (x, y) in gedges:
+                lgedges.add((x+future, y+future))
+            gedges = lgedges
+
+            # 2) Include edge-data from previous network if nodes are active.
+            edata = {k: v for k, v in self.edges.items() if (
+                self.nodes[k[0]]['active'] and self.nodes[k[1]]['active'])}
+
+            while gedges:
+                ndata, edata, gedges = neighborhood_flooding((fseq, md), ndata, gedges, 
+                        tedges = edata, minh = self.minh, maxh = self.maxh)
 
             # 3) Extract new node data.
             for node in ndata:
@@ -404,15 +420,9 @@ class TrafoLandscape(RiboLandscape):
                 assert self.nodes[node]['energy'] == ndata[node]['energy']
 
             # 4) Update to new edges.
-            old_edges = self.edges
-            self._edges = dict()
             for (x, y) in edata:
-                if (x, y) in old_edges:
-                    assert old_edges[(x, y)]['saddle_energy'] == edata[(x, y)]['saddle_energy']
-                    self._edges[(x, y)] = old_edges[(x, y)]
-                else:
-                    se = edata[(x, y)]['saddle_energy']
-                    self.addedge(x, y, saddle_energy = se)
+                se = edata[(x, y)]['saddle_energy']
+                self.addedge(x, y, saddle_energy = se)
         return nn
 
     def get_coarse_network(self, minh = None):
@@ -437,7 +447,8 @@ class TrafoLandscape(RiboLandscape):
                     self.nodes[tn]['occupancy'] += self.nodes[n]['occupancy']/len(self.nodes[n]['occtransfer'])
                 self.nodes[n]['occupancy'] = 0
         ndata = {n: d for n, d in self.nodes.items() if d['active']} # only active.
-        cg_ndata, cg_edata = neighborhood_coarse_graining(ndata, self.edges, minh)
+        edata = {k: v for k, v in self.edges.items() if self.nodes[k[0]]['active'] and self.nodes[k[1]]['active']}
+        cg_ndata, cg_edata = neighborhood_coarse_graining(ndata, edata, minh)
         assert all((n in ndata) for n in cg_ndata)
 
         # Translate coarse grain results to TL.
@@ -604,12 +615,11 @@ class TrafoLandscape(RiboLandscape):
             return
 
         for lm in new_inactive_lms:
-            if not self.nodes[lm]['active']:
-                # TODO: should it really be all of them?
-                self.nodes[lm]['occtransfer'] = set(get_active_nbrs(lm))
-                #print('occu', lm, '->',  self.nodes[lm]['occtransfer'])
-                assert self.nodes[lm]['occtransfer'] 
-
+            assert not self.nodes[lm]['active']
+            # TODO: should it really be all of them?
+            self.nodes[lm]['occtransfer'] = set(get_active_nbrs(lm))
+            #print('occu', lm, '->',  self.nodes[lm]['occtransfer'])
+            assert len(self.nodes[lm]['occtransfer']) > 0
 
         for node in list(self.nodes):
             if self.nodes[node]['active']:
@@ -618,6 +628,10 @@ class TrafoLandscape(RiboLandscape):
                 self.nodes[node]['pruned'] += 1
             rlog.debug(f'After pruning: {node} {self.nodes[node]}')
             if self.nodes[node]['pruned'] > 3:
-               del self._nodes[node]
+                #TODO: probably quite inefficient...
+                for (x, y) in set(self.edges):
+                    if node in (x, y):
+                        del self._edges[(x,y)]
+                del self._nodes[node]
         return
 
