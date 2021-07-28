@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import seaborn
+import ribolands as ril
 
 
 def plot_nxy(name, tfile,
@@ -258,6 +259,25 @@ def main():
     """ DrPlotter.
     """
     import sys
+    import argparse
+    parser = argparse.ArgumentParser(
+        formatter_class = argparse.ArgumentDefaultsHelpFormatter,
+        description = 'DrPlotter: visualization of the DrForna file format.')
+
+    parser.add_argument('--version', action = 'version', 
+            version = '%(prog)s ' + ril.__version__)
+    parser.add_argument("-v", "--verbose", action = 'count', default = 0,
+            help = """Track process by writing verbose output to STDOUT during
+            calculations. Use --logfile if you want to see *just* verbose
+            information via STDOUT.  The verbose output can be visualized using
+            the script DrProfile.py. """)
+
+    parser.add_argument("--name", default = 'DrPlotter', metavar = '<str>',
+            help = """Name your output files, name the header of your plots, etc.
+            this option overwrites the fasta-header.""")
+
+    args = parser.parse_args()
+
     llen = 0
     lin_time = 0
     all_courses = dict()
@@ -276,8 +296,8 @@ def main():
         llen = len(ss)
     log_time = time if time > 10 * lin_time else 10 * lin_time
 
-    plot_xmgrace(all_courses, 'DrPlotter.gr')
-    plot_simulation(all_courses, 'DrPlotter', ['pdf'], lin_time, log_time, title = 'DrPlotter')
+    plot_xmgrace(all_courses, args.name + '.gr')
+    plot_simulation(all_courses, args.name, ['pdf'], lin_time, log_time, title = args.name)
  
 if __name__ == '__main__':
     main()

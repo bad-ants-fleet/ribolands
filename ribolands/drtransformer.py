@@ -17,6 +17,7 @@ from ribolands.utils import parse_vienna_stdin
 from ribolands.syswraps import sys_treekin
 from ribolands.syswraps import SubprocessError, ExecError, check_version, VersionError
 from ribolands.trafo import TrafoLandscape
+from ribolands.pathfinder import top_down_coarse_graining
 
 def restricted_float(x):
     y = float(x)
@@ -24,7 +25,7 @@ def restricted_float(x):
         raise argparse.ArgumentTypeError(f"{x} not in range (0.0, 1.0)")
     return y
 
-def sorted_trajectories(nlist, tfile, softmap = None):
+def sorted_trajectories(nlist, tfile, plot_cgm = None, mapping = None):
     """ Yields the time course information using a treekin output file.
 
     Args:
@@ -42,12 +43,20 @@ def sorted_trajectories(nlist, tfile, softmap = None):
                 continue
             course = list(map(float, line.strip().split()))
             time = course[0]
-            if softmap:
+            if plot_cgm:
                 # Combine all results that belong together.
-                raise NotImplementedError('No support for softmap atm.')
-            for e, occu in enumerate(course[1:]):
-                # is it above visibility threshold?
-                yield time, nlist[e], occu 
+                for e, occu in enumerate(course[1:]):
+                    if nlist[e] not in plot_cgm:
+                        continue
+                    node = nlist[e]
+                    for n in plot_cgm[node]:
+                        ci = nlist.index(n) + 1
+                        occu += course[ci]/len(mapping[n])
+                    yield time, nlist[e], occu 
+            else:
+                for e, occu in enumerate(course[1:]):
+                    # is it above visibility threshold?
+                    yield time, nlist[e], occu 
     return
 
 def parse_model_details(parser):
@@ -137,6 +146,10 @@ def parse_drtrafo_args(parser):
             help = """Adjust the plotting time resolution via the time-increment of
             the solver (t1 * t-inc = t2).""")
 
+    output.add_argument("--plot-minh", type = float, default = None, metavar = '<flt>',
+            help = """Coarsify the output based on a minimum barrier height. In contrast
+            to t-fast, this does *not* speed up the simulation.""")
+
     output.add_argument("--draw-graphs", action = "store_true",
             #help = """Export every landscape as json file. Uses --tempdir. """)
             help = argparse.SUPPRESS)
@@ -189,15 +202,15 @@ def parse_drtrafo_args(parser):
             # An alternative to specify --t-fast in terms of a barrier height.
             help = argparse.SUPPRESS)
 
-    algo.add_argument("--t-slow", type = float, default = 360000, metavar = '<flt>',
-            help = """Only accept new structures as neighboring conformations if
-            the transition is faster than --t-slow. This parameter may be
-            useful to prevent numeric instabilities, otherwise, better avoid
-            it.""")
+    #algo.add_argument("--t-slow", type = float, default = 360000, metavar = '<flt>',
+    #        help = """Only accept new structures as neighboring conformations if
+    #        the transition is faster than --t-slow. This parameter may be
+    #        useful to prevent numeric instabilities, otherwise, better avoid
+    #        it.""")
 
-    algo.add_argument("--maxh", type = float, default = None, metavar = '<flt>',
-            # An alternative to specify --t-fast in terms of a barrier height.
-            help = argparse.SUPPRESS)
+    #algo.add_argument("--maxh", type = float, default = None, metavar = '<flt>',
+    #        # An alternative to specify --t-fast in terms of a barrier height.
+    #        help = argparse.SUPPRESS)
 
     algo.add_argument("--force", action = "store_true", 
             # Enforce a setting against all warnings.
@@ -279,6 +292,8 @@ def main():
 
     (name, fullseq) = parse_vienna_stdin(sys.stdin, chars='ACGUNacgun')
 
+    if args.plot_minh:
+        args.plot_minh = int(round(args.plot_minh*100))
     # Adjust arguments, prepare simulation
     if args.name == '':
         args.name = name
@@ -361,13 +376,13 @@ def main():
     logger.info(f'--t-fast: {args.t_fast} s => {args.minh} kcal/mol barrier height ' + 
                 f'and {1/args.t_fast} /s rate at k0 = {args.k0}')
 
-    if args.maxh:
-        logger.warning('Overwriting t-slow parameter.')
-        args.t_slow = 1/(args.k0 * math.exp(-args.maxh/_RT))
-    else:
-        args.maxh = -_RT * math.log(1 / args.t_slow / args.k0)
-    logger.info(f'--t-slow {args.t_slow} s => {args.maxh} kcal/mol barrier height ' +
-                f'and {1/args.t_slow} /s rate at k0 = {args.k0}')
+    #if args.maxh:
+    #    logger.warning('Overwriting t-slow parameter.')
+    #    args.t_slow = 1/(args.k0 * math.exp(-args.maxh/_RT))
+    #else:
+    #    args.maxh = -_RT * math.log(1 / args.t_slow / args.k0)
+    #logger.info(f'--t-slow {args.t_slow} s => {args.maxh} kcal/mol barrier height ' +
+    #            f'and {1/args.t_slow} /s rate at k0 = {args.k0}')
 
     if not args.force and args.t_fast and args.t_fast * 10 > args.t_ext:
         raise SystemExit('ERROR: Conflicting Settings: ' + 
@@ -375,11 +390,11 @@ def main():
                 '       => An instant folding time must be at least 10x shorter than ' +
                 'the time of nucleotide extension. You may use --force to ignore this setting.')
 
-    if not args.force and args.t_slow and args.t_end * 100 > args.t_slow:
-        raise SystemExit('ERROR: Conflicting Settings: ' + 
-                'Arguments must be such that "--t-slow" < 100 * "--t-end".\n' + 
-                '       => A negligibly long folding time must be at least 100x longer than ' +
-                'the final simulation time. You may use --force to ignore this error.')
+    #if not args.force and args.t_slow and args.t_end * 100 > args.t_slow:
+    #    raise SystemExit('ERROR: Conflicting Settings: ' + 
+    #            'Arguments must be such that "--t-slow" < 100 * "--t-end".\n' + 
+    #            '       => A negligibly long folding time must be at least 100x longer than ' +
+    #            'the final simulation time. You may use --force to ignore this error.')
 
     try:
         check_version(args.treekin, ril._MIN_TREEKIN_VERSION)
@@ -425,7 +440,7 @@ def main():
         fdata += "# Algorithm parameters:\n"
         fdata += "# --o-min: {}\n".format(args.o_min)
         fdata += "# --t-fast: {} sec\n".format(args.t_fast)
-        fdata += "# --t-slow: {} sec\n".format(args.t_slow)
+        #fdata += "# --t-slow: {} sec\n".format(args.t_slow)
         #fdata += "# --findpath-search-width: {}\n".format(args.findpath_search_width)
         fdata += "# --min-fraying: {} nuc\n".format(args.min_fraying)
         fdata += "# --k0: {}\n".format(args.k0)
@@ -455,7 +470,7 @@ def main():
     TL = TrafoLandscape(fullseq, vrna_md)
     TL.k0 = args.k0
     TL.minh = int(round(args.minh*100)) if args.minh else 0
-    TL.maxh = int(round(args.maxh*100)) if args.maxh else 0
+    #TL.maxh = int(round(args.maxh*100)) if args.maxh else 0
     TL._transcript_length = args.start - 1
 
     tprofile = []
@@ -464,6 +479,9 @@ def main():
         for term in args.pause_sites:
             site, pause = term.split('=')
             psites[int(site)] = float(pause)
+
+    #import statprof
+    #statprof.start()
 
     #############
     # ~~~~~~~~~ #
@@ -544,19 +562,52 @@ def main():
         # Update occupancies from treekin results. 
         time_inc = TL.update_occupancies_tkn(tfile, nlist)
 
+        if args.plot_minh:
+            assert args.plot_minh > TL.minh
+            # Provide coarse network to get even more coarse network
+            ndata = {n: d for n, d in TL.nodes.items() if n in nlist} # only active.
+            edata = TL.cg_edges
+            assert (n in nlist for n in ndata)
+            assert (n in ndata for n in nlist)
+            _, _, plot_cgm = top_down_coarse_graining(ndata, edata, args.plot_minh)
+
+            # Update occupancies locally using odict.
+            mapping = {hn: set() for hn in nlist}
+            for lmin, hidden in plot_cgm.items():
+                assert lmin in nlist
+                for hn in hidden:
+                    assert hn in nlist
+                    mapping[hn].add(lmin)
+        else:
+            plot_cgm, mapping = None, None
+
         # Print the current state *after* the simulation.
         if args.stdout == 'log' or lfh:
-            for e, node in enumerate(nlist, 1):
-                ne = TL.nodes[node]['energy']/100
-                po = odict[node]
-                no = TL.nodes[node]['occupancy']
-                ni = TL.nodes[node]['identity']
-                fdata = f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} [{po:6.4f} -> {no:6.4f}] ID = {ni}\n"
-                write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
+            if args.plot_minh:
+                for e, node in enumerate(nlist, 1):
+                    if node not in plot_cgm:
+                        continue
+                    ne = TL.nodes[node]['energy']/100
+                    po = odict[node] + sum(odict[n]/len(mapping[n]) for n in plot_cgm[node])
+                    no = TL.nodes[node]['occupancy'] + sum(TL.nodes[n]['occupancy']/len(mapping[n]) for n in plot_cgm[node])
+                    nids = [TL.nodes[n]['identity'] for n in sorted(plot_cgm[node], key = lambda x: TL.nodes[x]['identity'])]
+                    ni = TL.nodes[node]['identity']
+                    if nids:
+                        ni +=  f" + {' + '.join(nids)}"
+                    fdata = f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} [{po:6.4f} -> {no:6.4f}] ID = {ni}\n"
+                    write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
+            else:
+                for e, node in enumerate(nlist, 1):
+                    ne = TL.nodes[node]['energy']/100
+                    po = odict[node]
+                    no = TL.nodes[node]['occupancy']
+                    ni = TL.nodes[node]['identity']
+                    fdata = f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} [{po:6.4f} -> {no:6.4f}] ID = {ni}\n"
+                    write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
 
         if args.stdout == 'drf' or dfh:
             lt = time
-            for (stime, node, occu) in sorted_trajectories(nlist, tfile):
+            for (stime, node, occu) in sorted_trajectories(nlist, tfile, plot_cgm, mapping):
                 tt = time + stime
                 ni = TL.nodes[node]['identity']
                 if occu < 0.001: 
@@ -593,13 +644,30 @@ def main():
     if args.stdout == 'log' or lfh:
         fdata  = "# Distribution of structures at the end:\n"
         fdata += "#         {}\n".format(TL.transcript)
-        for e, node in enumerate(sorted(TL.active_local_mins, key = lambda x: TL.nodes[x]['energy']), 1):
-            ne = TL.nodes[node]['energy']/100
-            no = TL.nodes[node]['occupancy']
-            ni = TL.nodes[node]['identity']
-            fdata += f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} {no:6.4f} ID = {ni}\n"
-        write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
-    logger.info(f"Transkription profile: {tprofile}\n")
+        if args.plot_minh:
+            for e, node in enumerate(nlist, 1):
+                if node not in plot_cgm:
+                    continue
+                ne = TL.nodes[node]['energy']/100
+                po = odict[node] + sum(odict[n]/len(mapping[n]) for n in plot_cgm[node])
+                no = TL.nodes[node]['occupancy'] + sum(TL.nodes[n]['occupancy']/len(mapping[n]) for n in plot_cgm[node])
+                nids = [TL.nodes[n]['identity'] for n in sorted(plot_cgm[node], key = lambda x: TL.nodes[x]['identity'])]
+                ni = TL.nodes[node]['identity']
+                if nids:
+                    ni +=  f" + {' + '.join(nids)}"
+                fdata += f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} {no:6.4f} ID = {ni}\n"
+            write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
+        else:
+            for e, node in enumerate(sorted(TL.active_local_mins, key = lambda x: TL.nodes[x]['energy']), 1):
+                ne = TL.nodes[node]['energy']/100
+                no = TL.nodes[node]['occupancy']
+                ni = TL.nodes[node]['identity']
+                fdata += f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} {no:6.4f} ID = {ni}\n"
+            write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
+        logger.info(f"Transkription profile: {tprofile}\n")
+
+    #statprof.stop()
+    #statprof.display()
 
     # CLEANUP file handles
     if lfh: lfh.close()

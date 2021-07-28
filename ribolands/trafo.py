@@ -19,7 +19,7 @@ from ribolands.pathfinder import (BPD_CACHE, get_bpd_cache,
                                   get_guide_graph,
                                   init_findpath_max,
                                   neighborhood_flooding,
-                                  neighborhood_coarse_graining)
+                                  top_down_coarse_graining)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 # Tracks findpath calls for profiling output.                                  #
@@ -404,12 +404,11 @@ class TrafoLandscape(RiboLandscape):
             gedges = lgedges
 
             # 2) Include edge-data from previous network if nodes are active.
-            edata = {k: v for k, v in self.edges.items() if (
-                self.nodes[k[0]]['active'] and self.nodes[k[1]]['active'])}
+            edata = {k: v for k, v in self.edges.items() if (self.nodes[k[0]]['active'] and self.nodes[k[1]]['active']) and 
+                    v['saddle_energy'] is not None}
 
-            while gedges:
-                ndata, edata, gedges = neighborhood_flooding((fseq, md), ndata, gedges, 
-                        tedges = edata, minh = self.minh, maxh = self.maxh)
+            ndata, edata = neighborhood_flooding((fseq, md), ndata, gedges, tedges = edata, minh = self.minh)
+            #ndata, edata = neighborhood_flooding(self.fp, ndata, gedges, tedges = edata, minh = self.minh)
 
             # 3) Extract new node data.
             for node in ndata:
@@ -423,6 +422,7 @@ class TrafoLandscape(RiboLandscape):
             for (x, y) in edata:
                 se = edata[(x, y)]['saddle_energy']
                 self.addedge(x, y, saddle_energy = se)
+
         return nn
 
     def get_coarse_network(self, minh = None):
@@ -448,7 +448,7 @@ class TrafoLandscape(RiboLandscape):
                 self.nodes[n]['occupancy'] = 0
         ndata = {n: d for n, d in self.nodes.items() if d['active']} # only active.
         edata = {k: v for k, v in self.edges.items() if self.nodes[k[0]]['active'] and self.nodes[k[1]]['active']}
-        cg_ndata, cg_edata = neighborhood_coarse_graining(ndata, edata, minh)
+        cg_ndata, cg_edata, cg_mapping = top_down_coarse_graining(ndata, edata, minh)
         assert all((n in ndata) for n in cg_ndata)
 
         # Translate coarse grain results to TL.
@@ -460,12 +460,12 @@ class TrafoLandscape(RiboLandscape):
             self._cg_edges[(x, y)] = {'saddle_energy': se,
                                       'weight': self.k0 * math.e**(-bar/self.RT)}
 
-        for lmin, data in cg_ndata.items():
+        for lmin, hidden in cg_mapping.items():
             assert self.nodes[lmin]['active']
-            for hn in data['hiddennodes']:
+            for hn in hidden:
                 assert self.nodes[hn]['active']
                 self.nodes[hn]['lminreps'].add(lmin)
-            self.nodes[lmin]['hiddennodes'] = data['hiddennodes']
+            self.nodes[lmin]['hiddennodes'] = hidden
 
         # Move occupancy to lmins.
         for hn in self.hidden_nodes:
@@ -475,6 +475,8 @@ class TrafoLandscape(RiboLandscape):
                 for lrep in self.nodes[hn]['lminreps']:
                     self.nodes[lrep]['occupancy'] += self.nodes[hn]['occupancy']/len(self.nodes[hn]['lminreps'])
             self.nodes[hn]['occupancy'] = 0
+            # TODO: try this ...
+            self.nodes[hn]['active'] = False
         return len(cg_ndata), len(cg_edata)
 
     def get_simulation_files_tkn(self, basename):
