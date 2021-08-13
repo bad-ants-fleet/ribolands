@@ -816,6 +816,21 @@ def parse_model_details(parser):
         help = """Read energy parameters from paramfile, instead of 
         using the default parameter set.""")
 
+def print_barfile(seq, cgn, cge, cgm):
+    print(f'  ID {seq}  Energy  Entropy  {" ".join(map("{:7d}".format, range(1, len(cgn)+1)))}')
+    for e, node in enumerate(sorted(cgn, key = lambda x: cgn[x]['energy']), 1):
+        ne = cgn[node]['energy']
+        # Calculate barrier heights to all other basins.
+        barstr = ''
+        for other in sorted(cgn, key = lambda x: cgn[x]['energy']):
+            oe = cgn[other]['energy']
+            sE = cge[(node, other)]['saddle_energy'] if (node, other) in cge else None
+            if sE is not None:
+                barstr += ' {:7.2f}'.format((sE - ne)/100)
+            else:
+                barstr += ' {:7.2f}'.format(float('nan'))
+        print(f"{e:>4d} {node}  {cgn[node]['energy']/100:>6.2f} {len(cgm[node]):>8d} {barstr}")
+
 def main():
     import sys
     import argparse
@@ -837,7 +852,7 @@ def main():
     parse_model_details(parser)
     args = parser.parse_args()
 
-    # TODO: Parse a subopt file.
+    # Parsing RNAsubopt-like file.
     seq = None
     ndata = dict()
     for e, line in enumerate(sys.stdin):
@@ -860,14 +875,15 @@ def main():
     md.noGU = args.noGU
     md.noGUclosure = args.noClosingGU
 
-    print(seq)
-    fc = RNA.fold_compound(seq, md)
-    for ss in ndata:
-        if ndata[ss]['energy'] is None:
-            ndata[ss]['energy'] = int(round(fc.eval_structure(ss) * 100))
-        print(ss, ndata[ss]['energy'])
+    #print(seq)
+    #fc = RNA.fold_compound(seq, md)
+    #for ss in ndata:
+    #    if ndata[ss]['energy'] is None:
+    #        ndata[ss]['energy'] = int(round(fc.eval_structure(ss) * 100))
+    #    print(ss, ndata[ss]['energy'])
 
     # Get the guide graph for all inputs:
+    print(f'Guide graph construction with {len(ndata)} structures.')
     gnodes, gedges = get_guide_graph(seq, md, ndata)
 
     if len(gnodes):
@@ -877,54 +893,28 @@ def main():
             ndata[gn[0]] = {'energy': gn[1]}
 
     if args.elementary_moves: # Do you want to have a base-pair neighborhood only?
+        print('Using elementary moves only.')
         edata = dict()
         for (x, y) in gedges:
             if get_bpd_cache(x, y) == 1:
-                edata[(x,y)] = {'saddle_energy': max(ndata[x]['energy'], ndata[y]['energy'])}
+                edata[(x,y)] = {'saddle_energy': max(ndata[x]['energy'], 
+                                                     ndata[y]['energy'])}
             else:
                 edata[(x,y)] = {'saddle_energy': None}
     else:
+        print('Neighborhood flooding ...')
         ndata, edata = neighborhood_flooding((seq, md), ndata, gedges, minh = args.minh)
 
-    edata = {k: v for k, v in edata.items() if v['saddle_energy'] is not None}
     if args.minh:
+        print(f'Top down coarse graining with {args.minh=} ({len(ndata)=}, {len(edata)=}).')
+        edata = {k: v for k, v in edata.items() if v['saddle_energy'] is not None}
         cgn, cge, cgm = top_down_coarse_graining(ndata, edata, minh = args.minh)
-
-        print('Total hidden nodes:', sum(len(cgm[n]) for n in cgn))
-        print(f'  ID {seq}  Energy  Entropy  {" ".join(map("{:7d}".format, range(1, len(cgn)+1)))}')
-        for e, node in enumerate(sorted(cgn, key = lambda x: cgn[x]['energy']), 1):
-            ne = cgn[node]['energy']
-            # Calculate barrier heights to all other basins.
-            barstr = ''
-            for other in sorted(cgn, key = lambda x: cgn[x]['energy']):
-                oe = cgn[other]['energy']
-                sE = cge[(node, other)]['saddle_energy'] if (node, other) in cge else None
-                if sE is not None:
-                    barstr += ' {:7.2f}'.format((sE - ne)/100)
-                else:
-                    barstr += ' {:7.2f}'.format(float('nan'))
-            print(f"{e:>4d} {node}  {ndata[node]['energy']/100:>6.2f} {len(cgm[node]):>8d} {barstr}")
-
-        #print(cgm['..............................'])
-        #print(cgm['((((..(((......)))...)))).....'])
-        #for x in cgm['..............................'] & cgm['((((..(((......)))...)))).....']:
-        #    print(x, ndata[x])
-
     else:
-        print(f'  ID {seq}  Energy  Entropy  {" ".join(map("{:7d}".format, range(1, len(ndata)+1)))}')
-        for e, node in enumerate(sorted(ndata, key = lambda x: ndata[x]['energy']), 1):
-            ne = ndata[node]['energy']
-            # Calculate barrier heights to all other basins.
-            barstr = ''
-            for other in sorted(ndata, key = lambda x: ndata[x]['energy']):
-                oe = ndata[other]['energy']
-                sE = edata[(node, other)]['saddle_energy'] if (node, other) in edata else None
-                if sE is not None:
-                    barstr += ' {:7.2f}'.format((sE - ne)/100)
-                else:
-                    barstr += ' {:7.2f}'.format(float('nan'))
-            print(f"{e:>4d} {node}  {ndata[node]['energy']/100:>6.2f} {0:>8d} {barstr}")
- 
+        print(f'No coarse graining.')
+        cgn, cge, cgm = ndata, edata, {n:[] for n in ndata}
+    print('Total hidden nodes:', sum(len(cgm[n]) for n in cgn))
+    print_barfile(seq, cgn, cge, cgm)
+
 if __name__ == '__main__':
     main()
     

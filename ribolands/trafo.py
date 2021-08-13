@@ -99,7 +99,7 @@ def fold_exterior_loop(seq, con, md, cache = None, spacer = 'NNN'):
     else:
         fc_tmp = RNA.fold_compound(ext_seq, md)
         fc_tmp.constraints_add(ext_con, 
-                RNA.CONSTRAINT_DB_DEFAULT)# | RNA.CONSTRAINT_DB_ENFORCE_BP)
+                RNA.CONSTRAINT_DB_DEFAULT | RNA.CONSTRAINT_DB_ENFORCE_BP)
         css, cfe = fc_tmp.mfe()
         EFOLD_CACHE[ext_seq] = css
         del fc_tmp

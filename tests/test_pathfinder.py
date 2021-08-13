@@ -10,6 +10,7 @@ from ribolands.parser import parse_barriers
 from ribolands.pathfinder import (get_bpd_cache, 
                                   get_bpd_i_cache,
                                   findpath_split,
+                                  print_barfile,
                                   common_basepairs,
                                   common_exterior_bases, 
                                   split_struct,
@@ -41,18 +42,17 @@ class MaxPathTests(unittest.TestCase):
         mp = True
          
         sequence = 'UCCGACAUUAAGACACACCAGGGUCUCGUAUCCCUAGGGUAAGGUACGCGCGGACCGGCCAAUCGGGUAUUGCUGCAAACUAUGGCAAUAGUGCAUAGGUUCAGACGAAGUACGGGUGGAUAUUUGUAGCCAGUAUGCUGGGUCUCCGGG'
-        fp = maxpath.findpath_class(sequence, mp)
+        fp = init_findpath_max(sequence, md = None, mp = False)
         
         s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
         s2       = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
-        result = fp.init(s1, s2, w)
-        print(result)
+        se, path = findpath_max(fp, s1, s2, w)
+        assert se == -3750
         
         s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
         s2       = '((((....((....((.((((((........)))).))))....))....))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).))))))).)))))).))))....)))).'
-        result = fp.init(s1, s2, w)
-        print(result)
-
+        se, path = findpath_max(fp, s1, s2, w)
+        assert se == -3750
 
 @unittest.skipIf(SKIP, "skipping tests")
 class FindpathTests(unittest.TestCase):
@@ -306,22 +306,6 @@ class FloodingTests(unittest.TestCase):
             em = round(fc.eval_structure(m), 2)
             assert em > en + minh
 
-    def test_edge_flooding_mini(self):
-        seq =    "AUUUCCACUAGAGAAGGUCUAGAGUGUUUG"
-        path = [('..((..(((......)))...)).......',  280), 
-                ('...(..(((......)))...)........',  410), # S
-                ('......(((......)))............',   50)]
-
-        ssmap = path_flooding(path, minh = 300)
-        assert all(x == 2 for x in ssmap.values())
-
-        print() # NOTE: A quick check if edge_flooding works.
-        [s2, e2] = path[0]
-        [s1, e1] = path[-1]
-        for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding((seq, RNA.md()), s1, s2, e1, e2, minh = 300):
-            print(ss1, en1, ssB, enB, ss2, en2)
-
-
     def test_path_flooding_barriers(self):
         seq = "AAAGCCGCCUUAAGCCUACUUAGAUGGAAGUGACGUACGGGUAUUGGUACACGAUUUUAC"
         path = [('......((.....)).(((((......)))))..((((........))))..........',  -956), # L0013
@@ -494,6 +478,29 @@ class FloodingTests(unittest.TestCase):
         #    print(ss1, en1, ssB, enB, ss2, en2)
         assert len(list(edge_flooding((seq, md), s2, s1, e2, e1, minh = 300))) == 1 # Used to be 3
 
+    def test_edge_flooding_mini(self):
+        # Used to be a bug: make sure that correct saddle energy is returned
+        # even if start or end structure are not local (minh) minina.
+        seq =    "AUUUCCACUAGAGAAGGUCUAGAGUGUUUG"
+        path = [('..((..(((......)))...)).......',  280), 
+                ('...(..(((......)))...)........',  410), # S
+                ('......(((......)))............',   50)]
+
+        ssmap = path_flooding(path, minh = 500)
+        assert all(x == 2 for x in ssmap.values())
+
+        [s1, e1] = path[0]
+        [s2, e2] = path[-1]
+        for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding((seq, RNA.md()), s1, s2, e1, e2, minh = 300):
+            assert enB == 410
+            assert ssB == '...(..(((......)))...)........'
+
+        [s2, e2] = path[0]
+        [s1, e1] = path[-1]
+        for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding((seq, RNA.md()), s1, s2, e1, e2, minh = 500):
+            assert enB == 410
+            assert ssB == '...(..(((......)))...)........'
+
     def test_guided_neighborhood_flooding_01(self):
         seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCGUACUUAUACCGCCUGUGCGGACUA"
         sss = """(((((........)))))((((((((((((((((((...(((........))).)))))........)))))))).))))).
@@ -626,12 +633,9 @@ class TopDown(unittest.TestCase):
 
         cgn, cge, cgm = top_down_coarse_graining(ndata, edata, minh = 300)
 
-        #print()
         for n in sorted(cgn, key = lambda x: cgn[x]['identity']):
             assert n in lmins
-            #print(f"{cgn[n]['identity']:>2d} {n} {cgn[n]['energy']:>5d} {len(cgm[n]):>5d}")
 
-        #print('Total nodes in mapping', sum(len(cgm[n]) for n in cgn))
         assert sum(len(cgm[n]) for n in cgn) >= len(ndata)-len(cgn)
 
         for i, node in enumerate(sorted(cgn, key = lambda x: cgn[x]['identity'])):
@@ -657,9 +661,9 @@ class TopDown(unittest.TestCase):
         vrna_md = RNA.md()
         fc = RNA.fold_compound(seq, vrna_md)
 
-        macro, fstep = local_flooding(fc, ss, basinh = 9.11, rates = False)
-        ndata = {m: {'identity': e,
-            'energy': int(round(fc.eval_structure(m)*100))} for e, m in enumerate(sorted(macro, key = lambda x: macro[x][0]))}
+        macro, fstep = local_flooding(fc, ss, basinh = 10.01, rates = False)
+        ndata = {m: {'identity': e, 
+                     'energy': int(round(fc.eval_structure(m)*100))} for e, m in enumerate(sorted(macro, key = lambda x: macro[x][0]))}
         gedges = guiding_edge_search(set(ndata.keys()))
         edata = dict()
         for (x, y) in gedges:
@@ -668,32 +672,13 @@ class TopDown(unittest.TestCase):
             else:
                 edata[(x,y)] = {'saddle_energy': None}
 
-        #assert len(ndata) == 230
-        #assert len(edata) == 982
-        print()
-        print('done flooding', len(ndata), len(edata))
-
+        assert len(ndata) == 230
+        assert len(edata) == 982
         cgn, cge, cgm = top_down_coarse_graining(ndata, edata, minh = 200)
-
-        print()
-        for n in sorted(cgn, key = lambda x: cgn[x]['energy']):
-            print(f"{cgn[n]['identity']:>2d} {n} {cgn[n]['energy']:>5d} {len(cgm[n]):>5d}")
-
-        print('Total nodes in mapping', sum(len(cgm[n]) for n in cgn))
         assert sum(len(cgm[n]) for n in cgn) >= len(ndata)-len(cgn)
 
-        for node in sorted(cgn, key = lambda x: cgn[x]['energy']):
-            ne = cgn[node]['energy']
-            # Calculate barrier heights to all other basins.
-            barstr = ''
-            for other in sorted(cgn, key = lambda x: cgn[x]['energy']):
-                oe = cgn[other]['energy']
-                sE = cge[(node, other)]['saddle_energy'] if (node, other) in cge else None
-                if sE is not None:
-                    barstr += ' {:7.2f}'.format((sE - ne)/100)
-                else:
-                    barstr += ' {:7.2f}'.format(float('nan'))
-            print(barstr)
+        #print()
+        #print_barfile(seq, cgn, cge, cgm)
 
     def test_minitrafo_randseq(self):
         # A random set of sequences returned by randseq -l 100 | RNAsubopt --stochBT_en=50 | sort -u
@@ -747,9 +732,6 @@ class TopDown(unittest.TestCase):
 
         gnodes, gedges = get_guide_graph(seq, md, ndata.keys())
 
-        #print()
-        #print(f'Finding guide neighborhood for {len(ndata)=}.')
-        #print(f' - Found {len(gedges)} guide edges and {len(gnodes)} new guide nodes.')
         assert len(gnodes) == 25
         assert len(gedges) == 240
         for nid, (ss, en) in enumerate(gnodes, 40):
@@ -757,31 +739,13 @@ class TopDown(unittest.TestCase):
 
         ndata, edata = neighborhood_flooding((seq, md), ndata, gedges, minh = myminh)
 
-        # Those results are not constant ... why?
         assert len(ndata) == 80
         assert len(edata) == 316
 
-        #print(len(ndata), len([(x,y) for (x, y) in edata if edata[(x,y)]['saddle_energy'] is not None]))
         cgn, cge, cgm = top_down_coarse_graining(ndata, edata, minh = myminh)
 
         #print()
-        #for n in sorted(cgn, key = lambda x: cgn[x]['energy']):
-        #    print(f" {n} {cgn[n]['energy']:>5d} {len(cgm[n]):>5d}")
-
-        #print('Total nodes in mapping', sum(len(cgm[n]) for n in cgn))
-        #for node in sorted(cgn, key = lambda x: cgn[x]['energy']):
-        #    ne = cgn[node]['energy']
-        #    # Calculate barrier heights to all other basins.
-        #    barstr = ''
-        #    for other in sorted(cgn, key = lambda x: cgn[x]['energy']):
-        #        oe = cgn[other]['energy']
-        #        sE = cge[(node, other)]['saddle_energy'] if (node, other) in cge else None
-        #        if sE is not None:
-        #            barstr += ' {:7.2f}'.format((sE - ne)/100)
-        #        else:
-        #            barstr += ' {:7.2f}'.format(float('nan'))
-        #    print(barstr)
-
+        #print_barfile(seq, cgn, cge, cgm)
 
 if __name__ == '__main__':
     unittest.main()

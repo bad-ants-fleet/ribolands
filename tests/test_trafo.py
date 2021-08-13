@@ -13,7 +13,7 @@ from ribolands.trafo import (TrafoLandscape,
                              fold_exterior_loop, 
                              open_fraying_helices)
 
-skip = False
+SKIP = False
 
 def write_log(TL, nlist):
     tlen = len(TL.transcript)
@@ -21,16 +21,8 @@ def write_log(TL, nlist):
         print("{:4d} {:4d} {} {:6.2f} {:6.4f} ID = {:d}".format(tlen, e, ni[:tlen], 
                 data['energy'], data['occupancy'], data['identity']))
 
-@unittest.skipIf(skip, "slow tests are disabled by default")
+@unittest.skipIf(SKIP, "slow tests are disabled by default")
 class Test_TrafoLand(unittest.TestCase):
-    #def setUp(self):
-    #    self.tmpdir = tempfile.mkdtemp(prefix='DrTest_')
-    #    print("\nWriting temporary files to: {}".format(self.tmpdir))
-
-    #def tearDown(self):
-    #    print("Removing temporary file directory: {}".format(self.tmpdir))
-    #    shutil.rmtree(self.tmpdir)
-
     def _init_TL(self, seq, sss):
         fullseq = seq
         vrna_md = RNA.md()
@@ -93,12 +85,11 @@ class Test_TrafoLand(unittest.TestCase):
         #    print(sn, TL.nodes[sn]['energy'])
 
         nn = TL.expand()
-        assert len(nn) + len(sss) == len(TL.nodes)
-        assert mss in TL.nodes
-
         #print()
         #for sn in TL.sorted_nodes(attribute = 'energy'):
         #    print(sn, TL.nodes[sn]['energy'])
+        assert len(nn) + len(sss) == len(TL.nodes)
+        assert mss in TL.nodes
         
     def test_TL_expansion_btree(self):
         rbar = """# A random barriers example:
@@ -145,17 +136,19 @@ class Test_TrafoLand(unittest.TestCase):
         #print()
         #for sn in TL.sorted_nodes(attribute = 'energy'):
         #    print(sn, TL.nodes[sn]['energy'])
-        #
+        
         #for ed in sorted(TL.edges):
         #    print(ed, TL.edges[ed]['saddle_energy'])
+        # TODO: did not check those results
         assert len(list(TL.sccs())) == 1
-        assert len(list(TL.sccs(minh =  330))) == 17
-        assert len(list(TL.sccs(minh =  500))) == 10
-        assert len(list(TL.sccs(minh =  800))) ==  4
+        assert len(list(TL.sccs(minh =  330))) == 14
+        assert len(list(TL.sccs(minh =  500))) ==  7
+        assert len(list(TL.sccs(minh =  800))) ==  3
         assert len(list(TL.sccs(minh = 1000))) ==  3
-        assert len(list(TL.sccs(minh = 1150))) ==  2
+        assert len(list(TL.sccs(minh = 1150))) ==  3
+        assert len(list(TL.sccs(minh = 1550))) ==  1
 
-    def dont_test_expand_and_coarse_grain(self, verbose = True):
+    def test_expand_and_coarse_grain(self, verbose = True):
         seq = "AUAUAGCUUGUUUACUUUGGAUGAACUGGGGAGAAAAUCCUGGUAAAACU"
         sss =["..........((((((..((((...((....))...)))).))))))...",
               ".......(((((((...)))))))((((((........))))))......",
@@ -174,345 +167,70 @@ class Test_TrafoLand(unittest.TestCase):
             self.assertEqual(TL.nodes[ss]['occupancy'], occ)
             self.assertEqual(TL.nodes[ss]['active'], active)
 
-        #TL.expand(extend=0, exp_mode='fullconnect')
-        #ess = [
-        #    ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
-        #    ["........................((((((........))))))......", 0.00, True],
-        #    [".......(((((((...)))))))((((((........))))))......", 0.25, True],
-        #    [".........((((((....).))))).(((.......)))..........", 0.00, True],
-        #    ["........................((((((.......))).)))......", 0.00, True],
-        #    [".......(((((((...)))))))((((((.......))).)))......", 0.25, True],
-        #    [".....(((..(((.((((((.....))))))..))).....)))......", 0.00, True],
-        #    [".(((......(((.((((((.....))))))..)))......))).....", 0.25, True]]
-        #for (ss, occ, active) in ess:
-        #    self.assertTrue(TL.has_node(ss))
-        #    self.assertEqual(TL.nodes[ss]['occupancy'], occ)
-        #    self.assertEqual(TL.nodes[ss]['active'], active)
+        TL.expand(extend=0)
 
-        #if verbose:
-        #    TL.get_simulation_files_tkn(self.tmpdir+'/ecp1')
+        ess = [
+            ['..........((((((..((((...((....))...)))).))))))...', 0.25, True], # -860 0.25
+            ['........................((((((........))))))......', 0.00, True], # -590 0
+            ['.......(((((((...)))))))((((((........))))))......', 0.25, True], # -570 0.25
+            ['..................((((...((....))...))))..........', 0.00, True], # -430 0
+            ['.........((((((....).))))).(((.......)))..........', 0.00, True], # -230 0
+            ['........................((((((.......))).)))......', 0.00, True], # -220 0
+            ['.......(((((((...)))))))((((((.......))).)))......', 0.25, True], # -200 0.25
+            ['...........................(((........))).........', 0.00, True], # -170 0
+            ['.....(((..(((.((((((.....))))))..))).....)))......', 0.00, True], # -140 0
+            ['..............((((((.....))))))...................', 0.00, True], # -140 0
+            ['.(((......(((.((((((.....))))))..)))......))).....', 0.25, True]] # -70  0.25
 
-        #TL.coarse_grain(dG_min=4.3)
-        #ess = [
-        #    ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
-        #    ["........................((((((........))))))......", 0.125, True],
-        #    [".......(((((((...)))))))((((((........))))))......", 0.375, True],
-        #    [".........((((((....).))))).(((.......)))..........", 0.00, True],
-        #    ["........................((((((.......))).)))......", 0.00, False],
-        #    [".......(((((((...)))))))((((((.......))).)))......", 0.00, False],
-        #    [".....(((..(((.((((((.....))))))..))).....)))......", 0.25, True],
-        #    [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
-        #for (ss, occ, active) in ess:
-        #    print(ss, occ, active)
-        #    print(TL.nodes[ss])
-        #    self.assertTrue(TL.has_node(ss))
-        #    self.assertEqual(TL.nodes[ss]['occupancy'], occ)
-        #    self.assertEqual(TL.nodes[ss]['active'], active)
-        #
-        #if verbose:
-        #    TL.get_simulation_files_tkn(self.tmpdir+'/ecp2')
+        for (ss, occ, active) in ess:
+            self.assertTrue(TL.has_node(ss))
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
 
-        #TL.prune(0.01)
-        #ess = [
-        #    ["..........((((((..((((...((....))...)))).))))))...", 0.25, True],
-        #    ["........................((((((........))))))......", 0.125, True],
-        #    [".......(((((((...)))))))((((((........))))))......", 0.375, True],
-        #    [".........((((((....).))))).(((.......)))..........", 0.00, False],
-        #    ["........................((((((.......))).)))......", 0.00, False],
-        #    [".......(((((((...)))))))((((((.......))).)))......", 0.00, False],
-        #    [".....(((..(((.((((((.....))))))..))).....)))......", 0.25, True],
-        #    [".(((......(((.((((((.....))))))..)))......))).....", 0.00, False]]
-        #for (ss, occ, active) in ess:
-        #    print(ss, occ, active)
-        #    self.assertTrue(TL.has_node(ss))
-        #    self.assertEqual(TL.nodes[ss]['occupancy'], occ)
-        #    self.assertEqual(TL.nodes[ss]['active'], active)
+        cn, ce = TL.get_coarse_network(minh = 430)
+        #print()
+        #for n in sorted(TL.nodes, key = lambda x: TL.nodes[x]['energy']):
+        #    print(n, TL.nodes[n]['energy'], TL.nodes[n]['occupancy'], TL.nodes[n]['active'])
 
-        #if verbose:
-        #    TL.get_simulation_files_tkn(self.tmpdir+'/ecp3')
+        ess = [
+            ['..........((((((..((((...((....))...)))).))))))...', 0.25, True], # -860 0.25
+            ['........................((((((........))))))......', 0.00, True], # -590 0
+            ['.......(((((((...)))))))((((((........))))))......', 0.25, True], # -570 0.25
+            ['..................((((...((....))...))))..........', 0.00, False], # -430 0
+            ['.........((((((....).))))).(((.......)))..........', 0.00, True], # -230 0
+            ['........................((((((.......))).)))......', 0.00, True], # -220 0
+            ['.......(((((((...)))))))((((((.......))).)))......', 0.25, True], # -200 0.25
+            ['...........................(((........))).........', 0.00, False], # -170 0
+            ['.....(((..(((.((((((.....))))))..))).....)))......', 0.25, True], # -140 0
+            ['..............((((((.....))))))...................', 0.00, False], # -140 0
+            ['.(((......(((.((((((.....))))))..)))......))).....', 0.00, False]] # -70  0.25
 
+        for (ss, occ, active) in ess:
+            self.assertTrue(TL.has_node(ss))
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
+        
+        TL.prune(0.01)
 
+        ess = [
+            ['..........((((((..((((...((....))...)))).))))))...', 0.25, True], # -860 0.25
+            ['........................((((((........))))))......', 0.00, False], # -590 0
+            ['.......(((((((...)))))))((((((........))))))......', 0.25, True], # -570 0.25
+            ['..................((((...((....))...))))..........', 0.00, False], # -430 0
+            ['.........((((((....).))))).(((.......)))..........', 0.00, False], # -230 0
+            ['........................((((((.......))).)))......', 0.00, False], # -220 0
+            ['.......(((((((...)))))))((((((.......))).)))......', 0.25, True], # -200 0.25
+            ['...........................(((........))).........', 0.00, False], # -170 0
+            ['.....(((..(((.((((((.....))))))..))).....)))......', 0.25, True], # -140 0
+            ['..............((((((.....))))))...................', 0.00, False], # -140 0
+            ['.(((......(((.((((((.....))))))..)))......))).....', 0.00, False]] # -70  0.25
 
-    def dtest_minitrafo(self, verbose = False):
-        fullseq = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGCA"
-        TL = TrafoLandscape(fullseq, RNA.md())
-        fname = self.tmpdir + '/' + 'minitrafo'
+        for (ss, occ, active) in ess:
+            self.assertTrue(TL.has_node(ss))
+            self.assertEqual(TL.nodes[ss]['occupancy'], occ)
+            self.assertEqual(TL.nodes[ss]['active'], active)
 
-        self.assertEqual(list(TL.nodes), [])
-        self.assertEqual(TL.transcript, '')
-        self.assertEqual(TL._transcript_length, 0)
-        TL.expand()
-        self.assertEqual(len(TL), 1)
-        self.assertEqual(list(TL.nodes), ['.' * len(fullseq)])
-        self.assertEqual(TL.nodeID, 1)
-
-        [bfile, rfile, p0, nlist] = TL.get_simulation_files_tkn(fname)
-
-        self.assertEqual(TL._transcript_length, 1)
-        self.assertEqual(TL.transcript, 'C')
-        stepsize = 2
-
-        for i in range(2, len(fullseq), stepsize):
-            seq  = fullseq[0:i]
-            tlen = len(TL.transcript)
-            TL.expand(extend = i - tlen)
-            TL.coarse_grain()
-            self.assertEqual(i, len(TL.transcript))
-            [bfile, rfile, p0, nlist] = TL.get_simulation_files_tkn(fname)
-            if len(nlist) == 1:
-                TL.total_time += 0.2
-            else:
-                bfile = None # sometimes bfile causes a segfault, ...
-                tfile = sys_treekin(fname, rfile, 
-                        treekin = 'treekin', 
-                        bofile = bfile,
-                        binrates = True, 
-                        p0 = p0, t0 = 0, ti = 1.5, t8 = 0.2, 
-                        exponent = False, 
-                        useplusI = False, 
-                        force = True)
-
-                time_inc, iterations = TL.update_occupancies_tkn(tfile, nlist)
-                TL.total_time += time_inc
-
-            if verbose:
-                write_log(TL, nlist)
-
-            dn, sr = TL.prune(0.01)
-
-    def dont_test_coarse_graining_dG(self, verbose = False):
-        """
-        A coarse graining test based on this example...
-        All structures are connected based on the barrier-tree, 
-        using Arrhenius rates.
-
-             UGAAUGUGCCGCUAGACGACAUCCCGCCGGAUGGCGGGGC
-           1 .....((.((((((..((.(.....).))..)))))).)) -14.90    0  20.00
-           2 .....(((.((.....)).)))((((((....)))))).. -13.90    1  13.60
-           3 ...((((...........))))((((((....)))))).. -13.60    2   3.40
-           4 ...((((..((.....))))))((((((....)))))).. -13.20    3   2.10
-           5 .....................(((((((....))))))). -13.20    3   2.80
-           6 .....((........))....(((((((....))))))). -12.90    2   3.60
-           7 ...(((((.(....).)).)))((((((....)))))).. -12.80    5   1.90
-           8 .....((.((((.......(((((....))))))))).)) -12.80    1   6.50
-           9 .....((.(((((.......((((....))))))))).)) -11.80    8   2.60
-          10 .....((.((((((.......(((....))))))))).)) -11.70    9   2.20
-          11 .....((.((((((..((......)).....)))))).)) -11.00    1   2.50
-          12 .....((...)).........(((((((....))))))). -11.00    2   1.20
-          13 ..........((..........((((((....)))))))) -10.40    2   2.60
-          14 .......((((.....))....((((((....)))))))) -10.20    2   2.30
-          15 ((..((......))..))...(((((((....))))))).  -9.90    2   1.10
-          16 .......(((.............(((((....))))))))  -9.80    2   4.00
-          17 .......((.............((((((....))))))))  -9.80    2   1.90
-          18 ....(.((....)).).....(((((((....))))))).  -9.60    2   1.20
-          19 .((.(((...........)))))(((((....)))))...  -9.50    2   2.70
-          20 .......(((....((.....))(((((....))))))))  -9.30   16   1.30
-        """
-        bfile = 'tests/files/ex1.bar'
-        bar = parse_barriers(bfile, return_tuple = True)
-
-        fullseq = "UGAAUGUGCCGCUAGACGACAUCCCGCCGGAUGGCGGGGC"
-        vrna_md = RNA.md()
-
-        CG = TrafoLandscape(fullseq, vrna_md)
-        CG._transcript_length = len(fullseq)
-
-        min_dG = 3.0
-
-        bmap = dict()
-        inactive = set() 
-        for lmin in bar[1:]:
-            id = lmin.id
-            ss = lmin.structure
-            en = lmin.energy
-            fa = lmin.ancestor
-            ba = lmin.barrier
-
-            bmap[ss]=id
-            if fa:
-                ss2 = bar[fa][1]
-                en2 = round(bar[fa].energy, 2)
-            else :
-                continue
-            
-            # ensure saddle is not lower than s1, s2
-            saddleE = round(float(en) + float(ba),2)
-
-            # Energy barrier
-            dG_1s = saddleE - float(en)
-            dG_2s = saddleE - float(en2)
-
-            if dG_1s < min_dG+0.001:
-                inactive.add(ss)
-
-            # Metropolis Rule
-            k_12 = CG._k0 * math.exp(-dG_1s / CG._RT)
-            k_21 = CG._k0 * math.exp(-dG_2s / CG._RT)
-            CG.add_weighted_edges_from([(ss, ss2, k_12)])
-            CG.add_weighted_edges_from([(ss2, ss, k_21)])
-            CG[ss][ss2]['saddle'] = saddleE
-            CG[ss2][ss]['saddle'] = saddleE
-            CG.nodes[ss]['active'] = True
-            CG.nodes[ss2]['active'] = True
-            CG.nodes[ss]['energy'] = float(en)
-            CG.nodes[ss2]['energy'] = float(en2)
-            CG.nodes[ss]['occupancy'] = 0
-            CG.nodes[ss2]['occupancy'] = 0
-
-        for lmin in bar[1:]:
-            id = lmin.id
-            ss = lmin.structure
-            en = lmin.energy
-            fa = lmin.ancestor
-            ba = lmin.barrier
-
-            if verbose:
-                print('a', id, ss, en, fa, ba, CG.nodes[ss]['active'])
-            nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 
-                              key=lambda x: (CG.nodes[x]['energy'], x), reverse=False))
-            self.assertTrue(CG.has_node(ss))
-            self.assertEqual(CG.nodes[ss]['active'], True)
-
-        mn = CG.coarse_grain(dG_min=min_dG)
-
-        if verbose:
-            for x in sorted(mn, key=lambda x:int(bmap[x])):
-                sm = '-> {}'.format([bmap[y] for y in mn[x]])
-                print('b', "{} {} {:s}".format(x, bmap[x], sm))
-
-        for lmin in bar[1:]:
-            id = lmin.id
-            ss = lmin.structure
-            en = lmin.energy
-            fa = lmin.ancestor
-            ba = lmin.barrier
-            if verbose:
-                print('c', id, ss, en, fa, ba, CG.nodes[ss]['active'])
-            self.assertTrue(CG.has_node(ss))
-            if ss in inactive:
-                self.assertFalse(CG.nodes[ss]['active'])
-            else:
-                self.assertEqual(CG.nodes[ss]['active'], True)
-
-    def dont_test_coarse_graining_by_rates(self, verbose = False):
-        """
-        A coarse graining test based on this example...
-        All structures are connected based on rates in the corresponding 
-        rates file. Because coarse-graining requires a saddle energy, it is
-        estimated using dG = -RT * log(rate), but that is not consistent 
-        with the barrier heights found in the bar file...
-        Particularly, 3 gets merged to 2, at dG = 2.9, because 4 gets merged
-        into 3, ...
-
-             UGAAUGUGCCGCUAGACGACAUCCCGCCGGAUGGCGGGGC
-           1 .....((.((((((..((.(.....).))..)))))).)) -14.90    0  20.00
-           2 .....(((.((.....)).)))((((((....)))))).. -13.90    1  13.60
-           3 ...((((...........))))((((((....)))))).. -13.60    2   3.40
-           4 ...((((..((.....))))))((((((....)))))).. -13.20    3   2.10
-           5 .....................(((((((....))))))). -13.20    3   2.80
-           6 .....((........))....(((((((....))))))). -12.90    2   3.60
-           7 ...(((((.(....).)).)))((((((....)))))).. -12.80    5   1.90
-           8 .....((.((((.......(((((....))))))))).)) -12.80    1   6.50
-           9 .....((.(((((.......((((....))))))))).)) -11.80    8   2.60
-          10 .....((.((((((.......(((....))))))))).)) -11.70    9   2.20
-          11 .....((.((((((..((......)).....)))))).)) -11.00    1   2.50
-          12 .....((...)).........(((((((....))))))). -11.00    2   1.20
-          13 ..........((..........((((((....)))))))) -10.40    2   2.60
-          14 .......((((.....))....((((((....)))))))) -10.20    2   2.30
-          15 ((..((......))..))...(((((((....))))))).  -9.90    2   1.10
-          16 .......(((.............(((((....))))))))  -9.80    2   4.00
-          17 .......((.............((((((....))))))))  -9.80    2   1.90
-          18 ....(.((....)).).....(((((((....))))))).  -9.60    2   1.20
-          19 .((.(((...........)))))(((((....)))))...  -9.50    2   2.70
-          20 .......(((....((.....))(((((....))))))))  -9.30   16   1.30
-        """
-        bfile = 'tests/files/ex1.bar'
-        rfile = 'tests/files/ex1.rts'
-        bar = parse_barriers(bfile, return_tuple = True)
-        rts = parse_ratefile(rfile)
-
-        fullseq = "UGAAUGUGCCGCUAGACGACAUCCCGCCGGAUGGCGGGGC"
-        vrna_md = RNA.md()
-
-        CG = TrafoLandscape(fullseq, vrna_md)
-        CG._transcript_length = len(fullseq)
-
-        if verbose:
-            for x in bar:
-                print(x)
-
-        min_dG = 4
-
-        inactive = set() 
-        for m1, line in enumerate(rts, 1):
-            s1 = bar[m1].structure
-            en1 = round(bar[m1].energy, 2)
-            for m2, rate in enumerate(line, 1):
-                if m1 == m2 :
-                    continue
-                if rate :
-                    s2 = bar[m2].structure
-                    en2 = round(bar[m2].energy, 2)
-
-                    CG.add_weighted_edges_from([(s1, s2, rate)])
-
-                    # this is an approximation, the barriers rate is not computed 
-                    # from a single transition state....
-                    dG = -CG._RT * math.log(rate)
-                    sE = round(en1+dG, 2)
-                    CG[s1][s2]['saddle'] = sE
-
-                    if en1 > en2 and dG < min_dG:
-                        inactive.add(s1)
-                        if verbose:
-                            print('{} -> {} | {:.2f} {:.5f} {} {}'.format(
-                                m1+1, m2+1, dG, rate, bar[m1].barrier, sE))
-
-            CG.nodes[s1]['active'] = True
-            CG.nodes[s1]['energy'] = en1
-            CG.nodes[s1]['occupancy'] = 0
-
-        for lmin in bar[1:]:
-            id = lmin.id
-            ss = lmin.structure
-            en = lmin.energy
-            fa = lmin.ancestor
-            ba = lmin.barrier
-            #print('b', id, ss, en, fa, ba, CG.nodes[ss]['active'])
-            nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 
-                              key=lambda x: (CG.nodes[x]['energy'], x), reverse=False))
-            #for (x,y) in zip(nbrs, map(lambda x: CG[ss][x]['saddle'], nbrs)):
-            #    print('   ', x, y)
-            self.assertTrue(CG.has_node(ss))
-            self.assertTrue(CG.nodes[ss]['active'])
-
-        CG.coarse_grain(dG_min=min_dG)
-
-        for lmin in bar[1:]:
-            id = lmin.id
-            ss = lmin.structure
-            en = lmin.energy
-            fa = lmin.ancestor
-            ba = lmin.barrier
- 
-            nbrs = filter(lambda x: CG.nodes[x]['active'], sorted(CG.successors(ss), 
-                              key=lambda x: (CG.nodes[x]['energy'], x), reverse=False))
-            if verbose:
-                print(id, ss, en, fa, ba, CG.nodes[ss]['active'], end='')
-                print(' ', list(map(lambda x: CG[ss][x]['saddle'], nbrs)))
-            self.assertTrue(CG.has_node(ss))
-            if ss in inactive:
-                self.assertFalse(CG.nodes[ss]['active'])
-            elif int(id) == 3:
-                # This is interesting, staring from min_dG=2.9 you can see that 
-                # the assertTrue would break.. because based on transition rates,
-                # there exists a path 3->4->2 which is energetically favorable 
-                # over 3->2, so after 4 is merged into 3, 3 can be merged into 2.
-                self.assertFalse(CG.nodes[ss]['active'])
-            else:
-                self.assertTrue(CG.nodes[ss]['active'])
-
-@unittest.skipIf(skip, "slow tests are disabled by default")
+@unittest.skipIf(SKIP, "slow tests are disabled by default")
 class Test_HelperFunctions(unittest.TestCase):
     def test_fold_exterior_loop(self):
         se = "CUCGUCGCCUUAAUCCAGUGCGGGCGCUAGACAUCUAGUUAUCGCCGC"

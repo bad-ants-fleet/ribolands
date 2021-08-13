@@ -122,12 +122,18 @@ class RiboLandscape:
         return sorted(nodes, key = lambda x: self.nodes[x][attribute], reverse = rev)
 
     def sccs(self, minh = None):
+        successors = {k: set() for k in self.nodes}
+        for (x, y) in self.edges:
+            assert (y, x) in self.edges 
+            if self.edges[(x, y)]['saddle_energy'] is not None:
+                successors[x].add(y)
+
         def neighbors(node):
-            for nbr in self.successors(node):
+            for nbr in successors[node]:
                 if minh is not None:
                     se = self.edges[(node, nbr)]['saddle_energy']
                     e1 = self.nodes[node]['energy']
-                    if se - e1 > minh:
+                    if e1 + minh < se: # TODO: double check
                         continue
                 yield nbr
         species = {n: Species(n) for n in self.nodes}

@@ -4,7 +4,7 @@ import findpath as maxpath
 def init_findpath_max(sequence, md = None, mp = False):
     assert md is None
     model_details = {
-        "noLP": 1,
+        "noLP": 0,
         "logML": 0,
         "temperature": 37.0,
         "dangles": 2,
