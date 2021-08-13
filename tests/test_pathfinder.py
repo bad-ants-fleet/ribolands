@@ -5,6 +5,8 @@ import unittest
 from itertools import combinations
 
 from ribolands.utils import make_pair_table
+from ribolands.parser import parse_barriers
+
 from ribolands.pathfinder import (get_bpd_cache, 
                                   get_bpd_i_cache,
                                   findpath_split,
@@ -15,8 +17,6 @@ from ribolands.pathfinder import (get_bpd_cache,
                                   local_flooding,
                                   path_flooding, 
                                   edge_flooding,
-                                  init_findpath_max,
-                                  findpath_max,
                                   get_guide_graph,
                                   guiding_edge_search,
                                   guiding_node_search,
@@ -26,63 +26,33 @@ from ribolands.pathfinder import (get_bpd_cache,
                                   neighborhood_flooding,
                                   top_down_coarse_graining)
 
-from ribolands.parser import parse_barriers
+MAXPATH = True
+try: # Check if findpath python module is installed
+    from ribolands.maxpath import init_findpath_max, findpath_max
+except ImportError:
+    MAXPATH = False
 
 SKIP = False
 
-@unittest.skipIf(SKIP, "skipping tests")
+@unittest.skipIf(not MAXPATH or SKIP, "skipping tests")
 class MaxPathTests(unittest.TestCase):
-    #def test_cache(self):
-    #    search_width_multiplier = 4
-    #    mp = True
-    #     
-    #    sequence = 'UCCGACAUUAAGACACACCAGGGUCUCGUAUCCCUAGGGUAAGGUACGCGCGGACCGGCCAAUCGGGUAUUGCUGCAAACUAUGGCAAUAGUGCAUAGGUUCAGACGAAGUACGGGUGGAUAUUUGUAGCCAGUAUGCUGGGUCUCCGGG'
-    #    fp = maxpath.findpath_class(sequence, mp)
-    #    
-    #    s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
-    #    s2       = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
-    #    result = fp.init(s1, s2, search_width_multiplier)
-    #    print(result)
-    #    
-    #    s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
-    #    s2       = '((((....((....((.((((((........)))).))))....))....))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).))))))).)))))).))))....)))).'
-    #    result = fp.init(s1, s2, search_width_multiplier)
-    #    print(result)
+    def test_cache(self):
+        w = 4
+        mp = True
+         
+        sequence = 'UCCGACAUUAAGACACACCAGGGUCUCGUAUCCCUAGGGUAAGGUACGCGCGGACCGGCCAAUCGGGUAUUGCUGCAAACUAUGGCAAUAGUGCAUAGGUUCAGACGAAGUACGGGUGGAUAUUUGUAGCCAGUAUGCUGGGUCUCCGGG'
+        fp = maxpath.findpath_class(sequence, mp)
+        
+        s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
+        s2       = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
+        result = fp.init(s1, s2, w)
+        print(result)
+        
+        s1       = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
+        s2       = '((((....((....((.((((((........)))).))))....))....))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).))))))).)))))).))))....)))).'
+        result = fp.init(s1, s2, w)
+        print(result)
 
-
-    def test_findpath_split_02(self):
-        seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCG"
-        ss1 = "..((....(((........(((.....)))....)))..(((........)))..))." 
-        ss2 = ".((((....))))..(((.(.((...)).)..)))......(((.......)))...."
-        #print(f'\n{seq}\n{ss1}\n{ss2}')
-        path, barrier = findpath_split(seq, ss1, ss2, RNA.md(), th = 1)
-        assert barrier == 200 # may change with a new findpath version?
-
-    def test_mfe_intersect(self):
-        seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCG"
-        ss1 = "..((....(((........(((.....)))....)))..(((........)))..))." 
-        ss2 = ".((((....))))..(((.(.((...)).)..)))......(((.......)))...."
-        bps = get_basepairs([ss1, ss2])
-        mss, mfe = mfe_intersect(seq, RNA.md(), bps)
-        assert mss != ss1
-        assert mss != ss2
-
-    def test_mfe_intersect(self):
-        seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCG"
-        ss1 = "..((....(((........(((.....)))....)))..(((........)))..))." 
-        ss2 = ".((((....))))..(((.((((...))))..)))....(((........)))....."
-        bps = get_basepairs([ss1, ss2])
-        mss, mfe = mfe_intersect(seq, RNA.md(), bps)
-        assert mss == ss2
- 
-    def test_mfe_intersect(self):
-        seq = 'UCCGACAUUAAGACACACCAGGGUCUCGUAUCCCUAGGGUAAGGUACGCGCGGACCGGCCAAUCGGGUAUUGCUGCAAACUAUGGCAAUAGUGCAUAGGUUCAGACGAAGUACGGGUGGAUAUUUGUAGCCAGUAUGCUGGGUCUCCGGG'
-        ss1 = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
-        ss2 = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
-        ss3 = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((.((....)))))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
-        bps = get_basepairs([ss1, ss2, ss3])
-        mss, mfe = mfe_intersect(seq, RNA.md(), bps)
-        assert mss == ss3
 
 @unittest.skipIf(SKIP, "skipping tests")
 class FindpathTests(unittest.TestCase):
@@ -191,12 +161,130 @@ class FindpathTests(unittest.TestCase):
         seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCG"
         ss1 = "..((....(((........(((.....)))....)))..(((........)))..))." 
         ss2 = ".((((....))))..(((.(.((...)).)..)))......(((.......)))...."
-        #print(f'\n{seq}\n{ss1}\n{ss2}')
         path, barrier = findpath_split(seq, ss1, ss2, RNA.md(), th = 1)
         assert barrier == 200 # may change with a new findpath version?
-        #for (ss, en) in path:
-        #    print(f'{ss} {en:>5d}')
-        #print(barrier)
+
+@unittest.skipIf(SKIP, "skipping tests")
+class ConstrainedFoldingTests(unittest.TestCase):
+    def test_mfe_intersect(self):
+        seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCG"
+        ss1 = "..((....(((........(((.....)))....)))..(((........)))..))." 
+        ss2 = ".((((....))))..(((.(.((...)).)..)))......(((.......)))...."
+        bps = get_basepairs([ss1, ss2])
+        mss, mfe = mfe_intersect(seq, RNA.md(), bps)
+        assert mss != ss1
+        assert mss != ss2
+
+    def test_mfe_intersect(self):
+        seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCG"
+        ss1 = "..((....(((........(((.....)))....)))..(((........)))..))." 
+        ss2 = ".((((....))))..(((.((((...))))..)))....(((........)))....."
+        bps = get_basepairs([ss1, ss2])
+        mss, mfe = mfe_intersect(seq, RNA.md(), bps)
+        assert mss == ss2
+ 
+    def test_mfe_intersect(self):
+        seq = 'UCCGACAUUAAGACACACCAGGGUCUCGUAUCCCUAGGGUAAGGUACGCGCGGACCGGCCAAUCGGGUAUUGCUGCAAACUAUGGCAAUAGUGCAUAGGUUCAGACGAAGUACGGGUGGAUAUUUGUAGCCAGUAUGCUGGGUCUCCGGG'
+        ss1 = '((((..........((.((((((........)))).))))..........))))((((...(((.(((((.((((((((((((.(((....)))))))(((((..((.....))..))))).))))))))....))))).)))..)))).'
+        ss2 = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((((....)).)))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
+        ss3 = '((((..........((.((((((........)))).))))..........))))((((....((((((((((((((((((((((.((....)))))))(((((..((.....))..))))).)))))))).))))).))))....)))).'
+        bps = get_basepairs([ss1, ss2, ss3])
+        mss, mfe = mfe_intersect(seq, RNA.md(), bps)
+        assert mss == ss3
+
+@unittest.skipIf(SKIP, "skipping tests")
+class NeighborhoodTests(unittest.TestCase):
+    def test_bpd_i_cache(self):
+           p = '.((((.((((.((...(((...).))...))))))..))))...'
+           i = '.((((.((((........(...)........))))..))))...'
+           q = '.((((.((((.((...))(...).((...))))))..))))...'
+           assert get_bpd_cache(p, i) == get_bpd_i_cache(p, q)
+           assert get_bpd_cache(i, q) == get_bpd_i_cache(q, p)
+           assert get_bpd_i_cache(p, i) == get_bpd_i_cache(p, q)
+           assert get_bpd_i_cache(q, i) == get_bpd_i_cache(q, p)
+           assert get_bpd_i_cache(i, p) == 0
+           assert get_bpd_i_cache(i, q) == 0
+
+    def test_guiding_edge_search_01(self):
+        sss = ["..........((((.....((((.((.........)).)))).))))...",
+               "...((((...)))).....((((.((.........)).))))........",
+               ".(((......)))......((((.((.........)).))))........"]
+        edges = guiding_edge_search(sss)
+        assert len(edges) == 4
+
+    def test_guiding_edge_search_02(self):
+        # NOTE: I did not actually check if this is correct.
+        btree = """
+              AGACGACAAGGUUGAAUCGCACCCACAGUCUAUGAGUCGGUGACAACAUU
+            1 ..........((((.((((.((.((.......)).))))))..))))...  -6.70    0  13.00
+            2 ..........((((.((((.((...((.....)).))))))..))))...  -6.10    1   2.10
+            3 ..........((((.....((((.((.........)).)))).))))...  -5.90    1   6.30
+            4 ((((.....(((........)))....))))....(((...)))......  -5.70    1   8.50
+            5 ...((((...)))).....((((.((.........)).))))........  -5.60    3   4.80
+            6 .(((......)))......((((.((.........)).))))........  -5.50    5   4.30
+            7 ..........((((..((((.....((.....)).....))))))))...  -5.50    3   5.30
+            8 ((((.....(((........)))....))))...................  -5.00    4   3.40
+            9 ((((.....((.((.....))))....))))....(((...)))......  -5.00    4   2.80
+           10 ((((.....((.((.....)).))...))))....(((...)))......  -4.90    4   3.50
+        """
+        lmins = parse_barriers(btree, is_file = False, return_tuple = True)
+        sti = {x.structure: x.id for x in lmins[1:]}
+        edges = guiding_edge_search(sti.keys())
+        #print()
+        #for (x, y) in sorted(edges, key=lambda x: (sti[x[0]], sti[x[1]])):
+        #    if sti[x] < sti[y]:
+        #        print(sti[x], sti[y], x, y)
+        assert len(edges) == 22
+
+    def test_guiding_edge_search_03(self):
+        seq = "AGACGACAAGGUUGAAUCGCA"
+        sss = """(.((......)))........
+                 .((((((...))))..))...
+                 .(((......)))........
+                 .((...((....))..))...
+                 .(.(((((....))..)))).
+                 .(.((((...))))..)....
+                 .(.(((..........)))).
+                 .(.((............))).
+                 ...(((((....))..)))..
+                 ...((((...)))).......
+                 ...((((......)..)))..
+                 ...(((..........)))..
+                 ...((............))..
+                 ....................."""
+ 
+        sti = {s: e for e, s in enumerate(sss.split(), 1)}
+        #print(len(sti))
+        #for ss in sti:
+        #    print(sti[ss], ss)
+        edges = guiding_edge_search(set(sti.keys()))
+        #print()
+        #for (x, y) in sorted(edges, key=lambda x: (sti[x[0]], sti[x[1]])):
+        #    if sti[x] < sti[y]:
+        #        print(sti[x], sti[y], x, y)
+        assert len(edges) == 36
+
+    def test_guide_graph_construction(self):
+        btree = """
+              AGACGACAAGGUUGAAUCGCACCCACAGUCUAUGAGUCGGUGACAACAUU
+            #1 ..........((((.((((.((.((.......)).))))))..))))...  -6.70    0  13.00
+            2 ..........((((.((((.((...((.....)).))))))..))))...  -6.10    1   2.10
+            3 ..........((((.....((((.((.........)).)))).))))...  -5.90    1   6.30
+            #4 ((((.....(((........)))....))))....(((...)))......  -5.70    1   8.50
+            5 ...((((...)))).....((((.((.........)).))))........  -5.60    3   4.80
+            6 .(((......)))......((((.((.........)).))))........  -5.50    5   4.30
+            #7 ..........((((..((((.....((.....)).....))))))))...  -5.50    3   5.30
+            8 ((((.....(((........)))....))))...................  -5.00    4   3.40
+            #9 ((((.....((.((.....))))....))))....(((...)))......  -5.00    4   2.80
+           #10 ((((.....((.((.....)).))...))))....(((...)))......  -4.90    4   3.50
+        """
+        lmins = parse_barriers(btree, is_file = False, return_tuple = True)
+        seq, md = lmins[0], RNA.md()
+        ndata = {x.structure: {'energy': int(round(x.energy*100)), 'identity': x.id} for x in lmins[1:]}
+
+        nodes, edges = get_guide_graph(seq, md, ndata.keys())
+        assert all(n not in ndata for n in nodes)
+        assert len(edges) == 16
 
 @unittest.skipIf(SKIP, "skipping tests")
 class FloodingTests(unittest.TestCase):
@@ -217,6 +305,22 @@ class FloodingTests(unittest.TestCase):
         for m in fstep:
             em = round(fc.eval_structure(m), 2)
             assert em > en + minh
+
+    def test_edge_flooding_mini(self):
+        seq =    "AUUUCCACUAGAGAAGGUCUAGAGUGUUUG"
+        path = [('..((..(((......)))...)).......',  280), 
+                ('...(..(((......)))...)........',  410), # S
+                ('......(((......)))............',   50)]
+
+        ssmap = path_flooding(path, minh = 300)
+        assert all(x == 2 for x in ssmap.values())
+
+        print() # NOTE: A quick check if edge_flooding works.
+        [s2, e2] = path[0]
+        [s1, e1] = path[-1]
+        for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding((seq, RNA.md()), s1, s2, e1, e2, minh = 300):
+            print(ss1, en1, ssB, enB, ss2, en2)
+
 
     def test_path_flooding_barriers(self):
         seq = "AAAGCCGCCUUAAGCCUACUUAGAUGGAAGUGACGUACGGGUAUUGGUACACGAUUUUAC"
@@ -350,111 +454,9 @@ class FloodingTests(unittest.TestCase):
         #print() # NOTE: A quick check if edge_flooding works.
         #[s1, e1] = path[0]
         #[s2, e2] = path[-1]
-        #fp = init_findpath_max(seq)
-        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(fp, s1, s2, e1, e2, minh = 300):
+        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding((seq, RNA.md()), s1, s2, e1, e2, minh = 300):
         #    print(ss1, en1, ssB, enB, ss2, en2)
 
-@unittest.skipIf(SKIP, "skipping tests")
-class NeighborhoodTests(unittest.TestCase):
-    def test_bpd_i_cache(self):
-           p = '.((((.((((.((...(((...).))...))))))..))))...'
-           i = '.((((.((((........(...)........))))..))))...'
-           q = '.((((.((((.((...))(...).((...))))))..))))...'
-           assert get_bpd_cache(p, i) == get_bpd_i_cache(p, q)
-           assert get_bpd_cache(i, q) == get_bpd_i_cache(q, p)
-           assert get_bpd_i_cache(p, i) == get_bpd_i_cache(p, q)
-           assert get_bpd_i_cache(q, i) == get_bpd_i_cache(q, p)
-           assert get_bpd_i_cache(i, p) == 0
-           assert get_bpd_i_cache(i, q) == 0
-
-    def test_guiding_edge_search_01(self):
-        sss = ["..........((((.....((((.((.........)).)))).))))...",
-               "...((((...)))).....((((.((.........)).))))........",
-               ".(((......)))......((((.((.........)).))))........"]
-        edges = guiding_edge_search(sss)
-        assert len(edges) == 4
-        #assert len(edges) == 6
-
-    def test_guiding_edge_search_02(self):
-        # NOTE: I did not actually check if this is correct.
-        btree = """
-              AGACGACAAGGUUGAAUCGCACCCACAGUCUAUGAGUCGGUGACAACAUU
-            1 ..........((((.((((.((.((.......)).))))))..))))...  -6.70    0  13.00
-            2 ..........((((.((((.((...((.....)).))))))..))))...  -6.10    1   2.10
-            3 ..........((((.....((((.((.........)).)))).))))...  -5.90    1   6.30
-            4 ((((.....(((........)))....))))....(((...)))......  -5.70    1   8.50
-            5 ...((((...)))).....((((.((.........)).))))........  -5.60    3   4.80
-            6 .(((......)))......((((.((.........)).))))........  -5.50    5   4.30
-            7 ..........((((..((((.....((.....)).....))))))))...  -5.50    3   5.30
-            8 ((((.....(((........)))....))))...................  -5.00    4   3.40
-            9 ((((.....((.((.....))))....))))....(((...)))......  -5.00    4   2.80
-           10 ((((.....((.((.....)).))...))))....(((...)))......  -4.90    4   3.50
-        """
-        lmins = parse_barriers(btree, is_file = False, return_tuple = True)
-        sti = {x.structure: x.id for x in lmins[1:]}
-        edges = guiding_edge_search(sti.keys())
-        #print()
-        #for (x, y) in sorted(edges, key=lambda x: (sti[x[0]], sti[x[1]])):
-        #    if sti[x] < sti[y]:
-        #        print(sti[x], sti[y], x, y)
-        assert len(edges) == 22
-        #assert len(edges) == 24
-
-    def test_guiding_edge_search_03(self):
-        seq = "AGACGACAAGGUUGAAUCGCA"
-        sss = """(.((......)))........
-                 .((((((...))))..))...
-                 .(((......)))........
-                 .((...((....))..))...
-                 .(.(((((....))..)))).
-                 .(.((((...))))..)....
-                 .(.(((..........)))).
-                 .(.((............))).
-                 ...(((((....))..)))..
-                 ...((((...)))).......
-                 ...((((......)..)))..
-                 ...(((..........)))..
-                 ...((............))..
-                 ....................."""
-        #sss = """(.((......)))........
-        #         ...((((......)..)))..
-        #         ...(((..........)))..
-        #         ...((............))..
-        #         ....................."""
- 
-        sti = {s: e for e, s in enumerate(sss.split(), 1)}
-        #print(len(sti))
-        #for ss in sti:
-        #    print(sti[ss], ss)
-        edges = guiding_edge_search(set(sti.keys()))
-        #print()
-        #for (x, y) in sorted(edges, key=lambda x: (sti[x[0]], sti[x[1]])):
-        #    if sti[x] < sti[y]:
-        #        print(sti[x], sti[y], x, y)
-        assert len(edges) == 36
-        #assert len(edges) == 56
-
-    def test_guide_graph_construction(self):
-        btree = """
-              AGACGACAAGGUUGAAUCGCACCCACAGUCUAUGAGUCGGUGACAACAUU
-            #1 ..........((((.((((.((.((.......)).))))))..))))...  -6.70    0  13.00
-            2 ..........((((.((((.((...((.....)).))))))..))))...  -6.10    1   2.10
-            3 ..........((((.....((((.((.........)).)))).))))...  -5.90    1   6.30
-            #4 ((((.....(((........)))....))))....(((...)))......  -5.70    1   8.50
-            5 ...((((...)))).....((((.((.........)).))))........  -5.60    3   4.80
-            6 .(((......)))......((((.((.........)).))))........  -5.50    5   4.30
-            #7 ..........((((..((((.....((.....)).....))))))))...  -5.50    3   5.30
-            8 ((((.....(((........)))....))))...................  -5.00    4   3.40
-            #9 ((((.....((.((.....))))....))))....(((...)))......  -5.00    4   2.80
-           #10 ((((.....((.((.....)).))...))))....(((...)))......  -4.90    4   3.50
-        """
-        lmins = parse_barriers(btree, is_file = False, return_tuple = True)
-        seq, md = lmins[0], RNA.md()
-        ndata = {x.structure: {'energy': int(round(x.energy*100)), 'identity': x.id} for x in lmins[1:]}
-
-        nodes, edges = get_guide_graph(seq, md, ndata.keys())
-        assert all(n not in ndata for n in nodes)
-        assert len(edges) == 16
 
     def test_edge_flooding(self):
         btree = """
@@ -480,18 +482,17 @@ class NeighborhoodTests(unittest.TestCase):
         e1 = int(round(lmins[1].energy*100))
         e2 = int(round(lmins[4].energy*100))
 
-        fp = init_findpath_max(seq)
-        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(fp, s1, s2, e1, e2, minh = None):
+        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding((seq, md), s1, s2, e1, e2, minh = None):
         #    print(ss1, en1, ssB, enB, ss2, en2)
         assert len(list(edge_flooding((seq, md), s2, s1, e2, e1, minh = None))) == 1
 
-        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(fp, s1, s2, e1, e2, minh = 0):
+        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding((seq, md), s1, s2, e1, e2, minh = 0):
         #    print(ss1, en1, ssB, enB, ss2, en2)
-        assert len(list(edge_flooding(fp, s2, s1, e2, e1, minh = 0))) == 1 # Used to be 6
+        assert len(list(edge_flooding((seq, md), s2, s1, e2, e1, minh = 0))) == 1 # Used to be 6
 
-        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding(seq, md, s1, s2, e1, e2, minh = 300):
+        #for (ss1, en1, ssB, enB, ss2, en2) in edge_flooding((seq, md), s1, s2, e1, e2, minh = 300):
         #    print(ss1, en1, ssB, enB, ss2, en2)
-        assert len(list(edge_flooding(fp, s2, s1, e2, e1, minh = 300))) == 1 # Used to be 3
+        assert len(list(edge_flooding((seq, md), s2, s1, e2, e1, minh = 300))) == 1 # Used to be 3
 
     def test_guided_neighborhood_flooding_01(self):
         seq = "UGGGAAUAGUCUCUUCCGAGUCUCGCGGGCGACGGGCGAUCUUCGAAAGUGGAAUCCGUACUUAUACCGCCUGUGCGGACUA"
@@ -551,30 +552,102 @@ class NeighborhoodTests(unittest.TestCase):
         assert len(gnodes) == 0
         assert len(gedges) == 36
 
-        fp = init_findpath_max(seq)
         #print()
         #for node in ndata:
         #    print(node, ndata[node])
         nd = {k:v for k,v in ndata.items()}
-        ndata, edata = neighborhood_flooding(fp, nd, gedges, minh = 200)
+        ndata, edata = neighborhood_flooding((seq, md), nd, gedges, minh = 200)
         assert len(ndata) == 11
-        assert len(edata) == 40
+        assert len(edata) == 42 # variable?
         #print()
         #for node in ndata:
         #    print(node, ndata[node])
 
         nd = {k:v for k,v in ndata.items()}
-        ndata, edata = neighborhood_flooding(fp, nd, gedges, minh = 100)
+        ndata, edata = neighborhood_flooding((seq, md), nd, gedges, minh = 100)
         assert len(ndata) == 11
         assert len(edata) == 42
 
         nd = {k:v for k,v in ndata.items()}
-        ndata, edata = neighborhood_flooding(fp, nd, gedges, minh = 500)
+        ndata, edata = neighborhood_flooding((seq, md), nd, gedges, minh = 500)
         assert len(ndata) == 11
-        assert len(edata) == 40
+        assert len(edata) == 36 # variable?
 
+@unittest.skipIf(SKIP, "skipping tests")
+class TopDown(unittest.TestCase):
     def test_top_down_coarse_graining_direct_paths(self):
-        pass
+        seq = "UCUACUAUUCCGGCUUGACAUAAAUAUCGAGUGCUCGACCGCUAUUAUGGUACUUUCCAGCGUUUUGAUUGGUGGAUAAUAUCCCCCAAAAACGCGAGUC"
+        path = [('............(((((..........)))))((((..((........)).........((((((...((((.((((...)))).)))))))))))))).', -1850), # lmin
+                ('............(((((..........))))).(((..((........)).........((((((...((((.((((...)))).)))))))))))))..', -1710),
+                ('............(((((..........)))))..((..((........)).........((((((...((((.((((...)))).))))))))))))...', -1440),
+                ('............(((((..........)))))...(..((........)).........((((((...((((.((((...)))).)))))))))))....', -1300), # saddle
+                ('............(((((..........)))))......((........)).........((((((...((((.((((...)))).)))))))))).....', -1660), # lmin
+                ('............(((((..........))))).......(........)..........((((((...((((.((((...)))).)))))))))).....', -1370),
+                ('............(((((..........)))))...........................((((((...((((.((((...)))).)))))))))).....', -1620),
+                ('...........((((((..........))))).......)...................((((((...((((.((((...)))).)))))))))).....', -1230),
+                ('..........(((((((..........))))).......))..................((((((...((((.((((...)))).)))))))))).....', -1390),
+                ('..........((.((((..........))))........))..................((((((...((((.((((...)))).)))))))))).....', -1110), # saddle
+                ('..........(((((((..........)))).......)))..................((((((...((((.((((...)))).)))))))))).....', -1520), # lmin
+                ('....(.....(((((((..........)))).......)))........).........((((((...((((.((((...)))).)))))))))).....', -1100), # saddle
+                ('....((....(((((((..........)))).......))).......)).........((((((...((((.((((...)))).)))))))))).....', -1260),
+                ('....(((...(((((((..........)))).......)))......))).........((((((...((((.((((...)))).)))))))))).....', -1380),
+                ('....((((..(((((((..........)))).......))).....)))).........((((((...((((.((((...)))).)))))))))).....', -1580),
+                ('...(((((..(((((((..........)))).......))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1720), # lmin
+                ('...(((((..((((((............))).......))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1440),
+                ('...(((((..(((((..............)).......))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1280),
+                ('...(((((..((((................).......))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1140), # saddle
+                ('...(((((..(((.........................))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1560),
+                ('...(((((..(((...(..................)..))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1380),
+                ('...(((((..(((..((..................)).))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1480),
+                ('...(((((..(((.(((..................)))))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1750),
+                ('...(((((..(((.((((................))))))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1870),
+                ('...(((((..(((.(((((.............).))))))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1860),
+                ('...(((((..(((.((((((...........)).))))))).....)))))........((((((...((((.((((...)))).)))))))))).....', -1950),
+                ('...(((((..(((.(((((((.........))).))))))).....)))))........((((((...((((.((((...)))).)))))))))).....', -2150),
+                ('..((((((..(((.(((((((.........))).))))))).....)))))).......((((((...((((.((((...)))).)))))))))).....', -2270), # lmin
+                ('..((((((..(((.(((((((.........))).))))))).....)))))).....(.((((((...((((.((((...)))).)))))))))))....', -2140),
+                ('..((((((..(((.(((((((.........))).))))))).....)))))).....(..(((((...((((.((((...)))).))))))))).)....', -1710)]
+
+        lmins = ['............(((((..........)))))((((..((........)).........((((((...((((.((((...)))).)))))))))))))).', 
+                 '............(((((..........)))))......((........)).........((((((...((((.((((...)))).)))))))))).....',
+                 '..........(((((((..........)))).......)))..................((((((...((((.((((...)))).)))))))))).....',
+                 '...(((((..(((((((..........)))).......))).....)))))........((((((...((((.((((...)))).)))))))))).....',
+                 '..((((((..(((.(((((((.........))).))))))).....)))))).......((((((...((((.((((...)))).)))))))))).....']
+
+
+        ndata = {ss: {'identity': e, 'energy': en} for e, (ss, en) in enumerate(path)}
+        gedges = guiding_edge_search(set(ndata.keys()))
+        edata = dict()
+        for (x, y) in gedges:
+            if get_bpd_cache(x, y) == 1:
+                edata[(x,y)] = {'saddle_energy': max(ndata[x]['energy'], ndata[y]['energy'])}
+            else:
+                edata[(x,y)] = {'saddle_energy': None}
+
+        cgn, cge, cgm = top_down_coarse_graining(ndata, edata, minh = 300)
+
+        #print()
+        for n in sorted(cgn, key = lambda x: cgn[x]['identity']):
+            assert n in lmins
+            #print(f"{cgn[n]['identity']:>2d} {n} {cgn[n]['energy']:>5d} {len(cgm[n]):>5d}")
+
+        #print('Total nodes in mapping', sum(len(cgm[n]) for n in cgn))
+        assert sum(len(cgm[n]) for n in cgn) >= len(ndata)-len(cgn)
+
+        for i, node in enumerate(sorted(cgn, key = lambda x: cgn[x]['identity'])):
+            ne = cgn[node]['energy']
+            # Calculate barrier heights to all other basins.
+            barstr = ''
+            for j, other in enumerate(sorted(cgn, key = lambda x: cgn[x]['identity'])):
+                oe = cgn[other]['energy']
+                sE = cge[(node, other)]['saddle_energy'] if (node, other) in cge else None
+                if sE is not None:
+                    barstr += ' {:7.2f}'.format((sE - ne)/100)
+                    assert abs(i-j)==1
+                else:
+                    barstr += ' {:7.2f}'.format(float('nan'))
+                    assert abs(i-j)!=1
+            #print(barstr)
 
     def test_top_down_coarse_graining(self):
         seq = "GCCCUUGUCGAGAGGA"
@@ -670,60 +743,44 @@ class NeighborhoodTests(unittest.TestCase):
         seq, md = lmins[0], RNA.md()
         myminh = 300
 
-        #print()
         ndata = {x.structure: {'energy': int(round(x.energy*100)), 'identity': x.id} for x in lmins[1:]}
 
-        #print(f'Finding guide neighborhood for {len(ndata)=}.')
         gnodes, gedges = get_guide_graph(seq, md, ndata.keys())
+
+        #print()
+        #print(f'Finding guide neighborhood for {len(ndata)=}.')
         #print(f' - Found {len(gedges)} guide edges and {len(gnodes)} new guide nodes.')
         assert len(gnodes) == 25
         assert len(gedges) == 240
         for nid, (ss, en) in enumerate(gnodes, 40):
             ndata[ss] = {'energy': en, 'identity': 40}
 
-        fp = init_findpath_max(seq)
-        ndata, edata = neighborhood_flooding(fp, ndata, gedges, minh = myminh)
+        ndata, edata = neighborhood_flooding((seq, md), ndata, gedges, minh = myminh)
 
         # Those results are not constant ... why?
-        #assert len(ndata) == 86
-        #assert len(edata) == 340
+        assert len(ndata) == 80
+        assert len(edata) == 316
 
-        print(len(ndata), len([(x,y) for (x, y) in edata if edata[(x,y)]['saddle_energy'] is not None]))
+        #print(len(ndata), len([(x,y) for (x, y) in edata if edata[(x,y)]['saddle_energy'] is not None]))
         cgn, cge, cgm = top_down_coarse_graining(ndata, edata, minh = myminh)
 
-        print()
-        for n in sorted(cgn, key = lambda x: cgn[x]['energy']):
-            print(f" {n} {cgn[n]['energy']:>5d} {len(cgm[n]):>5d}")
+        #print()
+        #for n in sorted(cgn, key = lambda x: cgn[x]['energy']):
+        #    print(f" {n} {cgn[n]['energy']:>5d} {len(cgm[n]):>5d}")
 
-        print('Total nodes in mapping', sum(len(cgm[n]) for n in cgn))
-        for node in sorted(cgn, key = lambda x: cgn[x]['energy']):
-            ne = cgn[node]['energy']
-            # Calculate barrier heights to all other basins.
-            barstr = ''
-            for other in sorted(cgn, key = lambda x: cgn[x]['energy']):
-                oe = cgn[other]['energy']
-                sE = cge[(node, other)]['saddle_energy'] if (node, other) in cge else None
-                if sE is not None:
-                    barstr += ' {:7.2f}'.format((sE - ne)/100)
-                else:
-                    barstr += ' {:7.2f}'.format(float('nan'))
-            print(barstr)
-
-
-        ##print()
-        ##for n in sorted(ndata, key = lambda x: ndata[x]['energy']):
-        ##    print(n, ndata[n]['energy'])
-        ##print()
-        ##for n in sorted(cg_ndata, key = lambda x: cg_ndata[x]['energy']):
-        ##    print(n, cg_ndata[n]['energy'], len(cg_ndata[n]['hiddennodes']))
-
-        #hiddennodes = set()
-        #for n in cg_ndata:
-        #    if cg_ndata[n]['hiddennodes']:
-        #        hiddennodes |= cg_ndata[n]['hiddennodes']
-        #assert len(cg_ndata) + len(hiddennodes) == len(ndata)
-
-
+        #print('Total nodes in mapping', sum(len(cgm[n]) for n in cgn))
+        #for node in sorted(cgn, key = lambda x: cgn[x]['energy']):
+        #    ne = cgn[node]['energy']
+        #    # Calculate barrier heights to all other basins.
+        #    barstr = ''
+        #    for other in sorted(cgn, key = lambda x: cgn[x]['energy']):
+        #        oe = cgn[other]['energy']
+        #        sE = cge[(node, other)]['saddle_energy'] if (node, other) in cge else None
+        #        if sE is not None:
+        #            barstr += ' {:7.2f}'.format((sE - ne)/100)
+        #        else:
+        #            barstr += ' {:7.2f}'.format(float('nan'))
+        #    print(barstr)
 
 
 if __name__ == '__main__':

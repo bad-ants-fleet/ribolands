@@ -298,14 +298,14 @@ def edge_flooding(fp, s1, s2, e1, e2, minh = None):
     else:
         sen, path = findpath_max(fp, s1, s2)
 
-    if path[0][1] != e1:
-        assert path[0][1] == e1
+    assert path[0][1] == e1
 
     if minh is not None:
         # NOTE: We only allow to add minima with energy between start/stop structure.
         maxlme = max(path[0][1], path[-1][1])
         ssmap = path_flooding(path, minh, maxlm = maxlme)
         for e, si in enumerate(sorted(ssmap)):
+            assert e == si # actually, no need for e, right?
             lm = ssmap[si]
             if isinstance(lm, list):
                 [si1, si2] = sorted(lm)
@@ -316,11 +316,19 @@ def edge_flooding(fp, s1, s2, e1, e2, minh = None):
             elif e == 0 and si != lm:
                 #rlog.warning(f'Starting structure {s1} is not a mimimum!')
                 (ss2, en2) = path[lm]
-                yield s1, e1, s1, e1, ss2, en2
+                ssB, enB = s1, e1
+                for bb in range(si+1, lm):
+                    if path[bb][1] > enB:
+                        (ssB, enB) = path[bb]
+                yield s1, e1, ssB, enB, ss2, en2
             elif e == len(ssmap) - 1 and si != lm:
                 #rlog.warning(f'Final structure {s2} is not a mimimum!')
                 (ss1, en1) = path[lm]
-                yield ss1, en1, s2, e2, s2, e2
+                ssB, enB = s2, e2
+                for bb in range(lm+1, si):
+                    if path[bb][1] > enB:
+                        (ssB, enB) = path[bb]
+                yield ss1, en1, ssB, enB, s2, e2
     else:
         yield s1, e1, None, sen, s2, e2
 
@@ -362,9 +370,11 @@ def neighborhood_flooding(fp, ndata, gedges, tedges = None, minh = None):
                 assert s1 != s2
                 if (s1, s2) in seen:
                     continue
+
                 assert ndata[s1]['energy'] <= ndata[s2]['energy']
                 e2 = ndata[s2]['energy']
                 e1 = ndata[s1]['energy']
+
                 for (ss2, en2, ssB, enB, ss1, en1) in edge_flooding(fp, s2, s1, 
                                                                     e2, e1, minh):
                     assert ss1 != ss2
@@ -415,7 +425,9 @@ def neighborhood_flooding(fp, ndata, gedges, tedges = None, minh = None):
             guide_nbrs[q].add(p)
     return ndata, tedges
 
-def top_down_coarse_graining(ndata, edata, minh = 0):
+def top_down_coarse_graining(ndata, edata, minh = 1):
+    # minh in dcal/mol
+    assert minh is not None and minh > 0
     cg_ndata = {k: v for (k, v) in ndata.items()}
     cg_edata = {k: v for (k, v) in edata.items() if v['saddle_energy'] is not None}
     cg_basin = dict()
@@ -461,6 +473,7 @@ def top_down_coarse_graining(ndata, edata, minh = 0):
                 se = max(se1, se2)
                 if (nbr1, nbr2) in cg_edata:
                     se = min(se, cg_edata[(nbr1, nbr2)]['saddle_energy'])
+                assert isinstance(se, int)
                 cg_edata[(nbr1, nbr2)] = {'saddle_energy': se}
                 cg_edata[(nbr2, nbr1)] = {'saddle_energy': se}
                 successors[nbr1].add(nbr2)
@@ -492,7 +505,8 @@ def top_down_coarse_graining(ndata, edata, minh = 0):
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ #
 
 def get_guide_graph(seq, md, gnodes, gedges = None, tgn_folded = None):
-    """
+    """ Find closest connections. 
+
     """
     fc_empty = forbid_all_basepairs(seq, RNA.fold_compound(seq, md))
     tmp_gnodes = set(gnodes)
@@ -809,27 +823,31 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--verbose", action='count', default = 0,
             help = "Verbose output, e.g. the folding pathway. (-vv increases verbosity.)")
-    parser.add_argument("-w","--search-width", type = int, default = None, 
-            help = "Adjust upper bound for findpath search.")
-    parser.add_argument("-m","--max-energy", type = float, default = None,
-            help = "Specify upper bound for barrier energy (kcal/mol).")
-    parser.add_argument("--split", action = "store_true",
-            help = "Split findpath into subproblems, if possible.")
-    parser.add_argument("--minh", type = float, default = None,
+    #parser.add_argument("-w","--search-width", type = int, default = None, 
+    #        help = "Adjust upper bound for findpath search.")
+    #parser.add_argument("-m","--max-energy", type = float, default = None,
+    #        help = "Specify upper bound for barrier energy (kcal/mol).")
+    #parser.add_argument("--split", action = "store_true",
+    #        help = "Split findpath into subproblems, if possible.")
+    parser.add_argument("--minh", type = int, default = None,
+            metavar = '<int>',
             help = "Set a minimum barrier height for path flooding.")
+    parser.add_argument("-e", "--elementary-moves", action = "store_true",
+            help = "Elementary base-pair moves only.")
     parse_model_details(parser)
     args = parser.parse_args()
 
     # TODO: Parse a subopt file.
     seq = None
-    sss = dict()
+    ndata = dict()
     for e, line in enumerate(sys.stdin):
         if e == 0:
-            seq = line.strip()
+            seq = line.split()[0]
             continue
         l = line.split()
         if l[0]:
-            sss[l[0]] = {'energy': int(round(float(l[1])*100))}
+            en = int(round(float(l[1])*100)) if len(l) > 1 else None
+            ndata[l[0]] = {'energy': en}
         else:
             print(f'Troubles with input line {e+1} {line=}')
 
@@ -842,71 +860,70 @@ def main():
     md.noGU = args.noGU
     md.noGUclosure = args.noClosingGU
 
-    #import statprof
-    #statprof.start()
+    print(seq)
+    fc = RNA.fold_compound(seq, md)
+    for ss in ndata:
+        if ndata[ss]['energy'] is None:
+            ndata[ss]['energy'] = int(round(fc.eval_structure(ss) * 100))
+        print(ss, ndata[ss]['energy'])
 
     # Get the guide graph for all inputs:
-    gnodes, gedges = get_guide_graph(seq, md, sss)
+    gnodes, gedges = get_guide_graph(seq, md, ndata)
 
     if len(gnodes):
-        print('Some important nodes seem to be missing in your input!')
+        print('Some important structures have been included automatically:')
         for gn in gnodes:
-            print('', gn[0], gn[1])
-            sss[gn[0]] = {'energy': gn[1]}
+            print(gn[0], gn[1])
+            ndata[gn[0]] = {'energy': gn[1]}
 
-    print()
-    for ge in gedges:
-        print('', ge[0])
-        print('', ge[1])
-        print()
+    if args.elementary_moves: # Do you want to have a base-pair neighborhood only?
+        edata = dict()
+        for (x, y) in gedges:
+            if get_bpd_cache(x, y) == 1:
+                edata[(x,y)] = {'saddle_energy': max(ndata[x]['energy'], ndata[y]['energy'])}
+            else:
+                edata[(x,y)] = {'saddle_energy': None}
+    else:
+        ndata, edata = neighborhood_flooding((seq, md), ndata, gedges, minh = args.minh)
 
-    ndata, edata = neighborhood_flooding((seq, md), sss, gedges, minh = args.minh)
+    edata = {k: v for k, v in edata.items() if v['saddle_energy'] is not None}
+    if args.minh:
+        cgn, cge, cgm = top_down_coarse_graining(ndata, edata, minh = args.minh)
 
-    #statprof.stop()
-    #statprof.display()
+        print('Total hidden nodes:', sum(len(cgm[n]) for n in cgn))
+        print(f'  ID {seq}  Energy  Entropy  {" ".join(map("{:7d}".format, range(1, len(cgn)+1)))}')
+        for e, node in enumerate(sorted(cgn, key = lambda x: cgn[x]['energy']), 1):
+            ne = cgn[node]['energy']
+            # Calculate barrier heights to all other basins.
+            barstr = ''
+            for other in sorted(cgn, key = lambda x: cgn[x]['energy']):
+                oe = cgn[other]['energy']
+                sE = cge[(node, other)]['saddle_energy'] if (node, other) in cge else None
+                if sE is not None:
+                    barstr += ' {:7.2f}'.format((sE - ne)/100)
+                else:
+                    barstr += ' {:7.2f}'.format(float('nan'))
+            print(f"{e:>4d} {node}  {ndata[node]['energy']/100:>6.2f} {len(cgm[node]):>8d} {barstr}")
 
-    #bpd = RNA.bp_distance(ss1, ss2)
-    #rlog.info("Base-pair distance:", RNA.bp_distance(ss1, ss2))
+        #print(cgm['..............................'])
+        #print(cgm['((((..(((......)))...)))).....'])
+        #for x in cgm['..............................'] & cgm['((((..(((......)))...)))).....']:
+        #    print(x, ndata[x])
 
-    #if args.search_width is None:
-    #    args.search_width = 2 * bpd
-    #rlog.info(f"Search-width: {args.search_width}")
-    #if args.verbose:
-    #    print(f"   {seq}")
-    #saddle = findpath_wrap(fc, ss1, ss2, 
-    #        args.max_energy, 
-    #        args.search_width, 
-    #        cut = cut, 
-    #        verbose = args.verbose)
-
-    #if saddle is not None:
-    #    e1 = round(fc.eval_structure(ss1), 2)
-    #    barrier = saddle - e1
-    #    print("Saddle: {:6.2f} kcal/mol | Barrier: {:6.2f} kcal/mol | Search width parameter: {}".format(saddle, barrier, args.search_width))
-    #else:
-    #    print("No valid saddle found below energy: {:6.2f} kcal/mol | Search width parameter: {}".format(args.max_energy, args.search_width))
-
-    #if args.split:
-    #    assert cut is None
-    #    print('Findpath decomposition:')
-    #    path, barrier = findpath_split(seq, ss1, ss2, md, th = 5, w = None)
-    #    for x in path:
-    #        print(x)
-
-    #if args.minh is not None:
-    #    assert args.split 
-    #    assert cut is None
-    #    ssmap = path_flooding(path, minh = int(args.minh*100))
-
-    #    for si in sorted(ssmap):
-    #        lm = ssmap[si]
-    #        if isinstance(lm, list):
-    #            assert len(lm) == 2
-    #            print(*path[si], 'saddle')
-    #        elif si == ssmap[si]:
-    #            print(*path[si], 'lmin')
-    #        else:
-    #            print(*path[si])
+    else:
+        print(f'  ID {seq}  Energy  Entropy  {" ".join(map("{:7d}".format, range(1, len(ndata)+1)))}')
+        for e, node in enumerate(sorted(ndata, key = lambda x: ndata[x]['energy']), 1):
+            ne = ndata[node]['energy']
+            # Calculate barrier heights to all other basins.
+            barstr = ''
+            for other in sorted(ndata, key = lambda x: ndata[x]['energy']):
+                oe = ndata[other]['energy']
+                sE = edata[(node, other)]['saddle_energy'] if (node, other) in edata else None
+                if sE is not None:
+                    barstr += ' {:7.2f}'.format((sE - ne)/100)
+                else:
+                    barstr += ' {:7.2f}'.format(float('nan'))
+            print(f"{e:>4d} {node}  {ndata[node]['energy']/100:>6.2f} {0:>8d} {barstr}")
  
 if __name__ == '__main__':
     main()
