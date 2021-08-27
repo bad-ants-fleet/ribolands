@@ -369,22 +369,27 @@ class TrafoLandscape(RiboLandscape):
         if len(self.nodes) == 0: 
             self.addnode(mfess, structure = mfess, occupancy = 1)
             nn = set([mfess])
+            on = set()
         else: 
             md = self.md
             parents = list(self.active_local_mins)
             fraying_nodes = find_fraying_neighbors(seq, md, parents, mfree = 6)
 
             # 1) Add all new structures to the set of nodes.
-            nn = set() 
+            nn, on = set(), set()
             if mfess not in self.nodes:
                 self.addnode(mfess, structure = mfess)
                 nn.add(mfess)
+            elif not self.nodes[mfess]['active']:
+                on.add(mfess)
             self.nodes[mfess]['active'] = True
             for fns in fraying_nodes.values():
                 for fn in fns:
                     if fn not in self.nodes:
                         self.addnode(fn, structure = fn)
                         nn.add(fn)
+                    elif not self.nodes[fn]['active']:
+                        on.add(fn)
                     self.nodes[fn]['active'] = True
 
             ndata = {n[0:len(seq)]: d for n, d in self.nodes.items() if d['active']} 
@@ -395,6 +400,8 @@ class TrafoLandscape(RiboLandscape):
                 if ss+future not in self.nodes:
                     self.addnode(ss+future, structure = ss+future)
                     nn.add(ss+future)
+                elif not self.nodes[ss+future]['active']:
+                    on.add(ss+future)
                 self.nodes[ss+future]['active'] = True
             ndata = {n: d for n, d in self.nodes.items() if d['active']} 
 
@@ -415,6 +422,8 @@ class TrafoLandscape(RiboLandscape):
                 if node not in self.nodes:
                     self.addnode(node, structure = node, energy = ndata[node]['energy'])
                     nn.add(node)
+                elif not self.nodes[node]['active']:
+                    on.add(node)
                 self.nodes[node]['active'] = True
                 assert self.nodes[node]['energy'] == ndata[node]['energy']
 
@@ -422,8 +431,7 @@ class TrafoLandscape(RiboLandscape):
             for (x, y) in edata:
                 se = edata[(x, y)]['saddle_energy']
                 self.addedge(x, y, saddle_energy = se)
-
-        return nn
+        return nn, on
 
     def get_coarse_network(self, minh = None):
         """ Produce a smaller graph of local minima and best connections.
@@ -580,7 +588,7 @@ class TrafoLandscape(RiboLandscape):
         return time
 
     def prune(self, pmin):
-        """ 
+        """ TODO make sure return values make sense... distinguish lmins and hn.
         """
         new_inactive_lms = []
         for lm in self.active_local_mins:
@@ -623,11 +631,14 @@ class TrafoLandscape(RiboLandscape):
             #print('occu', lm, '->',  self.nodes[lm]['occtransfer'])
             assert len(self.nodes[lm]['occtransfer']) > 0
 
+        pn = set()
         for node in list(self.nodes):
             if self.nodes[node]['active']:
                 self.nodes[node]['pruned'] = 0
             else:
                 self.nodes[node]['pruned'] += 1
+                if self.nodes[node]['pruned'] == 1:
+                    pn.add(node)
             rlog.debug(f'After pruning: {node} {self.nodes[node]}')
             if self.nodes[node]['pruned'] > 3:
                 #TODO: probably quite inefficient...
@@ -635,5 +646,5 @@ class TrafoLandscape(RiboLandscape):
                     if node in (x, y):
                         del self._edges[(x,y)]
                 del self._nodes[node]
-        return
+        return pn
 

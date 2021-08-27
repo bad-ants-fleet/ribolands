@@ -222,16 +222,6 @@ def parse_drtrafo_args(parser):
     #        increase the chances to find energetically better transition state
     #        energies.""")
 
-    # NOTE: there is only one mode available right now.
-    #algo.add_argument('--structure-search-mode', default = 'default',
-    #        choices = ('default', 'fullconnect'),
-    #        help = argparse.SUPPRESS)
-    #        #help = """Specify one of three modes: *default*: find new secondary
-    #        #structures using both the current MFE structure and fraying
-    #        #neighbors.  *mfe-only*: only find the current MFE structure at
-    #        #every transcription step.  *fraying-only*: only find local
-    #        #fraying neighbors at every transcription step.""")
-
     algo.add_argument("--min-fraying", type = int, default = 6, metavar = '<int>',
             help = """Minimum number of freed bases during helix fraying.
             Fraying helices can vary greatly in length, starting with at
@@ -279,7 +269,7 @@ def main():
     # Logging Setup 
     # ~~~~~~~~~~~~~
     title = 'DrTransformer: RNA folding kinetics during transcription.'
-    logger = logging.getLogger('ribolands')
+    logger = logging.getLogger('ribolands.drtransformer')
     logger.setLevel(logging.DEBUG)
 
     banner = "{} {}".format(title, ril.__version__)
@@ -455,7 +445,7 @@ def main():
         fdata += "#\n"
         fdata += "#\n"
         fdata += "# Results:\n"
-        fdata += "# Tanscription Step | Energy-sorted structure index | Structure | Energy "
+        fdata += "# Tanscription Step | Energy-sorted structure count | Structure | Energy "
         fdata += "| [Occupancy-t0 Occupancy-t8] | Structure ID (-> Plotting ID)\n"
         write_output(fdata, stdout=(args.stdout == 'log'), fh = lfh)
 
@@ -491,11 +481,12 @@ def main():
     for tlen in range(args.start, args.stop):
         time = TL.total_time
         # Get new nodes and connect them.
+        logger.info(f'** Transcription step {tlen} **')
         logger.info(f'Expanding from {len(list(TL.active_local_mins))} local minima. ' + 
                     f'{len(list(TL.active_nodes))=} {len(list(TL.inactive_nodes))=}.')
 
-        nn = TL.expand(mfree = args.min_fraying)
-        logger.info(f'Found {len(nn)} new nodes during expansion.')
+        nn, on = TL.expand(mfree = args.min_fraying)
+        logger.info(f'Found {len(nn)} new nodes and revisited {len(on)} pruned nodes during expansion.')
         cn, ce = TL.get_coarse_network()
         logger.info(f'Simulation network size: nodes = {cn}, edges = {ce}.')
 
@@ -583,27 +574,17 @@ def main():
 
         # Print the current state *after* the simulation.
         if args.stdout == 'log' or lfh:
-            if args.plot_minh:
-                for e, node in enumerate(nlist, 1):
-                    if node not in plot_cgm:
-                        continue
-                    ne = TL.nodes[node]['energy']/100
-                    po = odict[node] + sum(odict[n]/len(mapping[n]) for n in plot_cgm[node])
-                    no = TL.nodes[node]['occupancy'] + sum(TL.nodes[n]['occupancy']/len(mapping[n]) for n in plot_cgm[node])
-                    nids = [TL.nodes[n]['identity'] for n in sorted(plot_cgm[node], key = lambda x: TL.nodes[x]['identity'])]
-                    ni = TL.nodes[node]['identity']
-                    if nids:
-                        ni +=  f" + {' + '.join(nids)}"
-                    fdata = f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} [{po:6.4f} -> {no:6.4f}] ID = {ni}\n"
-                    write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
-            else:
-                for e, node in enumerate(nlist, 1):
-                    ne = TL.nodes[node]['energy']/100
-                    po = odict[node]
-                    no = TL.nodes[node]['occupancy']
-                    ni = TL.nodes[node]['identity']
-                    fdata = f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} [{po:6.4f} -> {no:6.4f}] ID = {ni}\n"
-                    write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
+            for e, node in enumerate(nlist, 1):
+                ne = TL.nodes[node]['energy']/100
+                po = odict[node]
+                no = TL.nodes[node]['occupancy']
+                ni = TL.nodes[node]['identity']
+                if args.plot_minh:
+                    lmins = [TL.nodes[n]['identity'] for n in sorted(mapping[node], key = lambda x: TL.nodes[x]['identity'])]
+                    if lmins:
+                        ni +=  f" -> {', '.join(lmins)}"
+                fdata = f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} [{po:6.4f} -> {no:6.4f}] ID = {ni}\n"
+                write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
 
         if args.stdout == 'drf' or dfh:
             lt = time
@@ -633,8 +614,8 @@ def main():
         if args.o_min > 0:
             # Adjust p-min to size of current structure space.
             pmin = args.o_min / len(nlist)
-            logger.info(f'Pruning nodes with occupancy below {pmin}.')
-            TL.prune(pmin)
+            pn = TL.prune(pmin)
+            logger.info(f'Pruned {len(pn)} nodes with occupancy below {pmin}.')
         if args.draw_graphs:
             raise NotImplementedError('Cannot draw graphs right now.')
             TL.graph_to_json(_fname)
@@ -651,10 +632,10 @@ def main():
                 ne = TL.nodes[node]['energy']/100
                 po = odict[node] + sum(odict[n]/len(mapping[n]) for n in plot_cgm[node])
                 no = TL.nodes[node]['occupancy'] + sum(TL.nodes[n]['occupancy']/len(mapping[n]) for n in plot_cgm[node])
-                nids = [TL.nodes[n]['identity'] for n in sorted(plot_cgm[node], key = lambda x: TL.nodes[x]['identity'])]
                 ni = TL.nodes[node]['identity']
-                if nids:
-                    ni +=  f" + {' + '.join(nids)}"
+                #nids = [TL.nodes[n]['identity'] for n in sorted(plot_cgm[node], key = lambda x: TL.nodes[x]['identity'])]
+                #if nids:
+                #    ni +=  f" + {' + '.join(nids)}"
                 fdata += f"{tlen:4d} {e:4d} {node[:tlen]} {ne:6.2f} {no:6.4f} ID = {ni}\n"
             write_output(fdata, stdout = (args.stdout == 'log'), fh = lfh)
         else:
