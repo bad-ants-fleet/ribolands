@@ -10,6 +10,7 @@ import shutil
 import tempfile
 import argparse
 from packaging import version
+from datetime import datetime
 
 import RNA
 import ribolands as ril
@@ -184,12 +185,10 @@ def parse_drtrafo_args(parser):
     ###########################
     # DrTransformer algorithm #
     ###########################
-    algo.add_argument("--o-min", type = restricted_float, default = 0.1, metavar = '<flt>',
-            help = """Occupancy threshold to determine which structures are
-            relevant when transcribing a new nucleotide. A structure with
-            occupancy o <  o-min / n gets pruned from the energy landscape, 
-            where n is the number of simulated structures.
-            """)
+    algo.add_argument("--o-prune", type = restricted_float, default = 0.1, metavar = '<flt>',
+            help = """Occupancy threshold to prune structures from the 
+            network. The structures with lowest occupancy are removed until
+            at most o-prune occupancy has beem removed from the total population. """)
 
     algo.add_argument("--t-fast", type = float, default = 0.001, metavar = '<flt>',
             help = """Folding times faster than --t-fast are considered
@@ -274,7 +273,7 @@ def main():
 
     banner = "{} {}".format(title, ril.__version__)
     ch = logging.StreamHandler()
-    formatter = logging.Formatter('%(levelname)s - %(message)s')
+    formatter = logging.Formatter('# %(levelname)s - %(message)s')
     set_handle_verbosity(ch, args.verbose)
     ch.setFormatter(formatter)
     logger.addHandler(ch)
@@ -428,7 +427,7 @@ def main():
         fdata += "# --stop: {}\n".format(args.stop)
         fdata += "#\n"
         fdata += "# Algorithm parameters:\n"
-        fdata += "# --o-min: {}\n".format(args.o_min)
+        fdata += "# --o-prune: {}\n".format(args.o_prune)
         fdata += "# --t-fast: {} sec\n".format(args.t_fast)
         #fdata += "# --t-slow: {} sec\n".format(args.t_slow)
         #fdata += "# --findpath-search-width: {}\n".format(args.findpath_search_width)
@@ -480,15 +479,21 @@ def main():
     #############
     for tlen in range(args.start, args.stop):
         time = TL.total_time
-        # Get new nodes and connect them.
-        logger.info(f'** Transcription step {tlen} **')
-        logger.info(f'Expanding from {len(list(TL.active_local_mins))} local minima. ' + 
-                    f'{len(list(TL.active_nodes))=} {len(list(TL.inactive_nodes))=}.')
 
+        logger.info(f'** Transcription step {tlen} **')
+        logger.info(f'Before expansion:      {len(list(TL.active_local_mins)):3d} active lmins, {len(list(TL.active_nodes)):3d} active structures, {len(list(TL.inactive_nodes)):3d} inactive structures.')
+        itime = datetime.now()
+
+        # Get new nodes and connect them.
         nn, on = TL.expand(mfree = args.min_fraying)
-        logger.info(f'Found {len(nn)} new nodes and revisited {len(on)} pruned nodes during expansion.')
+        logger.info(f'After expansion:                         {len(list(TL.active_nodes)):3d} active structures, {len(list(TL.inactive_nodes)):3d} inactive structures.' +
+                    f' (Found {len(nn)} new nodes and revisited {len(on)} pruned nodes.)')
+        etime = datetime.now()
+
         cn, ce = TL.get_coarse_network()
-        logger.info(f'Simulation network size: nodes = {cn}, edges = {ce}.')
+        logger.info(f'After coarse graining: {len(list(TL.active_local_mins)):3d} active lmins, {len(list(TL.active_nodes)):3d} active structures, {len(list(TL.inactive_nodes)):3d} inactive structures.' +
+                    f' (Simulation network size: nodes = {cn}, edges = {ce}.)')
+        ctime = datetime.now()
 
         # ~~~~~~~~ #
         # Simulate #
@@ -607,15 +612,28 @@ def main():
                 fdata = f"{ni} {tt:03.9f} {occu:03.4f} {node[:tlen]} {ne:6.2f}\n"
                 write_output(fdata, stdout = (args.stdout == 'drf'), fh = dfh)
                 lt = tt
+        stime = datetime.now()
 
         # ~~~~~ #
         # Prune #
         # ~~~~~ #
-        if args.o_min > 0:
-            # Adjust p-min to size of current structure space.
-            pmin = args.o_min / len(nlist)
-            pn = TL.prune(pmin)
-            logger.info(f'Pruned {len(pn)} nodes with occupancy below {pmin}.')
+        if args.o_prune > 0:
+            delth = 10 
+            pn, dn = TL.prune(args.o_prune, delth)
+            logger.info(f'After pruning:         {len(list(TL.active_local_mins)):3d} active lmins, {len(list(TL.active_nodes)):3d} active structures, {len(list(TL.inactive_nodes)):3d} inactive structures.' +
+                        f' (Pruned {len(pn)} nodes with combined occupancy below {args.o_prune:.2f}, deleted {len(dn)} nodes inactive for {delth} transcription steps.)')
+
+        ptime = datetime.now()
+        if args.verbose:
+            exptime = (etime - itime).total_seconds() 
+            cgntime = (ctime - etime).total_seconds()
+            simtime = (stime - ctime).total_seconds()
+            prntime = (ptime - stime).total_seconds()
+            tottime = (ptime - itime).total_seconds()
+            logger.info(f'{tlen=}, {tottime=}, {exptime=}, {cgntime=}, {simtime=}, {prntime=}.')
+            print(tlen, tottime, exptime, cgntime, simtime, prntime)
+            sys.stdout.flush()
+
         if args.draw_graphs:
             raise NotImplementedError('Cannot draw graphs right now.')
             TL.graph_to_json(_fname)

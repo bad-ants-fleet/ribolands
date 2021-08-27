@@ -17,7 +17,6 @@ from ribolands import RiboLandscape
 from ribolands.utils import make_pair_table
 from ribolands.pathfinder import (BPD_CACHE, get_bpd_cache, 
                                   get_guide_graph,
-                                  init_findpath_max,
                                   neighborhood_flooding,
                                   top_down_coarse_graining)
 
@@ -587,15 +586,16 @@ class TrafoLandscape(RiboLandscape):
             self.nodes[ss]['occupancy'] = occu/tot_occ
         return time
 
-    def prune(self, pmin):
+    def prune(self, pmin, delth = 3):
         """ TODO make sure return values make sense... distinguish lmins and hn.
         """
         new_inactive_lms = []
-        for lm in self.active_local_mins:
+        tot_pruned = 0
+        for lm in sorted(self.active_local_mins, key = lambda x: self.nodes[x]['occupancy']):
             self.nodes[lm]['pruned'] = 0
-            if self.nodes[lm]['occupancy'] >= pmin:
-                rlog.debug(f'Keep: {lm}')
-                continue
+            if tot_pruned + self.nodes[lm]['occupancy'] > pmin:
+                break
+            tot_pruned += self.nodes[lm]['occupancy']
             for hn in self.nodes[lm]['hiddennodes']:
                 assert self.nodes[hn]['occupancy'] == 0
                 self.nodes[hn]['active'] = False
@@ -632,19 +632,22 @@ class TrafoLandscape(RiboLandscape):
             assert len(self.nodes[lm]['occtransfer']) > 0
 
         pn = set()
+        dn = set()
         for node in list(self.nodes):
             if self.nodes[node]['active']:
                 self.nodes[node]['pruned'] = 0
             else:
                 self.nodes[node]['pruned'] += 1
                 if self.nodes[node]['pruned'] == 1:
+                    # this includes hidden nodes that were not part of the simulation
                     pn.add(node)
             rlog.debug(f'After pruning: {node} {self.nodes[node]}')
-            if self.nodes[node]['pruned'] > 3:
+            if self.nodes[node]['pruned'] > delth:
                 #TODO: probably quite inefficient...
                 for (x, y) in set(self.edges):
                     if node in (x, y):
                         del self._edges[(x,y)]
                 del self._nodes[node]
-        return pn
+                dn.add(node)
+        return pn, dn
 
