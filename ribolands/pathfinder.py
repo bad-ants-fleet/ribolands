@@ -374,7 +374,7 @@ def neighborhood_flooding(fp, ndata, gedges, tedges = None, minh = None):
                 assert ndata[s1]['energy'] <= ndata[s2]['energy']
                 e2 = ndata[s2]['energy']
                 e1 = ndata[s1]['energy']
-
+                
                 for (ss2, en2, ssB, enB, ss1, en1) in edge_flooding(fp, s2, s1, 
                                                                     e2, e1, minh):
                     assert ss1 != ss2
@@ -426,6 +426,9 @@ def neighborhood_flooding(fp, ndata, gedges, tedges = None, minh = None):
     return ndata, tedges
 
 def top_down_coarse_graining(ndata, edata, minh = 1):
+    """
+
+    """
     # minh in dcal/mol
     assert minh is not None and minh > 0
     cg_ndata = {k: v for (k, v) in ndata.items()}
@@ -442,6 +445,8 @@ def top_down_coarse_graining(ndata, edata, minh = 1):
         nbrs = successors[node]
         for nb in nbrs: # If there is a lower/equal-energy neighbor to merge with.
             if en < cg_ndata[nb]['energy']:
+                # Assert that the higher energy structure is a delta-minimum
+                assert (cg_edata[(node, nb)]['saddle_energy'] - cg_ndata[nb]['energy']) >= minh
                 continue
             barrier = cg_edata[(node, nb)]['saddle_energy'] - en
             if barrier < minh:
@@ -451,13 +456,13 @@ def top_down_coarse_graining(ndata, edata, minh = 1):
             continue
 
         # it's a transition structure
-        leqn = sorted([n for n in nbrs if cg_ndata[n]['energy'] <= en], 
+        fastn = sorted([n for n in nbrs if cg_edata[(node, n)]['saddle_energy'] - en < minh], 
                       key = lambda x: (cg_ndata[x]['energy'], x))
 
         # starting maximum barrier is just a tick lower than minh
         seen = set()
         reps, min_se = set(), en + minh - 1
-        for nbr1 in leqn:
+        for nbr1 in fastn:
             assert ndata[nbr1]['energy'] <= en
             se1 = cg_edata[(node, nbr1)]['saddle_energy']
             if se1 < min_se: 
@@ -479,6 +484,25 @@ def top_down_coarse_graining(ndata, edata, minh = 1):
                 successors[nbr1].add(nbr2)
                 successors[nbr2].add(nbr1)
                 seen.add((nbr1, nbr2))
+
+        # # TODO: think if this makes sense! connecting all less-than neighbors,
+        # # even if they are both slow reactions!
+        # less = [n for n in nbrs if cg_ndata[n]['energy'] < en] 
+        # for nbr1 in less:
+        #     se1 = cg_edata[(node, nbr1)]['saddle_energy']
+        #     for nbr2 in less:
+        #         if nbr1 == nbr2 or (nbr2, nbr1) in seen:
+        #             continue
+        #         se2 = cg_edata[(nbr2, node)]['saddle_energy']
+        #         se = max(se1, se2)
+        #         if (nbr1, nbr2) in cg_edata:
+        #             se = min(se, cg_edata[(nbr1, nbr2)]['saddle_energy'])
+        #         assert isinstance(se, int)
+        #         cg_edata[(nbr1, nbr2)] = {'saddle_energy': se}
+        #         cg_edata[(nbr2, nbr1)] = {'saddle_energy': se}
+        #         successors[nbr1].add(nbr2)
+        #         successors[nbr2].add(nbr1)
+        #         seen.add((nbr1, nbr2))
 
         # update the basins given the current representatives.
         if node in cg_basin:

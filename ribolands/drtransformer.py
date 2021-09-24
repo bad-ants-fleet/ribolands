@@ -631,8 +631,8 @@ def main():
             prntime = (ptime - stime).total_seconds()
             tottime = (ptime - itime).total_seconds()
             logger.info(f'{tlen=}, {tottime=}, {exptime=}, {cgntime=}, {simtime=}, {prntime=}.')
-            print(tlen, tottime, exptime, cgntime, simtime, prntime)
-            sys.stdout.flush()
+            #print(tlen, tottime, exptime, cgntime, simtime, prntime)
+            #sys.stdout.flush()
 
         if args.draw_graphs:
             raise NotImplementedError('Cannot draw graphs right now.')
