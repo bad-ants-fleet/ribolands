@@ -593,7 +593,10 @@ def main():
 
         if args.stdout == 'drf' or dfh:
             lt = time
-            for (stime, node, occu) in sorted_trajectories(nlist, tfile, plot_cgm, mapping):
+            for (stime, node, occu) in sorted_trajectories(nlist, tfile, 
+                                                           plot_cgm, mapping):
+                if stime == 0:
+                    continue
                 tt = time + stime
                 ni = TL.nodes[node]['identity']
                 if occu < 0.001: 
