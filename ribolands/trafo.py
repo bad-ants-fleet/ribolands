@@ -8,8 +8,10 @@ import logging
 rlog = logging.getLogger(__name__)
 
 import os
+import sys
 import math
 from struct import pack
+from datetime import datetime
 from itertools import combinations, product, islice
 
 import RNA
@@ -363,6 +365,7 @@ class TrafoLandscape(RiboLandscape):
         future = '.' * (len(fseq) - len(seq))
         mfess = mfess + future
 
+        i_time = datetime.now()
 
         # If there is no node because we are in the beginning, add the node.
         if len(self.nodes) == 0: 
@@ -391,6 +394,8 @@ class TrafoLandscape(RiboLandscape):
                         on.add(fn)
                     self.nodes[fn]['active'] = True
 
+            f_time = datetime.now()
+
             ndata = {n[0:len(seq)]: d for n, d in self.nodes.items() if d['active']} 
             gnodes, gedges = get_guide_graph(seq, md, ndata.keys())
             assert all(ss != '' for (ss, en) in gnodes)
@@ -408,6 +413,8 @@ class TrafoLandscape(RiboLandscape):
             for (x, y) in gedges:
                 lgedges.add((x+future, y+future))
             gedges = lgedges
+
+            g_time = datetime.now()
 
             # 2) Include edge-data from previous network if nodes are active.
             edata = {k: v for k, v in self.edges.items() if (self.nodes[k[0]]['active'] and self.nodes[k[1]]['active']) and 
@@ -430,6 +437,14 @@ class TrafoLandscape(RiboLandscape):
             for (x, y) in edata:
                 se = edata[(x, y)]['saddle_energy']
                 self.addedge(x, y, saddle_energy = se)
+
+            l_time = datetime.now()
+            frayytime = (f_time - i_time).total_seconds() 
+            guidetime = (g_time - f_time).total_seconds()
+            floodtime = (l_time - g_time).total_seconds()
+            tottime = (l_time - i_time).total_seconds()
+            #print(len(seq), tottime, frayytime, guidetime, floodtime)
+            #sys.stdout.flush()
         return nn, on
 
     def get_coarse_network(self, minh = None):

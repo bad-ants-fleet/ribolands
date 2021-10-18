@@ -14,11 +14,13 @@ from datetime import datetime
 
 import RNA
 import ribolands as ril
+import numpy as np
 from ribolands.utils import parse_vienna_stdin
 from ribolands.syswraps import sys_treekin
 from ribolands.syswraps import SubprocessError, ExecError, check_version, VersionError
 from ribolands.trafo import TrafoLandscape
 from ribolands.pathfinder import top_down_coarse_graining
+from ribolands.linalg import get_pt_from_file
 
 def restricted_float(x):
     y = float(x)
@@ -551,6 +553,15 @@ def main():
                             exponent = True, useplusI = True, force = True)
                 except SubprocessError:
                     raise SystemExit(f"After {tlen} nucleotides: treekin cannot find a solution!")
+        except ExecError:
+            # produce rate matrix
+            times = np.linspace(_t0, _t8, 50)
+            times = list(np.logspace(np.log10(_t0+0.0001), np.log10(_t8), num=50))
+            tfile = _fname + '_treekin.nxy'
+            with open(tfile, 'w') as tkn:
+                for t, pt in zip(times, get_pt_from_file(brfile, p0, times)):
+                    #print(f"{t} {' '.join([f'{x}' for x in pt])}")
+                    tkn.write(f"{t:22.20e} {' '.join([f'{x:8.6e}' for x in pt])}\n")
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~ #
         # Process simulation results #
@@ -559,7 +570,7 @@ def main():
         time_inc = TL.update_occupancies_tkn(tfile, nlist)
 
         if args.plot_minh:
-            assert args.plot_minh > TL.minh
+            assert args.plot_minh > TL.minh, "Plot-minh must be greater than minh"
             # Provide coarse network to get even more coarse network
             ndata = {n: d for n, d in TL.nodes.items() if n in nlist} # only active.
             edata = TL.cg_edges

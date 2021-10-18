@@ -331,25 +331,32 @@ def motif_finder(ss, motif):
 
     # for each base-pair, check if it is
     # contained or possible.
+    found = 0
     exact = True
     for (l, r) in motif:
         assert l < r
         # check if incompatible
-        if r <= pt[0]:
+        if r > pt[0]:
+            exact = False
+            if l > pt[0]:
+                return 'mm' # incompatible
+            elif li[l-1] != 0:
+                return 'mm' # incompatible
+            else:
+                pass # at most compatible
+        else:
             if li[l-1] != li[r-1]:
                 return 'mm' # incompatible
-            if pt[l] != r or pt[r] != l:
+            elif pt[l] == r and pt[r] == l:
+                found += 1
+            else:
                 exact = False
-        elif l <= pt[0]:
-            if li[l-1] != 0:
-                return 'mm' # incompatible
-            exact = False
-        else:
-            exact = False
     if exact:
-        return 'pp' # compatible
-    else:
+        return 'pp' # present
+    elif found > 2:
         return 'pm' # compatible
+    else:
+        return 'mm' # incompatible
 
 
 def main():
@@ -393,8 +400,8 @@ def main():
             motifs.append((name, mot))
 
             all_courses[name + f'-pp'] = [[0, 0]] # present
-            #all_courses[name + f'-mm'] = [[0, 0]] # incompatible
-            #all_courses[name + f'-pm'] = [[0, 1]] # compatible
+            all_courses[name + f'-mm'] = [[0, 1]] # incompatible
+            all_courses[name + f'-pm'] = [[0, 0]] # compatible
 
         llen = 0
         ltime = '0'
@@ -407,11 +414,11 @@ def main():
             for (name, m) in motifs:
                 if time != ltime:
                     all_courses[name + '-pp'].append([float(time), 0])
-                    #all_courses[name + '-mm'].append([float(time), 0])
-                    #all_courses[name + '-pm'].append([float(time), 0])
+                    all_courses[name + '-mm'].append([float(time), 0])
+                    all_courses[name + '-pm'].append([float(time), 0])
                 suffix = motif_finder(ss, m)
-                if suffix == 'pp':
-                    all_courses[name + '-' + suffix][-1][1] += float(occu)
+                #if suffix != 'pm':
+                all_courses[name + '-' + suffix][-1][1] += float(occu)
             ltime = time
             time = float(time)
             if len(ss) > llen:
