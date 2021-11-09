@@ -28,11 +28,11 @@ versions installed:
   ~$ python -m pytest tests/ -v -s
 ```
 
-## Version
-0.10 -- removed executables
+## Latest changes
  - removed DrTransformer, which will be available soon as a separate python package.
  - removed all other executables in order to focus on library development.
  - lot's of interface changes to build workflows (work in progress)
+ - next release (v0.10) planned for early 2022
 
 ## License
 MIT
