@@ -4,6 +4,7 @@
   BarMap.py -- cotranscriptional folding using *barriers* and *treekin*
 """
 
+import logging
 import os
 import re
 import sys
@@ -276,7 +277,7 @@ def barmap_treekin(bname, seq, bfiles, plist, args):
 
         cseq = seq[0:l]
         cname = "{}-t8_{}-len_{}".format(bname, t8, l)
-        [bfile, efile, rfile, psfile, msfile] = bfiles[e]
+        [bfile, efile, rfile, psfile, bmfile] = bfiles[e]
 
         with open(bfile) as bf:
             for i, _ in enumerate(bf):
@@ -364,13 +365,17 @@ def barmap_mapping(_bname, seq, args):
         mlist = []
         for l in range(start, stop + 1):
             cseq = seq[0:l]
-            cname = "{}-len_{:02d}".format(_bname, l)
-            pname = "{}-len_{:02d}".format(_bname, l - 1)
+            cname = "{}-len_{:02d}_barriers".format(_bname, l)
+            pname = "{}-len_{:02d}_barriers".format(_bname, l - 1)
 
             if os.path.exists(pname + '.bar'):
+                print('do it')
                 if verb:
                     print("# Get mapping info {:d} -> {:d}".format(l - 1, l))
                 mlist.append(get_mapping_dict(pname + '.bar', cname + '.ms'))
+            else:
+                print('wtf', pname)
+
 
         plist = pathlist(mlist)
         with open(mapinfo, 'w') as m:
@@ -400,14 +405,15 @@ def barmap_barriers(_bname, seq, sfiles, args):
                         continue
                     cols = line.strip().split()
                     mapfile.write(cols[1] + '.' + "\n")
-            mfile = pname + '.map'
+            mfile = pname + '_barriers.ms'
         else:
             mfile = ''
 
         # Make sure the first round for mapping is always recomputed
         # force = True if e == 1 else args.force
 
-        [bfile, efile, rfile, rbfile, psfile, msfile] = ril.sys_barriers_180(cname, sfile,
+        print('now running')
+        [bfile, efile, rfile, rbfile, psfile, bmfile] = ril.sys_barriers_180(cname, sfile,
                  barriers = args.barriers,
                  minh = args.b_minh, 
                  maxn = args.b_maxn,
@@ -419,11 +425,10 @@ def barmap_barriers(_bname, seq, sfiles, args):
                  k0 = args.k0,
                  bsize = False,
                  saddle = False,
-                 bmfile = mfile,
-                 force = args.force,
-                 verbose = args.verbose)
+                 bmfile = True,
+                 force = args.force)
 
-        bfiles.append([bfile, efile, rbfile, psfile, msfile])
+        bfiles.append([bfile, efile, rbfile, psfile, bmfile])
         prog.inc()
     return bfiles
 
@@ -443,7 +448,6 @@ def barmap_subopts(_sname, seq, args):
                                      noLP=args.noLP,
                                      sort=[
                                          '|', 'sort', '-T', args.s_sortdir, '-k3r', '-k2n'],
-                                     verb=args.verbose,
                                      force=args.force)
         sfiles.append(csfile)
         prog.inc()
@@ -543,6 +547,7 @@ def pathlist(mapdata):
 
     :return: plist
     '''
+    print(mapdata)
 
     # initialize path-lists with first lmins
     plist = [[i + 1] for i in range(len(mapdata[0]))]
@@ -623,6 +628,18 @@ def main():
     args = parser.parse_args()
 
 
+    # ~~~~~~~~~~~~~
+    # Logging Setup 
+    # ~~~~~~~~~~~~~
+    logger = logging.getLogger('ribolands')
+    logger.setLevel(logging.DEBUG)
+
+    ch = logging.StreamHandler()
+    formatter = logging.Formatter('# %(levelname)s - %(message)s')
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
     # Read Input & Update Arguments
     name, seq = ril.parse_vienna_stdin(sys.stdin)
 
@@ -638,12 +655,12 @@ def main():
 
     if args.s_ener is None:
         args.s_ener, args.s_maxn = ril.sys_subopt_range(seq,
-                nos=args.s_maxn, maxe=args.s_maxe, verb=(args.verbose > 0))
+                nos=args.s_maxn, maxe=args.s_maxe)
         print("# Energyrange {:.2f} computes {:d} sequences".format(
             args.s_ener, args.s_maxn))
     elif args.verbose:
         args.s_ener, args.s_maxn = ril.sys_subopt_range(seq,
-                                                        nos=0, maxe=args.s_ener, verb=False)
+                                                        nos=0, maxe=args.s_ener)
         print("# Energyrange {:.2f} computes {:d} sequences".format(
             args.s_ener, args.s_maxn))
 

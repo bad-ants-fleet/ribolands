@@ -304,7 +304,7 @@ class Workflow(object):
     def call_barriers(self, 
                       rates = True, k0 = 1.0,
                       minh = 0.001, maxn = 50, 
-                      paths = None, msfile = None, connected = False,
+                      paths = None, bmfile = None, connected = False,
                       bsize = False, ssize = False, saddle = False, plot = False, 
                       force = None):
         if self.barriers is None:
@@ -328,7 +328,7 @@ class Workflow(object):
                                  bsize = bsize,
                                  ssize = ssize,
                                  saddle = saddle,
-                                 msfile = msfile,
+                                 bmfile = bmfile,
                                  connected = connected,
                                  plot = plot,
                                  force = force)
@@ -561,7 +561,7 @@ def sys_barriers_180(basename, sofile,
                      ssize = False,
                      circ = False,
                      saddle = False,
-                     msfile = None,
+                     bmfile = None,
                      plot = False,
                      connected = False,
                      force = False):
@@ -601,12 +601,12 @@ def sys_barriers_180(basename, sofile,
     brfile = basename + '_barriers_rates.txt'
     bbfile = basename + '_barriers_rates.bin'
     bpfile = basename + '_barriers_tree.ps' if plot else None
-    bmfile = basename + '_barriers.ms' if msfile else None
+    bmfile = basename + '_barriers.ms' if bmfile else None
 
     if not force and os.path.exists(bofile) and os.path.exists(brfile) and os.path.exists(bbfile) and \
       (not paths or all(map(os.path.exists, ['{:s}_path.{:03d}.{:03d}.txt'.format(basename, int(x), int(y)) for x, y in map(lambda x: x.split('='), paths)]))) and \
       (not plot or os.path.exists(bpfile)) and \
-      (not msfile or os.path.exists(bmfile)):
+      (not bmfile or os.path.exists(bmfile)):
         rlog.info(f"# files exist: {bofile}, {brfile}")
         return [bofile, befile, brfile, bbfile, bpfile, bmfile]
 
@@ -652,7 +652,7 @@ def sys_barriers_180(basename, sofile,
         barcall.extend(['--saddle'])
 
     if bmfile:
-        barcall.extend(["--mapstruc", msfile])
+        barcall.extend(["--mapstruc", bmfile])
         barcall.extend(["--mapstruc-output", bmfile])
 
     call = "{} 2> {} > {}".format(' '.join(barcall), befile, bofile)

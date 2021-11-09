@@ -33,14 +33,6 @@ setup(
         'pandas', 
         'crnsimulator>=0.7.1'],
     packages = ['ribolands', 'ribolands.parser'],
-    test_suite = 'tests',
-    entry_points = {
-        'console_scripts': [
-            'findpath=ribolands.pathfinder:main',
-            'DrTransformer=ribolands.drtransformer:main',
-            'DrPlotter=ribolands.plotting:main',
-            'BarMap=ribolands.barmap:main'
-            ],
-        }
+    test_suite = 'tests'
 )
 

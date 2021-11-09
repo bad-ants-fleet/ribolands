@@ -13,7 +13,8 @@ import logging
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 # Main objects
-from ribolands.syswraps import Workflow
+from ribolands.utils import *
+from ribolands.syswraps import *
 from ribolands.ribolands import RiboLandscape 
 #from ribolands.trafo import TrafoLandscape
 
