@@ -1,28 +1,34 @@
+#
+# ribolands.crnwrapper
+#
+# TODO: 
+#   - needs testing.
+#   - add force option?
+#   - make a more general interface that works with all types landscape objects?
+#
+
+import logging
+rlog = logging.getLogger(__name__)
+
 import subprocess as sub
 from ribolands.syswraps import SubprocessError
 from crnsimulator import ReactionGraph
 
-def DiGraphSimulator(CG, fname, nlist, p0, t0, t8,
-                     t_lin=300,
-                     t_log=None,
-                     jacobian=True,  # slower, but supposably useful.
-                     # force=False, # <= not implemented
-                     verb=False):
-    """A wrapper function for the python module: crnsimulator
+def DiGraphSimulator(CG, oname, nlist, p0, t0, t8,
+                     t_lin = 300,
+                     t_log = None):
+    """ A wrapper function for the python module: crnsimulator
 
     Args:
       CG (:obj:`networkx.DiGraph`): A networkx conformation graph, where nodes
         are secondary structures and edges have weights in form of transition rates.
-      fname (str): Name of the file.
+      oname (str): Name the output file.
       nlist (list): A list of nodes in the system.
       p0 (list): vector of initial concentrations.
       t0 (float): start of simulation.
       t8 (float): end of simulation.
       t_lin (int, optional) : evenly return output on a lin-scale from t0 to t8 (*t_lin* times)
       t_log (int, optional) : evenly return output on a log-scale from t0 to t8 (*t_log* times)
-      jacobian (bool, optional): Calculate the Jacobi-Matrix for differentiation.
-        Not recommended, as it slows down the computations quite a bit.
-      verb (bool, optional): verbose information. Defaults to False.
 
     Raises:
       SubprocessError: Subprocess failed with returncode: ...
@@ -31,8 +37,8 @@ def DiGraphSimulator(CG, fname, nlist, p0, t0, t8,
       [str]: The name of a treekin-like nxy file.
     """
 
-    tfile = fname + '.tkn'
-    xfile = fname + '.py'
+    tfile = oname + '.tkn'
+    xfile = oname + '.py'
 
     crn = []
     for e in CG.edges():
@@ -44,7 +50,7 @@ def DiGraphSimulator(CG, fname, nlist, p0, t0, t8,
         crn.append([[reactant], [product], rate])
 
     RG = ReactionGraph(crn)
-    svars = ['id_' + str(x[1]['identity']) for x in nlist]
+    svars = ['id_' + str(CG.nodes[x]['identity']) for x in nlist]
 
     filename, _ = RG.write_ODE_lib(sorted_vars=svars, filename=xfile)
 
@@ -59,8 +65,7 @@ def DiGraphSimulator(CG, fname, nlist, p0, t0, t8,
         syscall.extend(['--t-log', str(t_log)])
     syscall.extend(['--p0'])
     syscall.extend(p0)
-    if verb:
-        print("# {} > {}".format(' '.join(syscall), tfile))
+    rlog.debug(f"{' '.join(syscall)} > {tfile}")
 
     # Do the simulation (catch treekin errors)
     with open(tfile, 'w') as tf:

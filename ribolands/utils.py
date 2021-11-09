@@ -1,35 +1,23 @@
 #
-#  Coded by: Stefan Badelt <stef@tbi.univie.ac.at>
-#  University of Vienna, Department of Theoretical Chemistry
-#
-#  -*- Style -*-
-#  Use double quotes or '#' for comments, such that single quotes are available
-#  for uncommenting large parts during testing
-#
-#  *) do not exceed 80 characters per line
-#
-#  -*- Content -*-
-#  *) parsers for stdin, barfiles and rate-matrix
+# ribolands.utils
+# 
+# All sorts of useful stuff.
 #
 
-from __future__ import division, print_function
-from builtins import str
-from builtins import map
-from builtins import zip
-from builtins import range
-from builtins import object
+import logging
+rlog = logging.getLogger(__name__)
 
 import re
 import sys
-from struct import pack, unpack
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+from struct import pack, unpack, calcsize
 
+class RiboUtilsError(Exception):
+    pass
 
 class ProgressBar(object):
     def __init__(self, clockmax):
         if clockmax < 1:
-            raise Exception("Imporper input.")
+            raise RiboUtilsError("Input clockmax {clockmax} should be a positive integer.")
 
         self.clock = 0
         self.clockmax = clockmax
@@ -154,9 +142,8 @@ def argparse_add_arguments(parser,
         parser.add_argument("--occupancy-cutoff", type=float, default=0.01, metavar='<flt>',
                             help="Occupancy cutoff for population transfer.")
 
-
 def make_pair_table(ss, base=0, chars=['.']):
-    """Return a secondary struture in form of pair table.
+    """ Return a secondary struture in form of pair table.
 
     Args:
       ss (str): secondary structure in dot-bracket format
@@ -174,15 +161,13 @@ def make_pair_table(ss, base=0, chars=['.']):
       [list]: A pair-table
     """
     stack = []
-
-    if base is 0:
+    if base == 0:
         pt = [-1] * len(ss)
     elif base == 1:
         pt = [0] * (len(ss) + base)
         pt[0] = len(ss)
     else:
-        raise ValueError("unexpected value in make_pair_table: \
-        (base = " + str(base) + ")")
+        raise RiboUtilsError(f"unexpected value in make_pair_table: (base = {base})")
 
     for i, char in enumerate(ss, base):
         if (char == '('):
@@ -191,30 +176,49 @@ def make_pair_table(ss, base=0, chars=['.']):
             try:
                 j = stack.pop()
             except IndexError as e:
-                raise RuntimeError(
-                    "Too many closing brackets in secondary structure")
+                raise RiboUtilsError("Too many closing brackets in secondary structure")
             pt[i] = j
             pt[j] = i
         elif (char not in set(chars)):
-            raise ValueError(
-                "unexpected character in sequence: '" + char + "'")
-
+            raise RiboUtilsError(f"unexpected character in sequence: '{char}'")
     if stack != []:
-        raise RuntimeError("Too many opening brackets in secondary structure")
+        raise RiboUtilsError("Too many opening brackets in secondary structure")
     return pt
 
+def make_loop_index(ss):
+    """Returns a list of loop indices to see where new base-pairs can be formed.
+    """
+    loop, stack = [], []
+    nl, L = 0, 0
+    for i, char in enumerate(ss):
+        if char == '(':
+            nl += 1
+            L = nl
+            stack.append(i)
+        loop.append(L)
+        if char == ')':
+            _ = stack.pop()
+            try:
+                L = loop[stack[-1]]
+            except IndexError:
+                L = 0
+    return loop
 
-def parse_vienna_stdin(stdin, chars = 'ACUG&', skip = '-'):
+def parse_vienna(filename, **kwargs):
+    with open(filename, 'r') as fh:
+        return parse_vienna_stdin(fh, **kwargs)
+
+def parse_vienna_stdin(stdin, chars = 'ACUGN&', skip = '-'):
     """Parse name and sequence information from file with fasta format.
 
-    Only one Input-Sequence is allowed at a time.
+    Only one input-sequence is allowed at a time.
 
     Args:
       stdin (list): Input to parse, ususally :obj:`sys.stdin`
       chars (string, optional): Allowed characters in a sequence.
 
     Returns:
-      [(str, str)]: A tuple containing name and sequence.
+      str, str: name and sequence.
     """
     name = 'NoName'
     seq = ''
@@ -227,49 +231,14 @@ def parse_vienna_stdin(stdin, chars = 'ACUG&', skip = '-'):
                 name = line.strip().split()[0][1:]
         else:
             seq += line.strip()
-
-    try: # Python 3
-        seq = seq.translate({ord(c): None for c in skip})
-    except TypeError: # Python 2
-        seq = seq.translate(None, skip)
-
+    seq = seq.translate({ord(c): None for c in skip})
     m = re.search('[^' + chars + ']', seq)
     if m:
-        raise ValueError("Does not look like RNA: ('{}' in '{}')".format(
+        raise RiboUtilsError("Does not look like RNA: ('{}' in '{}')".format(
             m.string[m.span()[0]], seq))
-    return (name, seq)
+    return name, seq
 
-
-def parse_barfile(bfile, seq=''):
-    """Return the content of a barriers output-file.
-
-    Args:
-      bfile (str): Filename of a barriers output file.
-      seq (str, optional): Raises an error if the sequence is provided and
-        different than the one in the barfile.
-
-    Raises:
-      ValueError: Wrong sequence.
-
-    Returns:
-      [list of lists]: The content of the barfile.
-    """
-    # NOTE: This function would make more sense if it returns an object that
-    # stores barriers info in a consistent way.
-    output = []
-    with open(bfile) as bar:
-        for e, line in enumerate(bar):
-            if e == 0:
-                if seq and seq != line.strip():
-                    raise ValueError('Wrong sequence ' + seq + ' vs. ' + line)
-            else:
-                output.append(line.strip().split())
-                #[idx, lmin, en, father, bar] = line.strip().split()[0:5]
-                #output.append([idx, lmin, en, father, bar])
-    return output
-
-
-def parse_ratefile(rfile, binary=False):
+def parse_ratefile(rfile, binary = False):
     """Return the content of a barriers rates-file.
 
     Args:
@@ -281,8 +250,8 @@ def parse_ratefile(rfile, binary=False):
       [[flt],[flt]]: A rate matrix.
     """
     if binary:
-        with open(rfile) as rf:
-            dim, = unpack('i', rf.read(4))
+        with open(rfile, 'rb') as rf:
+            dim, = unpack('i', rf.read(calcsize('i')))
             rm = []
             for e in range(dim):
                 col = []
@@ -296,96 +265,55 @@ def parse_ratefile(rfile, binary=False):
         with open(rfile) as rates:
             for line in rates:
                 RM.append((list(map(float, line.strip().split()))))
-
     return RM
 
+class Species:
+    def __init__(self, name):
+        self.name = name
 
-def plot_nxy(name, tfile,
-             title='',
-             plim=1e-2,
-             lines=[],
-             ylim=(None, None),
-             xlim=(None, None),
-             lilog=None):
-    """ Plot a list of trajectories.
+    def __repr__(self):
+        return f'Species({self.name})'
 
-    Args:
-      name (str): Name of the pdf file.
-      tfile (str): Filename of a treekin `nxy` output file.
-      title (str, optional): Name of the title for the plot.
-      plim (float, optional): Minimal occupancy to plot a trajectory. Defaults to 0.01
-      lines ([int,..], optional): Selected list of lines to be plotted.
-      ylim ((float,float), optional): matplotlib ylim.
-      xlim ((float,float), optional): matplotlib xlim.
-      lilog (float, optional): Set a divider of the x-axis into a linear and
-        logarithmic part. Requires xlim and ylim to be specified.
-
-    Returns:
-      [str]: Name of the output file.
+def tarjans(complexes, products):
+    """ Tarjans algorithm to find strongly connected components. 
+    Dirctly from the peppercornenumerator project.
     """
-    lines = set(lines)
-    title = title if title else name
+    stack, SCCs = [], []
+    def strongconnect(at, index):
+        stack.append(at)
+        at.index = index
+        at.llink = index
+        index += 1
+        for to in products[at]:
+            if to.index is None:
+                # Product hasn't been traversed; recurse
+                strongconnect(to, index)
+            if to in stack:
+                # Product is in the current neighborhood
+                at.llink = min(at.llink, to.llink)
 
-    nxy = []
-    with open(tfile) as tkn:
-        for line in tkn:
-            if re.match('#', line):
-                continue
-            nxy.append(list(map(float, line.strip().split())))
+        if at.index == at.llink:
+            # Back to the start, get the SCC.
+            scc = [] 
+            while True:
+                nc = stack.pop()
+                nc.llink == at.index
+                scc.append(nc)
+                if nc == at:
+                    break
+            SCCs.append(scc)
 
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    if None not in ylim:
-        ax.set_ylim(ylim)
-    if None not in xlim:
-        ax.set_xlim(xlim)
+    for cplx in complexes: 
+        cplx.index = None
 
-    if lilog:
-        if None in xlim:
-            raise ValueError('Specify xlim')
-        if None in ylim:
-            raise ValueError('Specify ylim')
+    for i, cplx in enumerate(complexes):
+        if cplx.index is None:
+            strongconnect(cplx, i)
+    return SCCs
 
-        # Make the second part of the plot logarithmic
-        ax.set_xscale('linear')
-        ax.set_xlim((xlim[0], lilog))
-        divider = make_axes_locatable(ax)
-
-        axLog = divider.append_axes("right", size=2, pad=0.0, sharey=ax)
-        axLog.set_xscale('log')
-        axLog.set_xlim((lilog + 0.00001, xlim[1]))
-        axLog.set_ylim(ylim)
-    else:
-        ax.set_xscale('log')
-
-    time = []
-    for e, traject in enumerate(zip(*nxy)):
-        if e == 0:
-            time = traject
-            continue
-        if lines and e not in lines:
-            continue
-        if plim and max(traject) < plim:
-            continue
-        if ylim and max(traject) > ylim:
-            continue
-        p, = ax.plot(time, traject, '-')
-        if lilog:
-            p, = axLog.plot(time, traject, '-')
-        p.set_label("lmin {:d}".format(e))
-        # p.set_color(axcolors[finalmin])
-
-    fig.set_size_inches(7, 3)
-    fig.text(0.5, 0.95, title, ha='center', va='center')
-    plt.xlabel('time [seconds]', fontsize=11)
-    plt.ylabel('occupancy [mol/l]', fontsize=11)
-
-    # """ Add ticks for 1 minute, 1 hour, 1 day, 1 year """
-    # plt.axvline(x=60, linewidth=1, color='black', linestyle='--')
-    # plt.axvline(x=3600, linewidth=1, color='black', linestyle='--')
-    # plt.axvline(x=86400, linewidth=1, color='black', linestyle='--')
-    # plt.axvline(x=31536000, linewidth=1, color='black', linestyle='--')
-    plt.legend()
-
-    plt.savefig(name, bbox_inches='tight')
-    return name
+def networkx_graph(RL):
+    try:
+        import networkx as nx
+    except ImportError as err:
+        raise SystemExit(f'need networkx installed: {err}')
+    pass

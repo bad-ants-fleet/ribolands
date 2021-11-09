@@ -1,21 +1,20 @@
-# -*- coding: utf-8 -*-
-__version__ = "0.8.1"
+#
+# ribolands
+#
 
-_MIN_TREEKIN_VERSION = "0.4.2"
-_MIN_BARRIERS_VERSION = "1.7.0"
+__version__ = "0.9"
+
+_MIN_TREEKIN_VERSION = "0.5.1"
+_MIN_KINFOLD_VERSION = "1.4"
+_MIN_BARRIERS_VERSION = "1.8.1"
 _MIN_VIENNARNA_VERSION = "2.4.13"
 
-from ribolands.utils import argparse_add_arguments
-from ribolands.utils import parse_vienna_stdin
-from ribolands.utils import parse_barfile
-from ribolands.utils import parse_ratefile
-from ribolands.utils import make_pair_table
-from ribolands.utils import plot_nxy
-from ribolands.utils import ProgressBar
+import logging
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-from ribolands.syswraps import sys_subopt_range
-from ribolands.syswraps import sys_suboptimals
-from ribolands.syswraps import sys_barriers
-from ribolands.syswraps import sys_treekin
+# Main objects
+from ribolands.utils import *
+from ribolands.syswraps import *
+from ribolands.ribolands import RiboLandscape 
+#from ribolands.trafo import TrafoLandscape
 
-from ribolands.crnwrapper import DiGraphSimulator
